@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	createNanMediaTools,
@@ -14,6 +17,11 @@ import { NAN_MCP_TOOLS_ENV } from "../src/mcp/nan-search.ts";
 const FIXTURE = new URL("./fixtures/mock-nan-media-mcp.mjs", import.meta.url).pathname;
 /** Spawn the fixture with the current runtime (bun under bun test). */
 const fixtureCommand = [process.execPath, FIXTURE];
+
+/** Isolate from the real agent dir: state.ts reads/writes a temp dir, so the
+ * "default" source assertion is not affected by a persisted toggle on this
+ * machine (mirrors the pattern used in nan-mcp-command.test.ts). */
+process.env.PI_CODING_AGENT_DIR = mkdtempSync(join(tmpdir(), "nan-media-test-"));
 
 function ctxWithKey(key: string | undefined): ExtensionContext {
 	return {

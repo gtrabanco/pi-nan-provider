@@ -4,8 +4,9 @@
  * exposes NaN's media tools: image generation/editing (flux-2-klein), TTS
  * (kokoro), STT (whisper), plus voice listing.
  *
- * Opt-in and fully lazy:
- * - OFF by default. Enable with NAN_MEDIA_MCP=1.
+ * Both MCP bridges are enabled by default and fully lazy:
+ * - ON by default. NAN_MEDIA_MCP=0 (or false/off) disables it for one
+ *   session; `/nan-mcp disable nan-mcp-server` persists the toggle.
  * - The server process is spawned per tool call and terminated right after —
  *   zero startup cost, nothing runs unless audio/image/transcription is
  *   actually invoked.

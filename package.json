@@ -60,6 +60,8 @@
 	"homepage": "https://github.com/gtrabanco/pi-nan-provider#readme",
 	"dependencies": {
 		"@gtrabanco/pi-agentic-workflow": "^0.4.0",
+		"@gtrabanco/pi-nan-provider": "^0.4.1",
+		"@joemccann/pi-pdf": "^1.0.1",
 		"@tintinweb/pi-subagents": "^0.19.0",
 		"pi-effort": "^0.0.8",
 		"pi-mcp-adapter": "^2.32.1",

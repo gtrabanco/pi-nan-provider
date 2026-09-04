@@ -16,8 +16,9 @@
  *       (https://api.nan.builders/mcp) — on by default, NAN_MCP_TOOLS=0 to
  *       disable.
  *     - Media tools bridging the optional community `nan-mcp-server`
- *       (stdio, spawned per call) — off by default, NAN_MEDIA_MCP=1 to
- *       enable, so nothing runs unless audio/image/transcription is invoked.
+ *       (stdio, spawned per call) — on by default, NAN_MEDIA_MCP=0 to
+ *       disable. The server spawns per tool call, so nothing runs unless
+ *       audio/image/transcription is actually invoked.
  */
 
 import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
