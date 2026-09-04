@@ -57,13 +57,5 @@
 	"bugs": {
 		"url": "https://github.com/gtrabanco/pi-nan-provider/issues"
 	},
-	"homepage": "https://github.com/gtrabanco/pi-nan-provider#readme",
-	"dependencies": {
-		"@gtrabanco/pi-agentic-workflow": "^0.4.0",
-		"@tintinweb/pi-subagents": "^0.19.0",
-		"pi-effort": "^0.0.8",
-		"pi-mcp-adapter": "^2.32.1",
-		"version": "^0.1.2",
-		"view": "^1.1.1"
-	}
+	"homepage": "https://github.com/gtrabanco/pi-nan-provider#readme"
 }
