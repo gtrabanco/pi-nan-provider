@@ -15,12 +15,13 @@
 
 import { Type, type Static } from "@earendil-works/pi-ai";
 import type { ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { bridgeSource, resolveBridgeEnabled, type BridgeSource } from "./state.ts";
 
 /** NaN's official remote MCP endpoint (host root, not /v1). */
 export const NAN_MCP_URL = "https://api.nan.builders/mcp";
 /** Web search can be slow; the endpoint shares the key's rate limits. */
 export const NAN_MCP_TIMEOUT_MS = 30_000;
-/** Env var that disables MCP tool registration: NAN_MCP_TOOLS=0|false|off. */
+/** Env var that overrides the official web_search bridge: NAN_MCP_TOOLS=0|false|off disables it. */
 export const NAN_MCP_TOOLS_ENV = "NAN_MCP_TOOLS";
 
 const NAN_PROVIDER_ID = "nan";
@@ -212,6 +213,26 @@ export function createNanWebSearchTool(): ToolDefinition<typeof webSearchParamet
 export function mcpToolsDisabled(): boolean {
 	const value = process.env[NAN_MCP_TOOLS_ENV]?.trim().toLowerCase();
 	return value === "0" || value === "false" || value === "off";
+}
+
+/** Whether NAN_MCP_TOOLS is explicitly set (any value) — it overrides the persisted toggle. */
+export function mcpToolsEnvExplicit(): boolean {
+	const value = process.env[NAN_MCP_TOOLS_ENV];
+	return value !== undefined && value.trim() !== "";
+}
+
+/**
+ * Effective enablement of the official web_search bridge: explicit
+ * NAN_MCP_TOOLS env var wins (any value, e.g. 0 to force one session off);
+ * then the toggle persisted by /nan-mcp; default: enabled.
+ */
+export function webSearchBridgeEnabled(): boolean {
+	return resolveBridgeEnabled("webSearch", mcpToolsEnvExplicit(), !mcpToolsDisabled(), true);
+}
+
+/** Source of the effective web_search enablement (env / persisted / default). */
+export function webSearchBridgeSource(): BridgeSource {
+	return bridgeSource("webSearch", mcpToolsEnvExplicit());
 }
 
 /** Extract an ExtensionContext-shaped key source for tests without full pi. */

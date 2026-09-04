@@ -1,142 +1,165 @@
 /**
- * `/nan-mcp` — slash command managing this addon's MCP configuration.
+ * `/nan-mcp` — slash command configuring BOTH MCP bridges this package
+ * registers as pi tools:
+ *
+ * - `web-search` — the official NaN remote MCP server (api.nan.builders/mcp),
+ *   exposing `nan_web_search`. Default: enabled.
+ * - `nan-mcp-server` — the community stdio media server (image generation /
+ *   editing, TTS, STT). Default: enabled, lazy (spawned per tool call).
  *
  * pi has no MCP client and therefore no `/mcp` command of its own, so this
- * command owns the toggles for the MCP bridges we register as pi tools:
+ * command owns the toggles:
  *
- * - `/nan-mcp` or `/nan-mcp status` — current state of both bridges.
- * - `/nan-mcp enable [nan-mcp-server]` — enable the community media MCP
- *   server and persist it (`<agentDir>/nan-provider.json`): it stays enabled
- *   across sessions until disabled. Tools register immediately for the
- *   current session too.
- * - `/nan-mcp disable [nan-mcp-server]` — disable persistently. pi has no
+ * - `/nan-mcp` or `/nan-mcp status` — state of both bridges and their source.
+ * - `/nan-mcp enable [target]` — enable a bridge (or both, when no target is
+ *   given) and persist it in `<agentDir>/nan-provider.json`; enabled bridges
+ *   register their tools immediately for the current session.
+ * - `/nan-mcp disable [target]` — disable persistently. pi has no
  *   unregisterTool, so already-registered tools remain until the next
- *   session; the persisted toggle governs future sessions.
+ *   session/restart; the persisted toggle governs future sessions.
  *
- * Trailing tokens (e.g. `nan-mcp-server`) are tolerated so muscle memory
- * like `/mcp enable nan-mcp-server` maps to `/nan-mcp enable nan-mcp-server`.
- * An explicit NAN_MEDIA_MCP env var overrides the persisted toggle.
+ * Targets accept aliases: `web-search` (`search`, `web_search`, `official`,
+ * `nan-web-search`) and `nan-mcp-server` (`media`, `media-mcp`, `nan-media`).
+ * Explicit env vars (NAN_MCP_TOOLS, NAN_MEDIA_MCP) override the persisted
+ * toggles for the session.
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import {
-	createNanMediaTools,
-	mediaMcpCommand,
-	mediaMcpEnabled,
-	mediaMcpSource,
-	readMediaMcpState,
-	writeMediaMcpState,
-} from "./mcp/nan-media.ts";
-import { mcpToolsDisabled } from "./mcp/nan-search.ts";
+import { mediaMcpCommand, mediaMcpEnabled, mediaMcpSource } from "./mcp/nan-media.ts";
+import { webSearchBridgeEnabled, webSearchBridgeSource } from "./mcp/nan-search.ts";
+import { NAN_STATE_FILE, readBridgeState, writeBridgeState, type BridgeKey } from "./mcp/state.ts";
 
 export interface NanMcpCommandOptions {
-	/**
-	 * Register media tools for the current session (called by `enable`).
-	 * Implementations must be idempotent: skip tools already registered.
-	 */
+	/** Register web-search bridge tools now; must skip already-registered tools. */
+	registerWebSearchTools: () => void;
+	/** Register media bridge tools now; must skip already-registered tools. */
 	registerMediaTools: () => void;
 }
 
-const SUBCOMMANDS = ["enable", "disable", "status"] as const;
-
 const USAGE =
-	"Usage: /nan-mcp enable [nan-mcp-server] · /nan-mcp disable · /nan-mcp status";
+	"Usage: /nan-mcp [status] · /nan-mcp enable [web-search|nan-mcp-server] · /nan-mcp disable [web-search|nan-mcp-server]";
+
+/** Canonical bridge targets with aliases (e.g. `/mcp enable nan-mcp-server` muscle memory). */
+const TARGETS: Record<string, BridgeKey> = {
+	"web-search": "webSearch",
+	search: "webSearch",
+	web_search: "webSearch",
+	official: "webSearch",
+	"nan-web-search": "webSearch",
+	"nan-mcp-server": "mediaMcp",
+	media: "mediaMcp",
+	"media-mcp": "mediaMcp",
+	"nan-media": "mediaMcp",
+};
+
+function targetName(bridge: BridgeKey): string {
+	return bridge === "webSearch" ? "web-search" : "nan-mcp-server";
+}
+
+function envOverrideLabel(bridge: BridgeKey): string {
+	return bridge === "webSearch"
+		? `env NAN_MCP_TOOLS=${process.env.NAN_MCP_TOOLS ?? ""} (overrides persisted)`
+		: `env NAN_MEDIA_MCP=${process.env.NAN_MEDIA_MCP ?? ""} (overrides persisted)`;
+}
+
+function sourceLabel(bridge: BridgeKey, source: "env" | "persisted" | "default"): string {
+	if (source === "env") return envOverrideLabel(bridge);
+	if (source === "persisted") {
+		return `persisted in <agentDir>/${NAN_STATE_FILE} (${targetName(bridge)}: ${readBridgeState(bridge)})`;
+	}
+	return "default (both bridges are enabled and lazy by default)";
+}
 
 function statusMessage(): string {
-	const enabled = mediaMcpEnabled();
-	const source = mediaMcpSource();
-	const sourceLabel =
-		source === "env"
-			? `env var NAN_MEDIA_MCP=${process.env.NAN_MEDIA_MCP} (overrides the persisted toggle)`
-			: source === "persisted"
-				? `persisted in <agentDir>/${"nan-provider.json"} (mediaMcp: ${readMediaMcpState()})`
-				: "default (off; nothing persisted)";
 	return [
-		`Media MCP (nan-mcp-server): ${enabled ? "enabled" : "disabled"} — source: ${sourceLabel}.`,
-		`Spawn command: ${mediaMcpCommand().join(" ")} (per tool call, terminated after).`,
-		`Official web_search bridge: ${mcpToolsDisabled() ? "disabled (NAN_MCP_TOOLS=0)" : "enabled (default)"}.`,
-		enabled ? "" : "Enable persistently with /nan-mcp enable (or NAN_MEDIA_MCP=1 for this session only).",
-	]
-		.filter(Boolean)
-		.join("\n");
+		`web-search bridge (official NaN MCP → nan_web_search): ${webSearchBridgeEnabled() ? "enabled" : "disabled"} — ${sourceLabel("webSearch", webSearchBridgeSource())}.`,
+		`nan-mcp-server bridge (community media MCP → nan_generate_image/nan_edit_image/nan_text_to_speech/nan_list_voices/nan_speech_to_text): ${mediaMcpEnabled() ? "enabled" : "disabled"} — ${sourceLabel("mediaMcp", mediaMcpSource())}.`,
+		`Media spawn command: ${mediaMcpCommand().join(" ")} (per tool call, terminated after).`,
+		"Configure with /nan-mcp enable|disable [web-search|nan-mcp-server]; no target = both.",
+	].join("\n");
+}
+
+/** Parse an optional target argument; no target = both bridges. Returns undefined target name on unknown. */
+function parseTarget(token: string | undefined): { bridges: BridgeKey[]; target?: string } | undefined {
+	if (token === undefined) return { bridges: ["webSearch", "mediaMcp"] };
+	const key = TARGETS[token.toLowerCase()];
+	if (!key) return undefined;
+	return { bridges: [key], target: token.toLowerCase() };
+}
+
+function describeBridges(bridges: BridgeKey[]): string {
+	const names = bridges.map((bridge) => targetName(bridge));
+	return names.length === 2 ? "both bridges" : names.join(" and ");
 }
 
 export function registerNanMcpCommand(pi: ExtensionAPI, options: NanMcpCommandOptions): void {
 	pi.registerCommand("nan-mcp", {
-		description: "NaN MCP configuration: enable/disable/status of the media MCP bridge (nan-mcp-server)",
+		description:
+			"NaN MCP configuration: enable/disable/status for both bridges (official web-search + community nan-mcp-server)",
 		getArgumentCompletions: (argumentPrefix: string) => {
 			const prefix = argumentPrefix.trim().toLowerCase();
-			const items = SUBCOMMANDS.map((sub) => ({
-				value: sub,
-				label: sub,
-				description:
-					sub === "enable"
-						? "Enable the nan-mcp-server media bridge and persist it"
-						: sub === "disable"
-							? "Disable the nan-mcp-server media bridge persistently"
-							: "Show current MCP bridge status",
-			}));
+			const items = [
+				{ value: "enable", label: "enable", description: "Enable a bridge (or both) and persist it" },
+				{ value: "disable", label: "disable", description: "Disable a bridge (or both) persistently" },
+				{ value: "status", label: "status", description: "Show current bridge status" },
+				{ value: "enable web-search", label: "enable web-search", description: "Enable the official NaN web-search bridge" },
+				{ value: "enable nan-mcp-server", label: "enable nan-mcp-server", description: "Enable the community media bridge" },
+			];
 			const filtered = items.filter((item) => item.value.startsWith(prefix));
 			return filtered.length > 0 ? filtered : null;
 		},
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
-			const [rawSubcommand = "status", ...rest] = args.trim().split(/\s+/).filter(Boolean);
+			const tokens = args.trim().split(/\s+/).filter(Boolean);
+			const [rawSubcommand = "status", rawTarget, ...rest] = tokens;
 			const subcommand = rawSubcommand.toLowerCase();
 
-			switch (subcommand) {
-				case "status": {
-					ctx.ui.notify(statusMessage(), "info");
-					return;
-				}
-				case "enable": {
-					// Accept trailing tokens like "nan-mcp-server" but reject unknown targets.
-					if (rest.length > 0 && !rest.every((token) => token.toLowerCase().includes("nan"))) {
-						ctx.ui.notify(`Unknown target "${rest.join(" ")}". Only the nan-mcp-server bridge is configurable.`, "warning");
-						return;
-					}
-					writeMediaMcpState(true);
-					options.registerMediaTools();
+			if (subcommand === "status") {
+				ctx.ui.notify(statusMessage(), "info");
+				return;
+			}
+
+			if (subcommand === "enable" || subcommand === "disable") {
+				// Trailing tokens beyond the target (e.g. duplicate target names) are ignored.
+				const parsed = parseTarget(rawTarget);
+				if (parsed === undefined || rest.length > 0) {
 					ctx.ui.notify(
-						`nan-mcp-server media bridge enabled and persisted (${sourceLabelForState(true)}). ` +
-							"Tools are available now; they spawn the MCP server per call, so nothing runs until invoked.",
-						"info",
-					);
-					return;
-				}
-				case "disable": {
-					writeMediaMcpState(false);
-					ctx.ui.notify(
-						"nan-mcp-server media bridge disabled and persisted. pi has no unregisterTool, so tools already " +
-							"registered in this session remain available until you restart pi (or /reload); " +
-							"future sessions will not register them.",
+						parsed === undefined
+							? `Unknown target "${[rawTarget, ...rest].filter(Boolean).join(" ")}". Targets: web-search, nan-mcp-server (or omit for both).`
+							: USAGE,
 						"warning",
 					);
 					return;
 				}
-				default:
-					ctx.ui.notify(USAGE, "warning");
+				const { bridges, target } = parsed;
+				const enabled = subcommand === "enable";
+
+				for (const bridge of bridges) {
+					writeBridgeState(bridge, enabled);
+				}
+				if (enabled) {
+					if (bridges.includes("webSearch")) options.registerWebSearchTools();
+					if (bridges.includes("mediaMcp")) options.registerMediaTools();
+				}
+
+				const where = target ? `for "${target}"` : "for both bridges";
+				const persistence = `persisted in <agentDir>/${NAN_STATE_FILE}`;
+				if (enabled) {
+					ctx.ui.notify(
+						`Enabled ${describeBridges(bridges)} ${where}, ${persistence}. Tools are available now; both bridges are lazy (web-search calls the endpoint per request, nan-mcp-server spawns per call), so nothing runs until invoked.` +
+							" An explicit NAN_MCP_TOOLS / NAN_MEDIA_MCP env var would override this toggle.",
+						"info",
+					);
+				} else {
+					ctx.ui.notify(
+						`Disabled ${describeBridges(bridges)} ${where}, ${persistence}. pi has no unregisterTool, so tools already registered in this session remain until restart (or /reload); future sessions will not register them.` +
+							" An explicit NAN_MCP_TOOLS / NAN_MEDIA_MCP env var overrides this toggle.",
+						"warning",
+					);
+				}
+				return;
 			}
+
+			ctx.ui.notify(USAGE, "warning");
 		},
 	});
-}
-
-function sourceLabelForState(enabled: boolean): string {
-	if (enabled) {
-		return "nan-provider.json in your pi agent dir; an explicit NAN_MEDIA_MCP env var overrides it";
-	}
-	return "nan-provider.json in your pi agent dir; /nan-mcp enable to turn it back on";
-}
-
-/** Build the media tools set, skipping names already registered this session. */
-export function makeIdempotentMediaToolRegistrar(
-	pi: ExtensionAPI,
-	registeredToolNames: Set<string>,
-): () => void {
-	return () => {
-		for (const tool of createNanMediaTools()) {
-			if (registeredToolNames.has(tool.name)) continue;
-			registeredToolNames.add(tool.name);
-			pi.registerTool(tool);
-		}
-	};
 }

@@ -5,6 +5,7 @@ import {
 	DEFAULT_NAN_MEDIA_MCP_VERSION,
 	mediaMcpCommand,
 	mediaMcpEnabled,
+	mediaMcpSource,
 	NAN_MEDIA_TOOLS,
 } from "../src/mcp/nan-media.ts";
 import { callStdioMcpTool } from "../src/mcp/stdio-client.ts";
@@ -21,12 +22,18 @@ function ctxWithKey(key: string | undefined): ExtensionContext {
 }
 
 describe("NAN_MEDIA_MCP env configuration", () => {
-	test("disabled unless explicitly enabled", () => {
+	test("enabled by default; explicit env (including 0) overrides", () => {
 		delete process.env.NAN_MEDIA_MCP;
-		expect(mediaMcpEnabled()).toBe(false);
+		expect(mediaMcpEnabled()).toBe(true);
+		expect(mediaMcpSource()).toBe("default");
 		for (const value of ["1", "true", "on", "TRUE"]) {
 			process.env.NAN_MEDIA_MCP = value;
 			expect(mediaMcpEnabled()).toBe(true);
+		}
+		for (const value of ["0", "false", "off"]) {
+			process.env.NAN_MEDIA_MCP = value;
+			expect(mediaMcpEnabled()).toBe(false);
+			expect(mediaMcpSource()).toBe("env");
 		}
 		delete process.env.NAN_MEDIA_MCP;
 	});

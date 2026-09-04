@@ -21,9 +21,9 @@
  */
 
 import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
-import { makeIdempotentMediaToolRegistrar, registerNanMcpCommand } from "./commands.ts";
+import { registerNanMcpCommand } from "./commands.ts";
 import { baselineModels } from "./fetch-models.ts";
-import { createNanWebSearchTool, mcpToolsDisabled, NAN_API_KEY_ENV } from "./mcp/nan-search.ts";
+import { createNanWebSearchTool, webSearchBridgeEnabled, NAN_API_KEY_ENV } from "./mcp/nan-search.ts";
 import { createNanMediaTools, mediaMcpEnabled } from "./mcp/nan-media.ts";
 import { createNanCompatibleProvider, type OpenAICompatibleProviderConfig } from "./provider-factory.ts";
 import { PROVIDERS } from "./providers.ts";
@@ -66,28 +66,35 @@ function registerProviderCompat(pi: ExtensionAPI, config: OpenAICompatibleProvid
 }
 
 /**
- * Register MCP-bridged tools when the runtime supports them. Old pi versions
- * without registerTool simply skip this block — provider registration is
- * unaffected.
+ * Register MCP-bridged tools when the runtime supports them. Both bridges
+ * are enabled by default and lazy (nothing runs until a tool is invoked);
+ * `/nan-mcp` (and the NAN_MCP_TOOLS / NAN_MEDIA_MCP env vars) toggle them.
+ * Old pi versions without registerTool/registerCommand skip gracefully.
  *
  * Registration is tracked in `registeredToolNames` so `/nan-mcp enable` can
- * add media tools mid-session without double-registering.
+ * add tools mid-session without double-registering.
  */
 function registerMcpToolsCompat(pi: ExtensionAPI): void {
 	if (typeof pi.registerTool !== "function") return;
 	const registeredToolNames = new Set<string>();
-	if (!mcpToolsDisabled()) {
+	const registerSearchTool = () => {
 		const search = createNanWebSearchTool();
+		if (registeredToolNames.has(search.name)) return;
 		registeredToolNames.add(search.name);
 		pi.registerTool(search);
-	}
-	if (mediaMcpEnabled()) {
-		makeIdempotentMediaToolRegistrar(pi, registeredToolNames)();
-	}
+	};
+	const registerMediaTools = () => {
+		for (const tool of createNanMediaTools()) {
+			if (registeredToolNames.has(tool.name)) continue;
+			registeredToolNames.add(tool.name);
+			pi.registerTool(tool);
+		}
+	};
+
+	if (webSearchBridgeEnabled()) registerSearchTool();
+	if (mediaMcpEnabled()) registerMediaTools();
 	if (typeof pi.registerCommand === "function") {
-		registerNanMcpCommand(pi, {
-			registerMediaTools: () => makeIdempotentMediaToolRegistrar(pi, registeredToolNames)(),
-		});
+		registerNanMcpCommand(pi, { registerWebSearchTools: registerSearchTool, registerMediaTools });
 	}
 }
 

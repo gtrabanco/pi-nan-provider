@@ -1,121 +1,144 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { registerNanMcpCommand } from "../src/commands.ts";
-import {
-	mediaMcpEnabled,
-	mediaMcpSource,
-	readMediaMcpState,
-	NAN_STATE_FILE,
-	writeMediaMcpState,
-} from "../src/mcp/nan-media.ts";
+import { mediaMcpEnabled, mediaMcpSource } from "../src/mcp/nan-media.ts";
+import { webSearchBridgeEnabled, webSearchBridgeSource } from "../src/mcp/nan-search.ts";
+import { NAN_STATE_FILE, readBridgeState, writeBridgeState } from "../src/mcp/state.ts";
 
 const agentDir = mkdtempSync(join(tmpdir(), "nan-mcp-cmd-"));
 process.env.PI_CODING_AGENT_DIR = agentDir;
 
 afterEach(() => {
-	delete process.env.NAN_MEDIA_MCP;
+	for (const key of ["NAN_MEDIA_MCP", "NAN_MCP_TOOLS"]) delete process.env[key];
 	rmSync(join(agentDir, NAN_STATE_FILE), { force: true });
 });
 
-interface FakeCommandContext {
-	notifications: Array<{ message: string; type?: string }>;
-}
-
-function fakeCommandPi(): {
-	pi: ExtensionAPI;
-	command: { name: string; handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> } | undefined;
-	registeredTools: string[];
-	ctx: FakeCommandContext;
-	commandCtx: ExtensionCommandContext;
-} {
+function fakeCommandPi() {
 	const registeredTools: string[] = [];
 	let command: { name: string; handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> } | undefined;
-	const ctx = { notifications: [] as Array<{ message: string; type?: string }> };
-	const pi = {
-		registerTool: (tool: { name: string }) => registeredTools.push(tool.name),
-		registerCommand: (name: string, definition: { handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> }) => {
-			command = { name, handler: definition.handler };
+	const notifications: Array<{ message: string; type?: string }> = [];
+	registerNanMcpCommand(
+		{
+			registerTool: (tool: { name: string }) => registeredTools.push(tool.name),
+			registerCommand: (name: string, definition: { handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> }) => {
+				command = { name, handler: definition.handler };
+			},
+		} as unknown as ExtensionAPI,
+		{
+			registerWebSearchTools: () => registeredTools.push("<registerWebSearchTools called>"),
+			registerMediaTools: () => registeredTools.push("<registerMediaTools called>"),
 		},
-	} as unknown as ExtensionAPI;
-	registerNanMcpCommand(pi, {
-		registerMediaTools: () => {
-			// Simulates index.ts's idempotent registrar: register what is not yet registered.
-			// The real path is covered by compat tests; here we just prove it is invoked.
-			registeredTools.push("<registerMediaTools called>");
-		},
-	});
+	);
 	const commandCtx = {
 		ui: {
-			notify: (message: string, type?: string) => {
-				ctx.notifications.push({ message, type });
-			},
+			notify: (message: string, type?: string) => notifications.push({ message, type }),
 		},
 	} as unknown as ExtensionCommandContext;
-	return { pi, command, registeredTools, ctx, commandCtx };
+	return { command, registeredTools, notifications, commandCtx };
 }
 
-describe("/nan-mcp command (persistent media MCP enablement)", () => {
-	test("enable persists the toggle and registers tools immediately", async () => {
-		const { command, registeredTools, ctx, commandCtx } = fakeCommandPi();
+describe("/nan-mcp command (configures both MCP bridges)", () => {
+	test("registers under the nan-mcp name", () => {
+		const { command } = fakeCommandPi();
 		expect(command?.name).toBe("nan-mcp");
+	});
+
+	test("enable with no target enables and persists BOTH bridges", async () => {
+		const { command, registeredTools, notifications, commandCtx } = fakeCommandPi();
+		expect(webSearchBridgeEnabled()).toBe(true); // default
+		expect(mediaMcpEnabled()).toBe(true); // default
+
+		await command!.handler("disable", commandCtx); // both off (persisted)
+		expect(webSearchBridgeEnabled()).toBe(false);
 		expect(mediaMcpEnabled()).toBe(false);
 
-		// Tolerates the muscle-memory trailing token from `/mcp enable nan-mcp-server`.
-		await command!.handler("enable nan-mcp-server", commandCtx);
-
+		await command!.handler("enable", commandCtx); // both on again, persisted
+		expect(webSearchBridgeEnabled()).toBe(true);
 		expect(mediaMcpEnabled()).toBe(true);
 		expect(mediaMcpSource()).toBe("persisted");
-		expect(readMediaMcpState()).toBe(true);
+		expect(webSearchBridgeSource()).toBe("persisted");
+		expect(registeredTools).toContain("<registerWebSearchTools called>");
 		expect(registeredTools).toContain("<registerMediaTools called>");
-		expect(ctx.notifications[0]?.type).toBe("info");
+		expect(notifications.at(-1)?.type).toBe("info");
+		expect(readBridgeState("webSearch")).toBe(true);
+		expect(readBridgeState("mediaMcp")).toBe(true);
 	});
 
-	test("disable persists the toggle for future sessions", async () => {
-		writeMediaMcpState(true);
-		const { command, ctx, commandCtx } = fakeCommandPi();
+	test("enable accepts per-bridge targets and aliases", async () => {
+		const { command, registeredTools, commandCtx } = fakeCommandPi();
 		await command!.handler("disable", commandCtx);
-		expect(readMediaMcpState()).toBe(false);
+
+		await command!.handler("enable nan-mcp-server", commandCtx); // community bridge only
+		expect(webSearchBridgeEnabled()).toBe(false);
+		expect(mediaMcpEnabled()).toBe(true);
+		expect(registeredTools).toContain("<registerMediaTools called>");
+		expect(registeredTools).not.toContain("<registerWebSearchTools called>");
+
+		await command!.handler("enable web-search", commandCtx); // official bridge only
+		expect(webSearchBridgeEnabled()).toBe(true);
+		expect(registeredTools).toContain("<registerWebSearchTools called>");
+	});
+
+	test("enable accepts the /mcp muscle-memory alias for the media server", async () => {
+		const { command, commandCtx } = fakeCommandPi();
+		await command!.handler("disable", commandCtx);
+		// The user's original `/mcp enable nan-mcp-server` maps to the media bridge.
+		await command!.handler("enable media", commandCtx);
+		expect(mediaMcpEnabled()).toBe(true);
+		expect(webSearchBridgeEnabled()).toBe(false);
+	});
+
+	test("disable persists per bridge; unknown target shows a warning", async () => {
+		const { command, notifications, commandCtx } = fakeCommandPi();
+		await command!.handler("disable nan-mcp-server", commandCtx);
 		expect(mediaMcpEnabled()).toBe(false);
-		expect(ctx.notifications[0]?.type).toBe("warning");
+		expect(webSearchBridgeEnabled()).toBe(true);
+		expect(notifications.at(-1)?.type).toBe("warning");
+
+		await command!.handler("enable frobnicator", commandCtx);
+		const last = notifications.at(-1)!;
+		expect(last.type).toBe("warning");
+		expect(last.message).toContain("Unknown target");
 	});
 
-	test("status reports source and state", async () => {
-		const { command, ctx, commandCtx } = fakeCommandPi();
+	test("status reports both bridges with their sources", async () => {
+		const { command, notifications, commandCtx } = fakeCommandPi();
 		await command!.handler("status", commandCtx);
-		expect(ctx.notifications[0]?.message).toContain("Media MCP (nan-mcp-server): disabled");
-		expect(ctx.notifications[0]?.message).toContain("default (off");
+		const message = notifications.at(-1)!.message;
+		expect(message).toContain("web-search bridge (official NaN MCP");
+		expect(message).toContain("nan-mcp-server bridge (community media MCP");
+		expect(message).toContain("enabled — default (both bridges are enabled and lazy by default)");
 
-		writeMediaMcpState(true);
+		await command!.handler("disable web-search", commandCtx);
 		await command!.handler("status", commandCtx);
-		expect(ctx.notifications[1]?.message).toContain("persisted in <agentDir>/nan-provider.json");
+		expect(notifications.at(-1)!.message).toContain("persisted in <agentDir>/nan-provider.json (web-search: false)");
 	});
 
-	test("unknown subcommand shows usage", async () => {
-		const { command, ctx, commandCtx } = fakeCommandPi();
-		await command!.handler("frobnicate", commandCtx);
-		expect(ctx.notifications[0]?.type).toBe("warning");
-		expect(ctx.notifications[0]?.message).toContain("Usage: /nan-mcp");
-	});
-
-	test("env var overrides the persisted toggle (one-session escape hatch)", () => {
-		writeMediaMcpState(false);
+	test("env vars override the persisted toggles (one-session escape hatch)", () => {
+		writeBridgeState("mediaMcp", false);
+		writeBridgeState("webSearch", false);
 		process.env.NAN_MEDIA_MCP = "1";
+		process.env.NAN_MCP_TOOLS = "0";
 		try {
 			expect(mediaMcpEnabled()).toBe(true);
 			expect(mediaMcpSource()).toBe("env");
+			expect(webSearchBridgeEnabled()).toBe(false);
+			expect(webSearchBridgeSource()).toBe("env");
 		} finally {
 			delete process.env.NAN_MEDIA_MCP;
+			delete process.env.NAN_MCP_TOOLS;
 		}
+	});
 
-		writeMediaMcpState(true);
-		process.env.NAN_MEDIA_MCP = "0";
-		try {
-			expect(mediaMcpEnabled()).toBe(false);
-		} finally {
-			delete process.env.NAN_MEDIA_MCP;
-		}
+	test("state file keeps both toggles in one JSON", async () => {
+		const { command, commandCtx } = fakeCommandPi();
+		await command!.handler("disable web-search", commandCtx);
+		await command!.handler("enable", commandCtx);
+		const state = JSON.parse(readFileSync(join(agentDir, NAN_STATE_FILE), "utf8")) as Record<string, boolean>;
+		expect(state.webSearch).toBe(true);
+		expect(state.mediaMcp).toBe(true);
 	});
 });

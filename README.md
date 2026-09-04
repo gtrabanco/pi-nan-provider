@@ -59,24 +59,31 @@ Get a key from the [NaN platform](https://cloud.nan.builders/r/7GK06FX8) (user s
 
 pi intentionally ships without an MCP client ("It intentionally does not include built-in MCP" — pi's `docs/usage.md`). This package bridges MCP servers into pi as native custom tools, so the LLM calls them like any built-in tool.
 
-### 1. Official NaN MCP server (on by default)
+Both bridges are **enabled and lazy by default** and are configured with the `/nan-mcp` slash command this package ships (pi has no `/mcp` command of its own — it has no MCP client at all — so the command is namespaced `/nan-mcp`):
+
+| Command | Effect |
+|---|---|
+| `/nan-mcp status` | State of both bridges and where each toggle comes from (env / persisted / default) |
+| `/nan-mcp enable [target]` | Enable a bridge — or both when no target is given — and persist it in `<agentDir>/nan-provider.json` (e.g. `~/.pi/agent/nan-provider.json`); tools register immediately for the current session |
+| `/nan-mcp disable [target]` | Disable persistently; pi has no `unregisterTool`, so already-registered tools remain until restart, future sessions skip them |
+
+Targets: `web-search` (official bridge) and `nan-mcp-server` (community media bridge; alias `media`). Example: `/nan-mcp enable nan-mcp-server`. Explicit env vars override the persisted toggles for the session (see the table below).
+
+### 1. Official NaN MCP server (default: enabled, lazy)
 
 NaN's official remote MCP server ([`https://api.nan.builders/mcp`](https://nan.builders/docs/api), JSON-RPC 2.0 over HTTP, same `sk-` key, same rate limit/quota/concurrency as the REST API) is bridged as:
 
-- **`nan_web_search(query, count?, freshness?, fetch_content?)`** — web search through NaN. Registered by default whenever pi supports `registerTool`; disable with `NAN_MCP_TOOLS=0`.
+- **`nan_web_search(query, count?, freshness?, fetch_content?)`** — web search through NaN. The HTTP call happens only when the tool is invoked.
 
 The server is a growing registry (discover with `tools/list`); this package currently bridges the documented `web_search` tool and keeps a generic `callNanMcpTool()` helper for future tools.
 
-### 2. Community media MCP server (opt-in, lazy)
+### 2. Community media MCP server (default: enabled, lazy)
 
 [`nan-mcp-server`](https://github.com/luciferfran/nan-mcp-server) is a stdio MCP server exposing NaN's media tools: image generation/editing (flux-2-klein), TTS (kokoro), and STT (whisper). Because pi has no MCP client, this package bridges it as pi tools via a minimal built-in MCP stdio client:
 
-- **Off by default** — two ways to enable:
-  - **`/nan-mcp enable`** — slash command shipped by this package. Registers the tools for the current session **and persists the toggle** in `<agentDir>/nan-provider.json` (e.g. `~/.pi/agent/nan-provider.json`), so it stays enabled across sessions until `/nan-mcp disable`. Accepts the trailing token you'd type elsewhere: `/nan-mcp enable nan-mcp-server`. (pi has no `/mcp` command of its own — it has no MCP client at all — so the command is namespaced `/nan-mcp`.)
-  - **`NAN_MEDIA_MCP=1`** — env var for this session only; an explicit value (including `NAN_MEDIA_MCP=0`) overrides the persisted toggle.
+- **Enabled by default**, toggled persistently with `/nan-mcp enable|disable nan-mcp-server` (or `media`), or per-session with `NAN_MEDIA_MCP` (any explicit value — e.g. `NAN_MEDIA_MCP=0` — overrides the persisted toggle).
 - **Lazy**: the MCP server process is spawned *per tool call* and terminated immediately after. Nothing starts, connects, or costs anything unless audio/image/transcription is actually invoked.
 - **Config**: `NAN_API_KEY` is forwarded automatically (same key as the provider); generated files land in `~/nan-mcp-output/` (the server's default, override with `NAN_OUTPUT_DIR`).
-- `/nan-mcp status` shows the current state, its source (env / persisted / default), and the exact spawn command. `/nan-mcp disable` persists off; because pi has no `unregisterTool`, tools already registered in the running session remain until restart.
 
 | Tool | Purpose |
 |---|---|
@@ -90,11 +97,11 @@ Environment variables:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `NAN_MEDIA_MCP` | off | `1`/`true`/`on` enables the media tools |
+| `NAN_MEDIA_MCP` | — | Per-session override for the media bridge: any explicit value (incl. `0`) beats the `/nan-mcp` persisted toggle; unset → persisted/default |
 | `NAN_MEDIA_MCP_VERSION` | `1.0.7` | Pinned server version for `npx -y nan-mcp-server@<v>` (upstream's own supply-chain recommendation) |
 | `NAN_MEDIA_MCP_COMMAND` | — | Full custom command, e.g. `bunx nan-mcp-server@1.0.7` |
 | `NAN_MEDIA_MCP_TIMEOUT_MS` | `120000` | Per-call timeout; the process is killed after it |
-| `NAN_MCP_TOOLS` | — | `0`/`false`/`off` disables the official `nan_web_search` bridge |
+| `NAN_MCP_TOOLS` | — | Per-session override for the official bridge: `0`/`false`/`off` disables `nan_web_search`; unset → persisted/default |
 
 ## Models
 

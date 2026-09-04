@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
 import type { Provider } from "@earendil-works/pi-ai";
 import { NAN_GENERATED_MODELS } from "../scripts/models.generated.ts";
 import extension, { NAN_PROVIDER, PROVIDERS } from "../src/index.ts";
+import { NAN_STATE_FILE, writeState } from "../src/mcp/state.ts";
 
 /**
  * ExtensionAPI stub with configurable pi runtime capabilities, so we can
@@ -75,12 +79,20 @@ afterEach(() => {
 });
 
 describe("pi version compatibility (one entrypoint, any runtime)", () => {
-	test("modern pi: native provider registration + web_search tool", () => {
+	test("modern pi: native provider registration + both MCP bridges by default (lazy)", () => {
 		const { pi, recorded } = fakePi();
 		extension(pi);
 		expect(recorded.native.length).toBe(PROVIDERS.length);
 		expect(recorded.legacy).toEqual([]);
-		expect(recorded.tools.map((tool) => tool.name)).toEqual(["nan_web_search"]);
+		expect(recorded.tools.map((tool) => tool.name)).toEqual([
+			"nan_web_search",
+			"nan_generate_image",
+			"nan_edit_image",
+			"nan_text_to_speech",
+			"nan_list_voices",
+			"nan_speech_to_text",
+		]);
+		expect(recorded.commands.map((command) => command.name)).toEqual(["nan-mcp"]);
 	});
 
 	test("legacy pi: falls back to registerProvider(name, config) with env-var auth", () => {
@@ -113,29 +125,16 @@ describe("pi version compatibility (one entrypoint, any runtime)", () => {
 		extension(pi);
 		expect(recorded.native.length).toBe(PROVIDERS.length);
 		expect(recorded.commands).toEqual([]);
-		expect(recorded.tools.map((tool) => tool.name)).toEqual(["nan_web_search"]);
+		expect(recorded.tools.length).toBe(6); // web_search + 5 media tools (both bridges default-on)
 	});
 
-	test("NAN_MCP_TOOLS=0 disables the web_search tool registration", () => {
+	test("NAN_MCP_TOOLS=0 disables only the web_search bridge", () => {
 		const env = cleanEnv(["NAN_MCP_TOOLS"]);
 		env.set("NAN_MCP_TOOLS", "0");
 		try {
 			const { pi, recorded } = fakePi();
 			extension(pi);
-			expect(recorded.tools).toEqual([]);
-		} finally {
-			env.restore();
-		}
-	});
-
-	test("NAN_MEDIA_MCP=1 registers the media tools (opt-in)", () => {
-		const env = cleanEnv(["NAN_MEDIA_MCP"]);
-		env.set("NAN_MEDIA_MCP", "1");
-		try {
-			const { pi, recorded } = fakePi();
-			extension(pi);
 			expect(recorded.tools.map((tool) => tool.name)).toEqual([
-				"nan_web_search",
 				"nan_generate_image",
 				"nan_edit_image",
 				"nan_text_to_speech",
@@ -144,6 +143,34 @@ describe("pi version compatibility (one entrypoint, any runtime)", () => {
 			]);
 		} finally {
 			env.restore();
+		}
+	});
+
+	test("NAN_MEDIA_MCP=0 disables only the media bridge", () => {
+		const env = cleanEnv(["NAN_MEDIA_MCP"]);
+		env.set("NAN_MEDIA_MCP", "0");
+		try {
+			const { pi, recorded } = fakePi();
+			extension(pi);
+			expect(recorded.tools.map((tool) => tool.name)).toEqual(["nan_web_search"]);
+		} finally {
+			env.restore();
+		}
+	});
+
+	test("persisted /nan-mcp disable keeps tools out of future sessions", () => {
+		// The state file is written by the command; here we seed it directly.
+		const env = cleanEnv(["PI_CODING_AGENT_DIR"]);
+		const dir = mkdtempSync(join(tmpdir(), "nan-compat-"));
+		env.set("PI_CODING_AGENT_DIR", dir);
+		writeState({ webSearch: false, mediaMcp: false });
+		try {
+			const { pi, recorded } = fakePi();
+			extension(pi);
+			expect(recorded.tools).toEqual([]);
+		} finally {
+			env.restore();
+			rmSync(dir, { recursive: true, force: true });
 		}
 	});
 });

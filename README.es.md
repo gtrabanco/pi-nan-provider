@@ -59,24 +59,31 @@ Consigue una clave en la [plataforma NaN](https://cloud.nan.builders/r/7GK06FX8)
 
 pi no incluye cliente MCP a propósito ("It intentionally does not include built-in MCP" — `docs/usage.md` de pi). Este paquete conecta servidores MCP dentro de pi como herramientas nativas personalizadas, de modo que el LLM las llama como cualquier herramienta integrada.
 
-### 1. Servidor MCP oficial de NaN (activo por defecto)
+Ambos puentes están **activados y perezosos por defecto**, y se configuran con el comando `/nan-mcp` que trae este paquete (pi no tiene comando `/mcp` propio — no tiene cliente MCP en absoluto — así que el comando se llama `/nan-mcp`):
+
+| Comando | Efecto |
+|---|---|
+| `/nan-mcp status` | Estado de ambos puentes y de dónde sale cada interruptor (env / persistido / por defecto) |
+| `/nan-mcp enable [target]` | Activa un puente — o ambos si no das target — y lo persiste en `<agentDir>/nan-provider.json` (p. ej. `~/.pi/agent/nan-provider.json`); las herramientas se registran al instante en la sesión actual |
+| `/nan-mcp disable [target]` | Desactiva persistentemente; pi no tiene `unregisterTool`, así que las herramientas ya registradas siguen hasta reiniciar; las sesiones futuras no las registran |
+
+Targets: `web-search` (puente oficial; alias `search`) y `nan-mcp-server` (puente de media de la comunidad; alias `media`). Ejemplo: `/nan-mcp enable nan-mcp-server`. Las variables de entorno explícitas tienen prioridad sobre los toggles persistidos (ver tabla inferior).
+
+### 1. Servidor MCP oficial de NaN (por defecto: activado, perezoso)
 
 El servidor MCP remoto oficial de NaN ([`https://api.nan.builders/mcp`](https://nan.builders/docs/api), JSON-RPC 2.0 sobre HTTP, misma clave `sk-`, mismo límite de tasa/cuota/concurrencia que la API REST) se conecta como:
 
-- **`nan_web_search(query, count?, freshness?, fetch_content?)`** — búsqueda web vía NaN. Registrado por defecto siempre que pi soporte `registerTool`; desactívalo con `NAN_MCP_TOOLS=0`.
+- **`nan_web_search(query, count?, freshness?, fetch_content?)`** — búsqueda web vía NaN. La llamada HTTP solo ocurre cuando se invoca la herramienta.
 
 El servidor es un registro en crecimiento (descubrible con `tools/list`); este paquete conecta por ahora la herramienta documentada `web_search` y mantiene un helper genérico `callNanMcpTool()` para herramientas futuras.
 
-### 2. Servidor MCP de media de la comunidad (opcional, perezoso)
+### 2. Servidor MCP de media de la comunidad (por defecto: activado, perezoso)
 
 [`nan-mcp-server`](https://github.com/luciferfran/nan-mcp-server) es un servidor MCP stdio que expone las herramientas de media de NaN: generación/edición de imágenes (flux-2-klein), TTS (kokoro) y STT (whisper). Como pi no tiene cliente MCP, este paquete lo conecta como herramientas de pi mediante un cliente MCP stdio mínimo:
 
-- **Desactivado por defecto** — dos formas de activarlo:
-  - **`/nan-mcp enable`** — comando de barra que trae este paquete. Registra las herramientas en la sesión actual **y persiste el interruptor** en `<agentDir>/nan-provider.json` (p. ej. `~/.pi/agent/nan-provider.json`), así que queda activado entre sesiones hasta que lo desactives con `/nan-mcp disable`. Acepta el token final que escribirías en otro sitio: `/nan-mcp enable nan-mcp-server`. (pi no tiene comando `/mcp` propio — no tiene cliente MCP en absoluto — así que el comando se llama `/nan-mcp`.)
-  - **`NAN_MEDIA_MCP=1`** — variable de entorno solo para esta sesión; un valor explícito (incluido `NAN_MEDIA_MCP=0`) tiene prioridad sobre el toggle persistido.
+- **Activado por defecto**, conmutado persistentemente con `/nan-mcp enable|disable nan-mcp-server` (o `media`), o por sesión con `NAN_MEDIA_MCP` (cualquier valor explícito — p. ej. `NAN_MEDIA_MCP=0` — tiene prioridad sobre el toggle persistido).
 - **Perezoso (lazy)**: el proceso del servidor MCP se lanza *por cada llamada* y se termina justo después. No arranca ni conecta nada a menos que se invoque realmente generación de audio/imagen/transcripción.
 - **Configuración**: `NAN_API_KEY` se reenvía automáticamente (la misma clave del proveedor); los ficheros generados van a `~/nan-mcp-output/` (por defecto del servidor, configurable con `NAN_OUTPUT_DIR`).
-- `/nan-mcp status` muestra el estado actual, su origen (env / persistido / por defecto) y el comando exacto de spawn. `/nan-mcp disable` persiste en off; como pi no tiene `unregisterTool`, las herramientas ya registradas en la sesión en curso siguen disponibles hasta reiniciar.
 
 | Herramienta | Propósito |
 |---|---|
@@ -90,11 +97,11 @@ Variables de entorno:
 
 | Variable | Por defecto | Significado |
 |---|---|---|
-| `NAN_MEDIA_MCP` | off | `1`/`true`/`on` activa las herramientas de media |
+| `NAN_MEDIA_MCP` | — | Override por sesión del puente de media: cualquier valor explícito (incl. `0`) gana al toggle persistido de `/nan-mcp`; sin definir → persistido/por defecto |
 | `NAN_MEDIA_MCP_VERSION` | `1.0.7` | Versión del servidor fijada para `npx -y nan-mcp-server@<v>` (recomendación de supply-chain del propio proyecto) |
 | `NAN_MEDIA_MCP_COMMAND` | — | Comando personalizado completo, p. ej. `bunx nan-mcp-server@1.0.7` |
 | `NAN_MEDIA_MCP_TIMEOUT_MS` | `120000` | Timeout por llamada; el proceso se mata al expirar |
-| `NAN_MCP_TOOLS` | — | `0`/`false`/`off` desactiva el puente `nan_web_search` oficial |
+| `NAN_MCP_TOOLS` | — | Override por sesión del puente oficial: `0`/`false`/`off` desactiva `nan_web_search`; sin definir → persistido/por defecto |
 
 ## Modelos
 
