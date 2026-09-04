@@ -45,6 +45,14 @@ const MANUAL_OVERRIDES: Record<string, { input?: ("text" | "image")[]; note: str
 };
 
 /**
+ * Per-model provenance notes sourced from NaN's own documentation (manual —
+ * models.dev has no structured tier/quota data), each stating its source.
+ * Empty today: no model in the models.dev `nan` provider is tier-gated
+ * (the premium-tier GLM 5.3 is not listed there; only glm5.3-flash is).
+ */
+const MANUAL_NOTES: Record<string, string> = {};
+
+/**
  * LiteLLM compat confirmed against the live api.nan.builders gateway by the
  * maintainer's working ~/.pi/agent/models.json config (2026-09-04) — the
  * config this package replaces. NaN's docs example instead sets only
@@ -143,7 +151,14 @@ function convertModel(modelId: string, m: ModelsDevModel): GeneratedModel | { sk
 			contextWindow,
 			maxTokens,
 			compat: { ...NAN_COMPAT },
-			notes: [NAN_COMPAT_NOTE, ...(override ? [override.note] : [])],
+			notes: [
+				NAN_COMPAT_NOTE,
+				...(override ? [override.note] : []),
+				...(MANUAL_NOTES[modelId] ? [MANUAL_NOTES[modelId]!] : []),
+			],
+			// Preserve every property models.dev documents for this model verbatim
+			// (tier, quotas, release dates, reasoning options, attachments...).
+			extras: m as unknown as Record<string, unknown>,
 		},
 	};
 }

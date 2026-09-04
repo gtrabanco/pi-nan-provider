@@ -44,6 +44,16 @@ factory in `src/provider-factory.ts`. A second provider-specific file is a smell
 refactor back to the factory and add a config entry in `src/providers.ts` instead.
 The `factory is shared` test in `test/provider-factory.test.ts` guards this contract.
 
+## Version policy (strict semver)
+
+Every PR that changes code MUST bump `package.json` version in the same PR; CI publishes only when the version differs from npm.
+
+- **PATCH** (`0.1.z`): bug fixes, docs, comment-only changes, catalog regeneration with identical values.
+- **MINOR** (`0.x.0`): new features — new provider entries, new MCP tools, new env vars/config options, and (while `0.x`) breaking changes, each breaking change called out explicitly in the PR/changelog.
+- **MAJOR** (`x.0.0`): breaking changes once `1.0.0` is reached.
+- Never reuse a published version; never publish with failing tests (CI gates publish on tests + typecheck).
+- The npm registry is the source of truth for "published"; `.github/workflows/publish.yml` compares `package.json` against `npm view` and publishes only on difference.
+
 ## Verified API facts (do not re-derive from stale docs)
 
 - pi 0.84.4: `openAICompletionsApi` is **not** exported from the `@earendil-works/pi-ai`
@@ -59,3 +69,16 @@ The `factory is shared` test in `test/provider-factory.test.ts` guards this cont
 - models.json overrides compose **above** registered native providers.
 - Relative imports inside this package use `.ts` extensions (pi's official
   extension examples do the same; pi transpiles extension sources).
+- pi intentionally has NO built-in MCP client (docs/usage.md). MCP integration
+  happens by bridging servers into pi custom tools via `pi.registerTool()`:
+  - NaN's official remote MCP server: `https://api.nan.builders/mcp` (host
+    root, NOT /v1; JSON-RPC 2.0 over streamable HTTP, stateless; same `sk-`
+    key, shared rate limit/quota). Spec: https://nan.builders/openapi.json
+    (tag "MCP"). Currently exposes `web_search` (same args as POST /v1/search);
+    "growing registry" — use tools/list to discover.
+  - Community `nan-mcp-server` (https://github.com/luciferfran/nan-mcp-server):
+    stdio MCP server, spawned per tool call (lazy), opt-in NAN_MEDIA_MCP=1,
+    version-pinned via NAN_MEDIA_MCP_VERSION (default 1.0.7) or a full command
+    override via NAN_MEDIA_MCP_COMMAND. Tools: generate_image, edit_image,
+    text_to_speech, list_voices, speech_to_text, embed, rerank, list_models
+    (we bridge the audio/image/transcription scope).

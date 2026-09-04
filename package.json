@@ -1,7 +1,7 @@
 {
 	"name": "@gtrabanco/pi-nan-provider",
-	"version": "0.1.0",
-	"description": "NaN Builders (api.nan.builders) model provider for pi - OpenAI-compatible registration with live catalog fetch and a models.dev-generated fallback",
+	"version": "0.2.0",
+	"description": "NaN Builders (api.nan.builders) model provider for pi - OpenAI-compatible registration with a models.dev-generated fallback, tier-aware live catalog, and MCP bridges (official web search + optional community media server)",
 	"keywords": [
 		"pi",
 		"pi-package",
@@ -25,7 +25,10 @@
 		"src/",
 		"scripts/",
 		"README.md",
+		"README.es.md",
+		"CONTRIBUTING.md",
 		"AGENTS.md",
+		"CLAUDE.md",
 		"LICENSE"
 	],
 	"scripts": {

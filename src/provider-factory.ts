@@ -21,7 +21,7 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 import {
 	baselineModels,
 	DEFAULT_MODELS_TIMEOUT_MS,
-	fetchNanCompatibleModels,
+	resolveCatalog,
 	type CatalogSource,
 } from "./fetch-models.ts";
 
@@ -63,6 +63,13 @@ export function createNanCompatibleProvider(
 ): Provider<"openai-completions"> {
 	const source: CatalogSource = { providerId: config.id, baseUrl: config.baseUrl };
 
+	// Last successful live /models result, shared between fetchModels (writes)
+	// and filterModels (reads). When set it is authoritative for what your key
+	// can use — tier detection: NaN lists exactly the models your membership
+	// can call, so models absent from the live list are filtered out of
+	// `available` (e.g. premium-tier models you are not subscribed to).
+	let liveIds: Set<string> | undefined;
+
 	return createProvider({
 		id: config.id,
 		name: config.name,
@@ -71,11 +78,18 @@ export function createNanCompatibleProvider(
 		models: baselineModels(source),
 		fetchModels: async (context: RefreshModelsContext) => {
 			const credential = context.credential;
-			return fetchNanCompatibleModels(source, {
+			const resolved = await resolveCatalog(source, {
 				apiKey: credential?.type === "api_key" ? credential.key : undefined,
 				timeoutMs: options.timeoutMs ?? DEFAULT_MODELS_TIMEOUT_MS,
 				fetchImpl: options.fetchImpl,
 			});
+			liveIds = resolved.liveIds;
+			return resolved.models;
+		},
+		filterModels: (models) => {
+			// Snapshot: TS can't prove `liveIds` unchanged across the closure boundary.
+			const current = liveIds;
+			return current ? models.filter((model) => current.has(model.id)) : models;
 		},
 		api: openAICompletionsApi(),
 	});

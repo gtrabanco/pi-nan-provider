@@ -42,6 +42,12 @@ export interface GeneratedModelEntry {
 	compat?: OpenAICompletionsCompat;
 	/** Provenance notes for values overriding models.dev or needing manual confirmation. */
 	notes?: string[];
+	/**
+	 * Raw models.dev model object (provider `nan`) preserved verbatim so every
+	 * documented property survives generation — quotas, tiers, release dates,
+	 * reasoning options, attachment flags, etc. Informational only.
+	 */
+	extras?: Record<string, unknown>;
 }
 
 /** pi-ai streaming API used for every NaN-compatible provider. */
@@ -189,6 +195,46 @@ export interface FetchModelsOptions {
 	fetchImpl?: typeof fetch;
 }
 
+export interface ResolvedCatalog {
+	/** Live IDs × generated capability data; the generated catalog when live fetch fails. */
+	models: Model<"openai-completions">[];
+	/**
+	 * Live model IDs from the provider's /models endpoint when the fetch
+	 * succeeded — the authoritative per-key list (what your NaN membership can
+	 * actually use, e.g. premium-tier models included/excluded). `undefined`
+	 * when the live fetch failed and the generated fallback was used.
+	 */
+	liveIds: Set<string> | undefined;
+	/** Live IDs kept with unknown capabilities (present only when liveIds is set). */
+	unknownIds: string[];
+}
+
+/**
+ * Resolve the effective catalog: live `/models` IDs × generated capability
+ * data. A successful live fetch is authoritative (tier-aware: it reflects
+ * exactly what your NaN key can use); failure degrades to the generated
+ * fallback so startup is never blocked.
+ */
+export async function resolveCatalog(
+	source: CatalogSource,
+	options: FetchModelsOptions = {},
+): Promise<ResolvedCatalog> {
+	const baseline = baselineModels(source);
+	try {
+		const liveIds = await listLiveModelIds({
+			baseUrl: source.baseUrl,
+			apiKey: options.apiKey,
+			timeoutMs: options.timeoutMs,
+			fetchImpl: options.fetchImpl,
+		});
+		if (!liveIds) return { models: baseline, liveIds: undefined, unknownIds: [] };
+		const merged = mergeLiveWithGenerated(liveIds, source);
+		return { models: merged.models, liveIds: new Set(liveIds), unknownIds: merged.unknown };
+	} catch {
+		return { models: baseline, liveIds: undefined, unknownIds: [] };
+	}
+}
+
 /**
  * `fetchModels` implementation handed to pi-ai's `createProvider`: live IDs ×
  * generated capability data, falling back to the generated catalog whenever
@@ -199,19 +245,7 @@ export async function fetchNanCompatibleModels(
 	source: CatalogSource,
 	options: FetchModelsOptions = {},
 ): Promise<readonly Model<"openai-completions">[]> {
-	const baseline = baselineModels(source);
-	try {
-		const liveIds = await listLiveModelIds({
-			baseUrl: source.baseUrl,
-			apiKey: options.apiKey,
-			timeoutMs: options.timeoutMs,
-			fetchImpl: options.fetchImpl,
-		});
-		if (!liveIds) return baseline;
-		return mergeLiveWithGenerated(liveIds, source).models;
-	} catch {
-		return baseline;
-	}
+	return (await resolveCatalog(source, options)).models;
 }
 
 /** Metadata of the generated fallback catalog, for diagnostics and docs. */

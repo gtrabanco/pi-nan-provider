@@ -1,0 +1,60 @@
+name: Publish
+
+# On merges to main that touch code or the package manifest, publish a new
+# version to npm — but only when package.json's version changed (strict
+# semver policy, see AGENTS.md). Docs-only changes do not trigger a publish.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "test/**"
+      - "package.json"
+      - "bun.lock"
+      - ".github/workflows/publish.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.repository == 'gtrabanco/pi-nan-provider'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Regenerate model catalog
+        run: bun run generate-models
+
+      - name: Test
+        run: bun test
+
+      - name: Typecheck
+        run: bunx tsc --noEmit
+
+      - name: Publish if version changed
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          PACKAGE_NAME=$(node -p "require('./package.json').name")
+          LOCAL_VERSION=$(node -p "require('./package.json').version")
+          PUBLISHED_VERSION=$(npm view "$PACKAGE_NAME" version 2>/dev/null || echo "unpublished")
+          if [ "$LOCAL_VERSION" = "$PUBLISHED_VERSION" ]; then
+            echo "Version $LOCAL_VERSION already published — skipping."
+            exit 0
+          fi
+          echo "Publishing $PACKAGE_NAME@$LOCAL_VERSION (registry has $PUBLISHED_VERSION)..."
+          npm publish --access public
+          git tag "v$LOCAL_VERSION" || true
