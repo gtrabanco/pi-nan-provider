@@ -71,9 +71,12 @@ The server is a growing registry (discover with `tools/list`); this package curr
 
 [`nan-mcp-server`](https://github.com/luciferfran/nan-mcp-server) is a stdio MCP server exposing NaN's media tools: image generation/editing (flux-2-klein), TTS (kokoro), and STT (whisper). Because pi has no MCP client, this package bridges it as pi tools via a minimal built-in MCP stdio client:
 
-- **Off by default** — enable with `NAN_MEDIA_MCP=1`.
+- **Off by default** — two ways to enable:
+  - **`/nan-mcp enable`** — slash command shipped by this package. Registers the tools for the current session **and persists the toggle** in `<agentDir>/nan-provider.json` (e.g. `~/.pi/agent/nan-provider.json`), so it stays enabled across sessions until `/nan-mcp disable`. Accepts the trailing token you'd type elsewhere: `/nan-mcp enable nan-mcp-server`. (pi has no `/mcp` command of its own — it has no MCP client at all — so the command is namespaced `/nan-mcp`.)
+  - **`NAN_MEDIA_MCP=1`** — env var for this session only; an explicit value (including `NAN_MEDIA_MCP=0`) overrides the persisted toggle.
 - **Lazy**: the MCP server process is spawned *per tool call* and terminated immediately after. Nothing starts, connects, or costs anything unless audio/image/transcription is actually invoked.
 - **Config**: `NAN_API_KEY` is forwarded automatically (same key as the provider); generated files land in `~/nan-mcp-output/` (the server's default, override with `NAN_OUTPUT_DIR`).
+- `/nan-mcp status` shows the current state, its source (env / persisted / default), and the exact spawn command. `/nan-mcp disable` persists off; because pi has no `unregisterTool`, tools already registered in the running session remain until restart.
 
 | Tool | Purpose |
 |---|---|

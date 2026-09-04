@@ -14,16 +14,19 @@ interface FakePiOptions {
 	rejectNativeProvider?: boolean;
 	/** Omit registerTool entirely (simulates old pi). */
 	withoutRegisterTool?: boolean;
+	/** Omit registerCommand (simulates old pi). */
+	withoutRegisterCommand?: boolean;
 }
 
 interface RecordedRegistration {
 	native: Provider[];
 	legacy: Array<{ name: string; config: ProviderConfig }>;
 	tools: Array<{ name: string }>;
+	commands: Array<{ name: string; handler: (args: string, ctx: unknown) => Promise<void> }>;
 }
 
 function fakePi(options: FakePiOptions = {}): { pi: ExtensionAPI; recorded: RecordedRegistration } {
-	const recorded: RecordedRegistration = { native: [], legacy: [], tools: [] };
+	const recorded: RecordedRegistration = { native: [], legacy: [], tools: [], commands: [] };
 	const pi = {
 		registerProvider: (nameOrProvider: string | Provider, config?: ProviderConfig) => {
 			if (options.rejectNativeProvider && config === undefined) {
@@ -36,6 +39,13 @@ function fakePi(options: FakePiOptions = {}): { pi: ExtensionAPI; recorded: Reco
 			}
 		},
 		...(options.withoutRegisterTool ? {} : { registerTool: (tool: { name: string }) => recorded.tools.push(tool) }),
+		...(options.withoutRegisterCommand
+			? {}
+			: {
+					registerCommand: (name: string, definition: { handler: (args: string, ctx: unknown) => Promise<void> }) => {
+						recorded.commands.push({ name, handler: definition.handler });
+					},
+				}),
 	} as unknown as ExtensionAPI;
 	return { pi, recorded };
 }
@@ -96,6 +106,14 @@ describe("pi version compatibility (one entrypoint, any runtime)", () => {
 		extension(pi);
 		expect(recorded.native.length).toBe(PROVIDERS.length);
 		expect(recorded.tools).toEqual([]);
+	});
+
+	test("old pi without registerCommand: providers + tools still register, command skipped", () => {
+		const { pi, recorded } = fakePi({ withoutRegisterCommand: true });
+		extension(pi);
+		expect(recorded.native.length).toBe(PROVIDERS.length);
+		expect(recorded.commands).toEqual([]);
+		expect(recorded.tools.map((tool) => tool.name)).toEqual(["nan_web_search"]);
 	});
 
 	test("NAN_MCP_TOOLS=0 disables the web_search tool registration", () => {

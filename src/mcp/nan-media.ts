@@ -17,8 +17,10 @@
  *   NAN_MEDIA_MCP_COMMAND (space-separated, e.g. "bunx nan-mcp-server@1.0.7").
  */
 
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { Type, type TSchema } from "@earendil-works/pi-ai";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { callStdioMcpTool } from "./stdio-client.ts";
 import { NAN_API_KEY_ENV, resolveNanApiKey, type NapiKeyContext } from "./nan-search.ts";
 
@@ -44,9 +46,68 @@ function envEnabled(name: string): boolean {
 	return value === "1" || value === "true" || value === "on";
 }
 
-/** Whether the optional nan-mcp-server bridge is enabled (NAN_MEDIA_MCP=1). */
+/** Whether the env var is explicitly set (any value) — it overrides the persisted toggle. */
+function envExplicit(): boolean {
+	const value = process.env[NAN_MEDIA_MCP_ENV];
+	return value !== undefined && value.trim() !== "";
+}
+
+/** Persisted-toggle state file inside pi's agent dir (e.g. ~/.pi/agent/nan-provider.json). */
+export const NAN_STATE_FILE = "nan-provider.json";
+
+function stateFilePath(): string {
+	return join(getAgentDir(), NAN_STATE_FILE);
+}
+
+export interface NanProviderState {
+	/** Persisted enablement of the community media MCP bridge. */
+	mediaMcp?: boolean;
+}
+
+/**
+ * Read the persisted media-MCP toggle. `undefined` means "not set" (missing
+ * file, unparsable JSON, or missing key) — never throws.
+ */
+export function readMediaMcpState(): boolean | undefined {
+	try {
+		const parsed = JSON.parse(readFileSync(stateFilePath(), "utf8")) as NanProviderState;
+		return typeof parsed.mediaMcp === "boolean" ? parsed.mediaMcp : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/** Persist the media-MCP toggle for future sessions. Creates the agent dir if needed. */
+export function writeMediaMcpState(enabled: boolean): void {
+	const path = stateFilePath();
+	mkdirSync(join(path, ".."), { recursive: true });
+	let state: NanProviderState = {};
+	try {
+		state = JSON.parse(readFileSync(path, "utf8")) as NanProviderState;
+	} catch {
+		// Start a fresh state object on first write or corrupted file.
+	}
+	state.mediaMcp = enabled;
+	writeFileSync(path, `${JSON.stringify(state, null, "\t")}\n`);
+}
+
+export type MediaMcpSource = "env" | "persisted" | "default";
+
+/** Where the current effective enablement comes from (for /nan-mcp status). */
+export function mediaMcpSource(): MediaMcpSource {
+	if (envExplicit()) return "env";
+	return readMediaMcpState() !== undefined ? "persisted" : "default";
+}
+
+/**
+ * Effective enablement of the community media MCP bridge: an explicit
+ * `NAN_MEDIA_MCP` env var (any value, e.g. `0` to force one session off)
+ * wins; otherwise the toggle persisted by `/nan-mcp enable|disable` in
+ * `<agentDir>/nan-provider.json`; otherwise off.
+ */
 export function mediaMcpEnabled(): boolean {
-	return envEnabled(NAN_MEDIA_MCP_ENV);
+	if (envExplicit()) return envEnabled(NAN_MEDIA_MCP_ENV);
+	return readMediaMcpState() ?? false;
 }
 
 /** Default spawn: `npx -y nan-mcp-server@<pinned version>` (npx caches after first use). */

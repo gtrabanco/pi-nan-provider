@@ -21,6 +21,7 @@
  */
 
 import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
+import { makeIdempotentMediaToolRegistrar, registerNanMcpCommand } from "./commands.ts";
 import { baselineModels } from "./fetch-models.ts";
 import { createNanWebSearchTool, mcpToolsDisabled, NAN_API_KEY_ENV } from "./mcp/nan-search.ts";
 import { createNanMediaTools, mediaMcpEnabled } from "./mcp/nan-media.ts";
@@ -68,16 +69,25 @@ function registerProviderCompat(pi: ExtensionAPI, config: OpenAICompatibleProvid
  * Register MCP-bridged tools when the runtime supports them. Old pi versions
  * without registerTool simply skip this block — provider registration is
  * unaffected.
+ *
+ * Registration is tracked in `registeredToolNames` so `/nan-mcp enable` can
+ * add media tools mid-session without double-registering.
  */
 function registerMcpToolsCompat(pi: ExtensionAPI): void {
 	if (typeof pi.registerTool !== "function") return;
+	const registeredToolNames = new Set<string>();
 	if (!mcpToolsDisabled()) {
-		pi.registerTool(createNanWebSearchTool());
+		const search = createNanWebSearchTool();
+		registeredToolNames.add(search.name);
+		pi.registerTool(search);
 	}
 	if (mediaMcpEnabled()) {
-		for (const tool of createNanMediaTools()) {
-			pi.registerTool(tool);
-		}
+		makeIdempotentMediaToolRegistrar(pi, registeredToolNames)();
+	}
+	if (typeof pi.registerCommand === "function") {
+		registerNanMcpCommand(pi, {
+			registerMediaTools: () => makeIdempotentMediaToolRegistrar(pi, registeredToolNames)(),
+		});
 	}
 }
 
