@@ -7,7 +7,7 @@ Thanks for contributing! Read [`AGENTS.md`](AGENTS.md) first — it contains the
 ```bash
 bun install
 bun test          # all tests must pass
-bunx tsc --noEmit # typecheck must be clean
+bun run typecheck # typecheck must be clean (bunx-resolved tsc)
 ```
 
 The upstream contracts this package must follow live in pi's own docs (`docs/custom-provider.md`, `docs/packages.md` shipped with `@earendil-works/pi-coding-agent`) and in NaN's OpenAPI spec (`https://nan.builders/openapi.json`). Verify API surfaces against the installed `@earendil-works/pi-ai`/`pi-coding-agent` versions — doc snippets can be stale (see `AGENTS.md` for known corrections).
@@ -18,7 +18,7 @@ The upstream contracts this package must follow live in pi's own docs (`docs/cus
 2. Implement the change; keep `nan` (and any future provider) behind the single shared factory in `src/provider-factory.ts`. A second provider-specific file is a smell.
 3. Run the full gate before considering any task done:
    ```bash
-   bun test && bunx tsc --noEmit
+   bun test && bun run typecheck
    ```
 4. If you touched `scripts/generate-models.ts` or catalog-related logic, regenerate and commit the catalog:
    ```bash

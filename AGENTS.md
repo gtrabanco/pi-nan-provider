@@ -28,7 +28,7 @@ Run both before considering any task done:
 
 ```bash
 bun test        # all tests must pass
-bunx tsc --noEmit   # typecheck must be clean
+bun run typecheck  # typecheck must be clean (bunx resolves tsc; bun publish lifecycle lacks node_modules/.bin on PATH)
 ```
 
 Regenerate the catalog after touching `scripts/generate-models.ts`:

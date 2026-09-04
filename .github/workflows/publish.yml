@@ -42,7 +42,7 @@ jobs:
         run: bun test
 
       - name: Typecheck
-        run: bunx tsc --noEmit
+        run: bun run typecheck
 
       - name: Publish if version changed
         env:

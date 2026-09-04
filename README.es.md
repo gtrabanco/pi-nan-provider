@@ -138,7 +138,7 @@ La fábrica compartida (`src/provider-factory.ts`) es agnóstica del proveedor, 
 bun install
 bun run generate-models   # regenerar el catálogo fallback desde models.dev (pre-publish)
 bun test                  # tests unitarios + integración (fetch, auth, puentes MCP, compat)
-bun run typecheck         # tsc --noEmit
+bun run typecheck         # typecheck vía bunx (tsc local, se autoinstala si falta)
 ```
 
-`prepublishOnly` ejecuta generación + tests + typecheck. Las releases siguen semver estricto (ver `AGENTS.md`); CI publica cuando un merge a main cambia código y la versión. Ver `CONTRIBUTING.md` para el flujo completo de contribución.
+`prepublishOnly` ejecuta generación + tests + typecheck. El typecheck resuelve `tsc` vía `bunx` porque `bun publish` ejecuta los scripts de ciclo de vida sin `node_modules/.bin` en el PATH (un `tsc` pelado falla ahí con exit 127). Las releases siguen semver estricto (ver `AGENTS.md`); CI publica cuando un merge a main cambia código y la versión. Ver `CONTRIBUTING.md` para el flujo completo de contribución.

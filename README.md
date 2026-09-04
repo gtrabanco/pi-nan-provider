@@ -138,7 +138,7 @@ The shared factory (`src/provider-factory.ts`) is provider-agnostic, but `helmco
 bun install
 bun run generate-models   # regenerate the fallback catalog from models.dev (pre-publish)
 bun test                  # unit + integration tests (fetch, auth, MCP bridges, compat)
-bun run typecheck         # tsc --noEmit
+bun run typecheck         # typecheck via bunx (local tsc, auto-installs if missing)
 ```
 
-`prepublishOnly` runs generation + tests + typecheck. Releases follow strict semver (see `AGENTS.md`); CI publishes when a merge to main changes code and the version. See `CONTRIBUTING.md` for the full contribution flow.
+`prepublishOnly` runs generation + tests + typecheck. Typecheck resolves `tsc` via `bunx` because `bun publish` runs lifecycle scripts without `node_modules/.bin` on PATH (a bare `tsc` fails there with exit 127). Releases follow strict semver (see `AGENTS.md`); CI publishes when a merge to main changes code and the version. See `CONTRIBUTING.md` for the full contribution flow.
