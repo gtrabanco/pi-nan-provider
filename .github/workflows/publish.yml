@@ -32,6 +32,7 @@ jobs:
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
+          token: ${{ secrets.NPM_TOKEN }}
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
