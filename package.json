@@ -1,0 +1,56 @@
+{
+	"name": "@gtrabanco/pi-nan-provider",
+	"version": "0.1.0",
+	"description": "NaN Builders (api.nan.builders) model provider for pi - OpenAI-compatible registration with live catalog fetch and a models.dev-generated fallback",
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"pi-coding-agent",
+		"ai",
+		"ai-provider",
+		"nan",
+		"nan-builders",
+		"openai-compatible",
+		"litellm"
+	],
+	"type": "module",
+	"main": "./src/index.ts",
+	"pi": {
+		"extensions": [
+			"./src/index.ts"
+		]
+	},
+	"files": [
+		"src/",
+		"scripts/",
+		"README.md",
+		"AGENTS.md",
+		"LICENSE"
+	],
+	"scripts": {
+		"generate-models": "bun run scripts/generate-models.ts",
+		"prepublishOnly": "bun run generate-models && bun test && tsc --noEmit",
+		"test": "bun test",
+		"typecheck": "tsc --noEmit"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": ">=0.84.4 <1",
+		"@earendil-works/pi-coding-agent": ">=0.84.4 <1"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-ai": "0.84.4",
+		"@earendil-works/pi-coding-agent": "0.84.4",
+		"@types/bun": "latest",
+		"typescript": "^5.9.2"
+	},
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/gtrabanco/pi-nan-provider.git"
+	},
+	"bugs": {
+		"url": "https://github.com/gtrabanco/pi-nan-provider/issues"
+	},
+	"homepage": "https://github.com/gtrabanco/pi-nan-provider#readme"
+}
