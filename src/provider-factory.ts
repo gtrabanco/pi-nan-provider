@@ -6,18 +6,26 @@
  * catalog data, never a parallel implementation.
  *
  * The resulting provider follows pi-ai's built-in provider shape (see
- * `deepseekProvider()` in pi-ai): `createProvider` + `envApiKeyAuth` +
- * `openAICompletionsApi`, with a `fetchModels` overlay that merges the live
- * /models listing with the generated fallback catalog.
+ * `deepseekProvider()` in pi-ai): `createProvider` + `envApiKeyAuth` + the
+ * openai-completions streaming API, with a `fetchModels` overlay that merges
+ * the live /models listing with the generated fallback catalog.
+ *
+ * pi-ai import rule (see test/extension-load.test.ts): extensions must
+ * statically import ONLY the bare `@earendil-works/pi-ai` root. pi's
+ * extension loader maps that specifier to the compat entrypoint on every
+ * supported runtime (bundled CLI, Node-mode aliases, compiled-binary
+ * virtualModules; pi 0.83 and 0.84 alike), and compat re-exports every lazy
+ * API factory. Subpath specifiers (`@earendil-works/pi-ai/api/...`) get the
+ * alias applied as a prefix and resolve to `<compat.js>/api/...`, which does
+ * not exist — the extension then fails to load entirely.
  */
 
-import {
-	createProvider,
-	envApiKeyAuth,
-	type Provider,
-	type RefreshModelsContext,
+import * as piAi from "@earendil-works/pi-ai";
+import type {
+	Provider,
+	ProviderStreams,
+	RefreshModelsContext,
 } from "@earendil-works/pi-ai";
-import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import {
 	baselineModels,
 	DEFAULT_MODELS_TIMEOUT_MS,
@@ -44,6 +52,35 @@ export interface NanCompatibleProviderOptions {
 }
 
 /**
+ * Resolve the openai-completions streaming implementation at runtime.
+ *
+ * Under pi, the bare-root namespace is pi's compat entrypoint, which
+ * re-exports `openAICompletionsApi` on both pi-ai 0.83 and 0.84 — so the
+ * first branch always wins and no pi-ai subpath is ever resolved there.
+ * Outside pi (plain node/bun: tests and direct consumers) the real root
+ * does not export the lazy factory; the dynamic subpath import below uses
+ * the package's normal `./api/*` export. It is never reached under pi, so
+ * the alias-prefix pitfall cannot bite at runtime.
+ */
+type OpenAICompletionsApiFactory = () => ProviderStreams;
+
+let cachedApiFactory: OpenAICompletionsApiFactory | undefined;
+
+export async function resolveOpenAICompletionsApi(): Promise<OpenAICompletionsApiFactory> {
+	if (cachedApiFactory) return cachedApiFactory;
+	const fromRoot = (
+		piAi as unknown as Partial<Record<"openAICompletionsApi", OpenAICompletionsApiFactory>>
+	).openAICompletionsApi;
+	if (typeof fromRoot === "function") {
+		cachedApiFactory = fromRoot;
+		return cachedApiFactory;
+	}
+	cachedApiFactory = (await import("@earendil-works/pi-ai/api/openai-completions.lazy"))
+		.openAICompletionsApi;
+	return cachedApiFactory;
+}
+
+/**
  * Build a complete pi-ai Provider for an OpenAI-compatible endpoint:
  *
  * - auth: stored credential key wins, then the first set env var resolves;
@@ -55,12 +92,14 @@ export interface NanCompatibleProviderOptions {
  * - fetchModels: live `/models` IDs × generated capability data; falls back
  *   to the baseline when the endpoint is unreachable. pi's Models runtime
  *   drives refreshes (startup/periodic) and persists the overlay.
- * - api: `openAICompletionsApi()` (lazy-loaded streaming implementation).
+ * - api: the openai-completions streaming implementation (see
+ *   `resolveOpenAICompletionsApi` for why this is resolved dynamically).
  */
-export function createNanCompatibleProvider(
+export async function createNanCompatibleProvider(
 	config: OpenAICompatibleProviderConfig,
 	options: NanCompatibleProviderOptions = {},
-): Provider<"openai-completions"> {
+): Promise<Provider<"openai-completions">> {
+	const apiFactory = await resolveOpenAICompletionsApi();
 	const source: CatalogSource = { providerId: config.id, baseUrl: config.baseUrl };
 
 	// Last successful live /models result, shared between fetchModels (writes)
@@ -70,11 +109,11 @@ export function createNanCompatibleProvider(
 	// `available` (e.g. premium-tier models you are not subscribed to).
 	let liveIds: Set<string> | undefined;
 
-	return createProvider({
+	return piAi.createProvider({
 		id: config.id,
 		name: config.name,
 		baseUrl: config.baseUrl,
-		auth: { apiKey: envApiKeyAuth(`${config.name} API key`, config.envVars) },
+		auth: { apiKey: piAi.envApiKeyAuth(`${config.name} API key`, config.envVars) },
 		models: baselineModels(source),
 		fetchModels: async (context: RefreshModelsContext) => {
 			const credential = context.credential;
@@ -91,6 +130,6 @@ export function createNanCompatibleProvider(
 			const current = liveIds;
 			return current ? models.filter((model) => current.has(model.id)) : models;
 		},
-		api: openAICompletionsApi(),
+		api: apiFactory(),
 	});
 }

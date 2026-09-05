@@ -115,10 +115,11 @@ Baseline catalog (from models.dev, provider `nan`, fetched 2026-09-04 — NaN's 
 | `mimo-v2.5` | 1,048,576 | 131,072 | text, image | yes |
 | `glm5.2` | 500,000 | 131,072 | text | yes |
 | `glm5.3-flash` | 1,000,000 | 131,072 | text, image | yes |
-| `qwen3.8-flash` | 262,144 | 131,072 | text, image | yes |
+| `qwen3.8-flash` | 1,000,000 | 131,072 | text, image | yes |
 
 Notes (recorded per entry in `scripts/models.generated.ts`):
 
+- `qwen3.8-flash` context window is maintainer-confirmed at 1M (2026-09-05); models.dev and NaN's docs still listed 262,144 at that date. Divergences like this are recorded as build-time `MANUAL_OVERRIDES` (with provenance) in `scripts/manual-overrides.ts` — apply one instead of editing the generated file.
 - `deepseek-v4-flash` includes image input because NaN serves the Vision-Exp variant ([NaN docs](https://nan.builders/docs/models)); models.dev lists text only.
 - `mimo-v2.5` is omnimodal (text/image/audio) on NaN, but pi's model type only represents text/image input, so audio is dropped from `input`.
 - NaN bills via membership quota, which models.dev reports as zero per-token cost — pi's cost display will read $0.
@@ -131,12 +132,14 @@ This package replaces the hand-written `nan` block in `~/.pi/agent/models.json` 
 
 ## pi version compatibility
 
-Verified against pi **0.84.4** and the 0.85 line (`registerProvider(provider)`, `registerProvider(name, config)`, `registerTool`, and `modelRegistry.getApiKeyForProvider` all present in both). The extension degrades gracefully across versions:
+Verified against pi **0.83.0**, **0.84.4**, and the 0.85 line (`registerProvider(provider)`, `registerProvider(name, config)`, `registerTool`, and `modelRegistry.getApiKeyForProvider` all present in both; pi-ai's compat entrypoint re-exports the openai-completions API factory on 0.83 and 0.84 alike). The extension degrades gracefully across versions:
 
-- **Native path (pi ≥ 0.84)**: full Provider with stored-credential-then-env auth, live catalog overlay, and tier filtering.
-- **Legacy fallback**: if the native Provider overload is rejected, registration falls back to the documented legacy `(name, config)` form with the same generated catalog and `$NAN_API_KEY` env auth (stored-credential auth is a limitation of the legacy path, not a silent behavior change).
+- **Native path**: full Provider with stored-credential-then-env auth, live catalog overlay, and tier filtering.
+- **Legacy fallback**: if the native Provider overload is rejected (or provider construction fails), registration falls back to the documented legacy `(name, config)` form with the same generated catalog and `$NAN_API_KEY` env auth (stored-credential auth is a limitation of the legacy path, not a silent behavior change).
 - **MCP bridges**: skipped entirely on runtimes without `registerTool`; providers still register.
-- `peerDependencies` is `>=0.84.4` with no upper bound.
+- **Async entrypoint**: pi awaits extension factories on 0.83 and 0.84 alike, so the streaming-API resolution at registration is transparent.
+- `peerDependencies` is `>=0.83.0` with no upper bound (0.83 forks included).
+- **Extension-side pi-ai imports**: only the bare `@earendil-works/pi-ai` root is imported statically. pi's extension loader aliases that specifier to the compat entrypoint; subpath imports (e.g. `@earendil-works/pi-ai/api/openai-completions.lazy`) get the alias applied as a prefix and fail to resolve, which is a whole-extension load failure. Guarded by `test/extension-load.test.ts`.
 
 ## helmcode
 

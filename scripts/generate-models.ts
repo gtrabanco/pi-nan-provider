@@ -21,6 +21,7 @@
  */
 
 import type { GeneratedModelEntry } from "../src/fetch-models.ts";
+import { MANUAL_OVERRIDES } from "./manual-overrides.ts";
 
 const MODELS_DEV_API_URL = "https://models.dev/api.json";
 const SOURCE_PROVIDER_ID = "nan";
@@ -33,22 +34,10 @@ const REQUIRED_MODEL_IDS = ["qwen3.6", "gemma4", "deepseek-v4-flash", "mimo-v2.5
 const PI_SUPPORTED_INPUT = new Set(["text", "image"]);
 
 /**
- * Manual corrections over models.dev, each with its confirmation source.
- * Applied only to fields NaN's own documentation contradicts or pi cannot
- * represent; the note is emitted onto the generated entry.
- */
-const MANUAL_OVERRIDES: Record<string, { input?: ("text" | "image")[]; note: string }> = {
-	"deepseek-v4-flash": {
-		input: ["text", "image"],
-		note: "input includes image: NaN serves the Vision-Exp variant (confirmed at https://nan.builders/docs/models, 'takes images as input'); models.dev provider nan lists text only.",
-	},
-};
-
-/**
- * Per-model provenance notes sourced from NaN's own documentation (manual —
- * models.dev has no structured tier/quota data), each stating its source.
- * Empty today: no model in the models.dev `nan` provider is tier-gated
- * (the premium-tier GLM 5.3 is not listed there; only glm5.3-flash is).
+ * Manual corrections over models.dev live in scripts/manual-overrides.ts
+ * (shared with test/generated-catalog.test.ts, which pins that every
+ * override lands on the generated entry with its provenance note).
+ * Capabilities diverging from models.dev are recorded there, never here.
  */
 const MANUAL_NOTES: Record<string, string> = {};
 
@@ -136,20 +125,25 @@ function convertModel(modelId: string, m: ModelsDevModel): GeneratedModel | { sk
 	const override = MANUAL_OVERRIDES[modelId];
 	const input = override?.input ?? normalizeInput(m.modalities?.input, modelId);
 
+	if (override) {
+		const overridden = Object.keys(override).filter((key) => key !== "note");
+		console.log(`generate-models: manual override for "${modelId}" (${overridden.join(", ")})`);
+	}
+
 	return {
 		entry: {
 			id: modelId,
-			name: m.name ?? modelId,
-			reasoning: m.reasoning === true,
+			name: override?.name ?? m.name ?? modelId,
+			reasoning: override?.reasoning ?? m.reasoning === true,
 			input,
-			cost: {
+			cost: override?.cost ?? {
 				input: m.cost?.input ?? 0,
 				output: m.cost?.output ?? 0,
 				cacheRead: m.cost?.cache_read ?? 0,
 				cacheWrite: m.cost?.cache_write ?? 0,
 			},
-			contextWindow,
-			maxTokens,
+			contextWindow: override?.contextWindow ?? contextWindow,
+			maxTokens: override?.maxTokens ?? maxTokens,
 			compat: { ...NAN_COMPAT },
 			notes: [
 				NAN_COMPAT_NOTE,
@@ -158,6 +152,8 @@ function convertModel(modelId: string, m: ModelsDevModel): GeneratedModel | { sk
 			],
 			// Preserve every property models.dev documents for this model verbatim
 			// (tier, quotas, release dates, reasoning options, attachments...).
+			// Extras keep the UN-overridden models.dev data: they are the provenance
+			// record of what models.dev says, not a capability claim.
 			extras: m as unknown as Record<string, unknown>,
 		},
 	};

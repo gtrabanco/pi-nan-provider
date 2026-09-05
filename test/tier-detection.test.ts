@@ -27,7 +27,7 @@ describe("tier detection (filterModels driven by live /models)", () => {
 	test("after a successful live refresh, only key-visible models are available", async () => {
 		// NaN lists exactly the models your membership can call: simulate a key
 		// that sees qwen3.6 and a brand-new model, but not glm5.2/gemma4/etc.
-		const provider = createNanCompatibleProvider(NAN_PROVIDER, {
+		const provider = await createNanCompatibleProvider(NAN_PROVIDER, {
 			fetchImpl: jsonFetch({ data: [{ id: "qwen3.6" }, { id: "brand-new-model" }] }),
 		});
 		await provider.refreshModels!(
@@ -38,7 +38,7 @@ describe("tier detection (filterModels driven by live /models)", () => {
 	});
 
 	test("without a successful live refresh, the full generated catalog stays available", async () => {
-		const provider = createNanCompatibleProvider(NAN_PROVIDER, { fetchImpl: jsonFetch({}, 500) });
+		const provider = await createNanCompatibleProvider(NAN_PROVIDER, { fetchImpl: jsonFetch({}, 500) });
 		await provider.refreshModels!(
 			refreshContext({ credential: { type: "api_key", key: "sk-live" } }),
 		);
@@ -46,8 +46,8 @@ describe("tier detection (filterModels driven by live /models)", () => {
 		expect(available.length).toBe(NAN_GENERATED_MODELS.length);
 	});
 
-	test("a fresh provider with no live data filters nothing", () => {
-		const provider = createNanCompatibleProvider(NAN_PROVIDER);
+	test("a fresh provider with no live data filters nothing", async () => {
+		const provider = await createNanCompatibleProvider(NAN_PROVIDER);
 		const available = provider.filterModels!(baselineModels(SOURCE), undefined);
 		expect(available.length).toBe(NAN_GENERATED_MODELS.length);
 	});

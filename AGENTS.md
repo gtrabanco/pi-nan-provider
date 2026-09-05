@@ -56,17 +56,42 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
 
 ## Verified API facts (do not re-derive from stale docs)
 
-- pi 0.84.4: `openAICompletionsApi` is **not** exported from the `@earendil-works/pi-ai`
-  root (the `custom-provider.md` snippet is stale). Import it from
-  `@earendil-works/pi-ai/api/openai-completions.lazy`.
-- `createProvider` and `envApiKeyAuth(name, envVars)` are on the pi-ai root.
-  `envApiKeyAuth` implements exactly: stored credential key wins → first set env
-  var → unconfigured; `login()` prompts with `{ type: "secret" }`.
+- **Extension-side pi-ai imports (v0.5.0, verified on pi-ai 0.83.0 AND 0.84.4):**
+  statically import ONLY the bare `@earendil-works/pi-ai` root from `src/`. pi's
+  extension loader maps that specifier to the compat entrypoint in every loading
+  mode (bundled CLI interception, Node-mode jiti aliases, compiled-binary
+  virtualModules), and the compat entrypoint re-exports every lazy API factory —
+  including `openAICompletionsApi`. A static SUBPATH import
+  (`@earendil-works/pi-ai/api/...`) gets the alias applied as a prefix and
+  resolves to `<compat.js>/api/...`, which does not exist: the whole extension
+  fails to load (the v0.4.x load failure). Type-only subpath imports are erased
+  before resolution and are safe; a DYNAMIC subpath `import()` is the sanctioned
+  plain-node fallback and never runs under pi because the root (compat) exports
+  the factory. Guarded by `test/extension-load.test.ts`.
+- The REAL pi-ai root (plain node/bun, outside pi) does not export
+  `openAICompletionsApi`; `createProvider` and `envApiKeyAuth(name, envVars)` are
+  on the root. `envApiKeyAuth` implements exactly: stored credential key wins →
+  first set env var → unconfigured; `login()` prompts with `{ type: "secret" }`.
+- pi awaits extension factories (`await factory(api)`) on 0.83.0 and 0.84.4
+  alike, so the extension entrypoint may be async (v0.5.0: streaming-API
+  resolution needs it).
+- pi-ai 0.83.0 runtime surface verified identical for this package's needs:
+  compat re-exports `index.js` (`createProvider`, `envApiKeyAuth`) and
+  `api/openai-completions.lazy.js`; `createProvider` options (`auth`, `models`,
+  `fetchModels(context)`, `filterModels(models, credential)`, `api`) and
+  `RefreshModelsContext.credential` match 0.84.4; `registerProvider` has both
+  the full-`Provider` and `(name, config)` overloads in 0.83's ExtensionAPI.
 - `pi.registerProvider(provider)` accepts a complete pi-ai `Provider`; pi's Models
   runtime then drives `fetchModels` refreshes (network refresh at interactive
   startup and periodically, cache-only at registration) and persists the overlay.
   A `fetchModels` rejection never blocks startup.
 - models.json overrides compose **above** registered native providers.
+- Capability values that diverge from models.dev are recorded as build-time
+  `MANUAL_OVERRIDES` (mandatory provenance note) in `scripts/manual-overrides.ts`,
+  applied by `scripts/generate-models.ts` — never hand-edited into
+  `scripts/models.generated.ts` and never invented. e.g. qwen3.8-flash
+  contextWindow 1,000,000 (maintainer-confirmed 2026-09-05; models.dev and NaN
+  docs still listed 262,144 that day).
 - Relative imports inside this package use `.ts` extensions (pi's official
   extension examples do the same; pi transpiles extension sources).
 - pi intentionally has NO built-in MCP client (docs/usage.md). MCP integration

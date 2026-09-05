@@ -11,6 +11,10 @@
  *     without the native Provider overload, registration falls back to the
  *     legacy (name, config) form with the same baseline catalog.
  *
+ *     The entrypoint is async: pi awaits extension factories (0.83 and
+ *     0.84 alike), and the openai-completions streaming implementation is
+ *     resolved dynamically — see provider-factory.ts for why.
+ *
  *  2. MCP tools over pi's registerTool (pi intentionally has no MCP client):
  *     - `nan_web_search` via NaN's official remote MCP server
  *       (https://api.nan.builders/mcp) — on by default, NAN_MCP_TOOLS=0 to
@@ -22,6 +26,7 @@
  */
 
 import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
+import type { Provider } from "@earendil-works/pi-ai";
 import { registerNanMcpCommand } from "./commands.ts";
 import { baselineModels } from "./fetch-models.ts";
 import { createNanWebSearchTool, webSearchBridgeEnabled, NAN_API_KEY_ENV } from "./mcp/nan-search.ts";
@@ -35,14 +40,18 @@ import { PROVIDERS } from "./providers.ts";
  * env-var auth. The fallback loses stored-credential auth (env only) — a
  * documented limitation of the legacy path, never a silent auth invention.
  */
-function registerProviderCompat(pi: ExtensionAPI, config: OpenAICompatibleProviderConfig): void {
-	const native = createNanCompatibleProvider(config);
+async function registerProviderCompat(
+	pi: ExtensionAPI,
+	config: OpenAICompatibleProviderConfig,
+): Promise<void> {
+	let native: Provider<"openai-completions"> | undefined;
 	try {
+		native = await createNanCompatibleProvider(config);
 		pi.registerProvider(native);
 		return;
 	} catch (error) {
 		console.warn(
-			`[pi-nan-provider] native provider registration rejected (${error instanceof Error ? error.message : String(error)}); ` +
+			`[pi-nan-provider] native provider path failed (${error instanceof Error ? error.message : String(error)}); ` +
 				"falling back to legacy config form (env-var auth only).",
 		);
 	}
@@ -99,9 +108,9 @@ function registerMcpToolsCompat(pi: ExtensionAPI): void {
 	}
 }
 
-export default function nanProviderExtension(pi: ExtensionAPI): void {
+export default async function nanProviderExtension(pi: ExtensionAPI): Promise<void> {
 	for (const config of PROVIDERS) {
-		registerProviderCompat(pi, config);
+		await registerProviderCompat(pi, config);
 	}
 	registerMcpToolsCompat(pi);
 }

@@ -23,8 +23,8 @@ function jsonFetch(body: unknown, status = 200): typeof fetch {
 }
 
 describe("createNanCompatibleProvider (registration shape)", () => {
-	test("registers with the NaN provider identity and the generated catalog as baseline", () => {
-		const provider = createNanCompatibleProvider(NAN_PROVIDER);
+	test("registers with the NaN provider identity and the generated catalog as baseline", async () => {
+		const provider = await createNanCompatibleProvider(NAN_PROVIDER);
 		expect(provider.id).toBe("nan");
 		expect(provider.name).toBe("NaN");
 		expect(provider.baseUrl).toBe("https://api.nan.builders/v1");
@@ -33,17 +33,22 @@ describe("createNanCompatibleProvider (registration shape)", () => {
 			expect(model.api).toBe("openai-completions");
 			expect(model.provider).toBe("nan");
 		}
+		// The openai-completions streaming implementation must be resolved and
+		// wired (root specifier under pi's compat entry, lazy subpath fallback
+		// under plain node/bun — never a static pi-ai subpath import).
+		expect(typeof provider.stream).toBe("function");
+		expect(typeof provider.streamSimple).toBe("function");
 	});
 
-	test("exposes api-key auth with the provider display name", () => {
-		const provider = createNanCompatibleProvider(NAN_PROVIDER);
+	test("exposes api-key auth with the provider display name", async () => {
+		const provider = await createNanCompatibleProvider(NAN_PROVIDER);
 		expect(provider.auth.apiKey?.name).toBe("NaN API key");
 	});
 
 	test("factory is shared: a second config works through the same code path", async () => {
 		// Contract test for "shared by nan + helmcode": no provider-specific file,
 		// just another config. The endpoint here is a test fixture, not a claim.
-		const helmcode = createNanCompatibleProvider({
+		const helmcode = await createNanCompatibleProvider({
 			id: "helmcode",
 			name: "HelmCode",
 			baseUrl: "https://helmcode.example/v1",
@@ -62,8 +67,8 @@ describe("createNanCompatibleProvider (registration shape)", () => {
 });
 
 describe("auth resolution (stored credential / env var / missing)", () => {
-	const resolve = (env: Record<string, string | undefined>, credential?: ApiKeyCredential) => {
-		const provider = createNanCompatibleProvider(NAN_PROVIDER);
+	const resolve = async (env: Record<string, string | undefined>, credential?: ApiKeyCredential) => {
+		const provider = await createNanCompatibleProvider(NAN_PROVIDER);
 		return provider.auth.apiKey!.resolve({
 			ctx: authContext(env),
 			...(credential ? { credential } : {}),
@@ -94,7 +99,7 @@ describe("auth resolution (stored credential / env var / missing)", () => {
 	});
 
 	test("login prompts for a secret and returns an api_key credential", async () => {
-		const provider = createNanCompatibleProvider(NAN_PROVIDER);
+		const provider = await createNanCompatibleProvider(NAN_PROVIDER);
 		const login = provider.auth.apiKey!.login!;
 		const prompts: unknown[] = [];
 		const key = "sk-new-key";
@@ -122,7 +127,7 @@ describe("fetchModels wiring through createProvider", () => {
 	}
 
 	test("refresh with network merges live ids and publishes the overlay", async () => {
-		const provider = createNanCompatibleProvider(NAN_PROVIDER, {
+		const provider = await createNanCompatibleProvider(NAN_PROVIDER, {
 			fetchImpl: jsonFetch({ data: [{ id: "qwen3.6" }, { id: "mystery-model" }] }),
 		});
 		let published = false;
@@ -143,7 +148,7 @@ describe("fetchModels wiring through createProvider", () => {
 	});
 
 	test("failed live fetch keeps the provider usable with the baseline catalog", async () => {
-		const provider = createNanCompatibleProvider(NAN_PROVIDER, { fetchImpl: jsonFetch({}, 500) });
+		const provider = await createNanCompatibleProvider(NAN_PROVIDER, { fetchImpl: jsonFetch({}, 500) });
 		await provider.refreshModels!(
 			refreshContext({
 				credential: { type: "api_key", key: "sk-live" },
@@ -158,7 +163,7 @@ describe("fetchModels wiring through createProvider", () => {
 
 	test("refresh without network access does not call the endpoint", async () => {
 		let fetched = false;
-		const provider = createNanCompatibleProvider(NAN_PROVIDER, {
+		const provider = await createNanCompatibleProvider(NAN_PROVIDER, {
 			fetchImpl: (async () => {
 				fetched = true;
 				throw new Error("should not be called");
@@ -170,7 +175,7 @@ describe("fetchModels wiring through createProvider", () => {
 });
 
 describe("extension entrypoint", () => {
-	test("registers every configured provider via pi.registerProvider", () => {
+	test("registers every configured provider via pi.registerProvider", async () => {
 		const registered: unknown[] = [];
 		const fakePi = {
 			registerProvider: (provider: unknown) => {
@@ -178,7 +183,7 @@ describe("extension entrypoint", () => {
 			},
 		} as unknown as ExtensionAPI;
 
-		extension(fakePi);
+		await extension(fakePi);
 
 		expect(registered.length).toBe(PROVIDERS.length);
 		const provider = registered[0] as { id: string; name: string; baseUrl: string; auth: unknown; getModels: () => unknown[] };

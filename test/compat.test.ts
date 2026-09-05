@@ -79,9 +79,9 @@ afterEach(() => {
 });
 
 describe("pi version compatibility (one entrypoint, any runtime)", () => {
-	test("modern pi: native provider registration + both MCP bridges by default (lazy)", () => {
+	test("modern pi: native provider registration + both MCP bridges by default (lazy)", async () => {
 		const { pi, recorded } = fakePi();
-		extension(pi);
+		await extension(pi);
 		expect(recorded.native.length).toBe(PROVIDERS.length);
 		expect(recorded.legacy).toEqual([]);
 		expect(recorded.tools.map((tool) => tool.name)).toEqual([
@@ -95,9 +95,9 @@ describe("pi version compatibility (one entrypoint, any runtime)", () => {
 		expect(recorded.commands.map((command) => command.name)).toEqual(["nan-mcp"]);
 	});
 
-	test("legacy pi: falls back to registerProvider(name, config) with env-var auth", () => {
+	test("legacy pi: falls back to registerProvider(name, config) with env-var auth", async () => {
 		const { pi, recorded } = fakePi({ rejectNativeProvider: true });
-		extension(pi);
+		await extension(pi);
 		expect(recorded.native).toEqual([]);
 		expect(recorded.legacy.length).toBe(PROVIDERS.length);
 		const { name, config } = recorded.legacy[0]!;
@@ -113,27 +113,27 @@ describe("pi version compatibility (one entrypoint, any runtime)", () => {
 		}
 	});
 
-	test("legacy pi without registerTool: providers still register, MCP tools skipped", () => {
+	test("legacy pi without registerTool: providers still register, MCP tools skipped", async () => {
 		const { pi, recorded } = fakePi({ withoutRegisterTool: true });
-		extension(pi);
+		await extension(pi);
 		expect(recorded.native.length).toBe(PROVIDERS.length);
 		expect(recorded.tools).toEqual([]);
 	});
 
-	test("old pi without registerCommand: providers + tools still register, command skipped", () => {
+	test("old pi without registerCommand: providers + tools still register, command skipped", async () => {
 		const { pi, recorded } = fakePi({ withoutRegisterCommand: true });
-		extension(pi);
+		await extension(pi);
 		expect(recorded.native.length).toBe(PROVIDERS.length);
 		expect(recorded.commands).toEqual([]);
 		expect(recorded.tools.length).toBe(6); // web_search + 5 media tools (both bridges default-on)
 	});
 
-	test("NAN_MCP_TOOLS=0 disables only the web_search bridge", () => {
+	test("NAN_MCP_TOOLS=0 disables only the web_search bridge", async () => {
 		const env = cleanEnv(["NAN_MCP_TOOLS"]);
 		env.set("NAN_MCP_TOOLS", "0");
 		try {
 			const { pi, recorded } = fakePi();
-			extension(pi);
+			await extension(pi);
 			expect(recorded.tools.map((tool) => tool.name)).toEqual([
 				"nan_generate_image",
 				"nan_edit_image",
@@ -146,19 +146,19 @@ describe("pi version compatibility (one entrypoint, any runtime)", () => {
 		}
 	});
 
-	test("NAN_MEDIA_MCP=0 disables only the media bridge", () => {
+	test("NAN_MEDIA_MCP=0 disables only the media bridge", async () => {
 		const env = cleanEnv(["NAN_MEDIA_MCP"]);
 		env.set("NAN_MEDIA_MCP", "0");
 		try {
 			const { pi, recorded } = fakePi();
-			extension(pi);
+			await extension(pi);
 			expect(recorded.tools.map((tool) => tool.name)).toEqual(["nan_web_search"]);
 		} finally {
 			env.restore();
 		}
 	});
 
-	test("persisted /nan-mcp disable keeps tools out of future sessions", () => {
+	test("persisted /nan-mcp disable keeps tools out of future sessions", async () => {
 		// The state file is written by the command; here we seed it directly.
 		const env = cleanEnv(["PI_CODING_AGENT_DIR"]);
 		const dir = mkdtempSync(join(tmpdir(), "nan-compat-"));
@@ -166,7 +166,7 @@ describe("pi version compatibility (one entrypoint, any runtime)", () => {
 		writeState({ webSearch: false, mediaMcp: false });
 		try {
 			const { pi, recorded } = fakePi();
-			extension(pi);
+			await extension(pi);
 			expect(recorded.tools).toEqual([]);
 		} finally {
 			env.restore();
