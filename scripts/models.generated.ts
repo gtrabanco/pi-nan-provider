@@ -134,62 +134,6 @@ export const NAN_GENERATED_MODELS: readonly GeneratedModelEntry[] = [
 		}
 	},
 	{
-		"id": "glm5.2",
-		"name": "GLM-5.2",
-		"reasoning": true,
-		"input": [
-			"text"
-		],
-		"cost": {
-			"input": 0,
-			"output": 0,
-			"cacheRead": 0,
-			"cacheWrite": 0
-		},
-		"contextWindow": 500000,
-		"maxTokens": 131072,
-		"compat": {
-			"supportsDeveloperRole": false,
-			"supportsReasoningEffort": true,
-			"supportsUsageInStreaming": true,
-			"maxTokensField": "max_tokens"
-		},
-		"notes": [
-			"compat matches the maintainer's working ~/.pi/agent/models.json LiteLLM config for api.nan.builders (2026-09-04): supportsDeveloperRole false, supportsReasoningEffort true, supportsUsageInStreaming true, maxTokensField max_tokens. NaN's docs example sets only supportsDeveloperRole: true and is not battle-tested."
-		],
-		"extras": {
-			"id": "glm5.2",
-			"name": "GLM-5.2",
-			"description": "Open flagship GLM for long-horizon coding agents, served at 500K context on the NaN premium tier",
-			"family": "glm",
-			"attachment": false,
-			"reasoning": true,
-			"reasoning_options": [],
-			"tool_call": true,
-			"structured_output": true,
-			"temperature": true,
-			"release_date": "2026-06-13",
-			"last_updated": "2026-06-13",
-			"modalities": {
-				"input": [
-					"text"
-				],
-				"output": [
-					"text"
-				]
-			},
-			"open_weights": true,
-			"limit": {
-				"context": 500000,
-				"output": 131072
-			},
-			"cost": {
-				"input": 0,
-				"output": 0
-			}
-		}
-	},
-	{
 		"id": "glm5.3-flash",
 		"name": "GLM-5.3-Flash",
 		"reasoning": true,
@@ -433,7 +377,7 @@ export const GENERATED_CATALOG_META = {
 	modelsDevProvider: "nan",
 	fetchedAt: "2026-09-05T10:44:08.631Z",
 	modelCount: 7,
-	models: ["deepseek-v4-flash","gemma4","glm5.2","glm5.3-flash","mimo-v2.5","qwen3.6","qwen3.8-flash"],
+	models: ["deepseek-v4-flash","gemma4","glm5.3-flash","mimo-v2.5","qwen3.6","qwen3.8-flash"],
 	notes: [
 	"compat matches the maintainer's working ~/.pi/agent/models.json LiteLLM config for api.nan.builders (2026-09-04): supportsDeveloperRole false, supportsReasoningEffort true, supportsUsageInStreaming true, maxTokensField max_tokens. NaN's docs example sets only supportsDeveloperRole: true and is not battle-tested.",
 	"input includes image: NaN serves the Vision-Exp variant (confirmed at https://nan.builders/docs/models, 'takes images as input'); models.dev provider nan lists text only.",

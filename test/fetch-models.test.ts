@@ -41,9 +41,9 @@ describe("listLiveModelIds", () => {
 	test("returns trimmed, de-duplicated live ids in order", async () => {
 		const ids = await listLiveModelIds({
 			baseUrl: SOURCE.baseUrl,
-			fetchImpl: jsonFetch({ data: [{ id: " qwen3.6 " }, { id: "qwen3.6" }, { id: "glm5.2" }, { id: "" }, {}] }),
+			fetchImpl: jsonFetch({ data: [{ id: " qwen3.6 " }, { id: "qwen3.6" }, { id: "glm5.3-flash" }, { id: "" }, {}] }),
 		});
-		expect(ids).toEqual(["qwen3.6", "glm5.2"]);
+		expect(ids).toEqual(["qwen3.6", "glm5.3-flash"]);
 	});
 
 	test("sends Authorization bearer header when an api key is given", async () => {
@@ -136,9 +136,9 @@ describe("mergeLiveWithGenerated", () => {
 	});
 
 	test("mixed catalog keeps generated and unknown entries side by side", () => {
-		const merged = mergeLiveWithGenerated(["glm5.2", "future-model"], SOURCE);
+		const merged = mergeLiveWithGenerated(["glm5.3-flash", "future-model"], SOURCE);
 		expect(merged.models.length).toBe(2);
-		expect(merged.matched).toEqual(["glm5.2"]);
+		expect(merged.matched).toEqual(["glm5.3-flash"]);
 		expect(merged.unknown).toEqual(["future-model"]);
 	});
 });
