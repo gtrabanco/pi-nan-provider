@@ -105,7 +105,7 @@ Environment variables:
 
 ## Models
 
-Baseline catalog (from models.dev, provider `nan`, fetched 2026-09-04 — NaN's *served* limits, not raw model maxima):
+Baseline catalog (from models.dev, provider `nan`, fetched 2026-09-07 and corrected against [NaN's docs](https://nan.builders/docs/models) and [openapi.json](https://nan.builders/openapi.json) — NaN's *served* limits, not raw model maxima):
 
 | Model | Context | Max output | Input | Reasoning |
 |---|---|---|---|---|
@@ -113,18 +113,18 @@ Baseline catalog (from models.dev, provider `nan`, fetched 2026-09-04 — NaN's 
 | `gemma4` | 262,144 | 32,768 | text, image | yes |
 | `deepseek-v4-flash` | 1,000,000 | 384,000 | text, image | yes |
 | `mimo-v2.5` | 1,048,576 | 131,072 | text, image | yes |
-| `glm5.2` | 500,000 | 131,072 | text | yes |
 | `glm5.3-flash` | 1,000,000 | 131,072 | text, image | yes |
-| `qwen3.8-flash` | 1,000,000 | 131,072 | text, image | yes |
+| `qwen3.8-flash` | 262,144 | 131,072 | text, image | yes |
 
 Notes (recorded per entry in `scripts/models.generated.ts`):
 
-- `qwen3.8-flash` context window is maintainer-confirmed at 1M (2026-09-05); models.dev and NaN's docs still listed 262,144 at that date. Divergences like this are recorded as build-time `MANUAL_OVERRIDES` (with provenance) in `scripts/manual-overrides.ts` — apply one instead of editing the generated file.
-- `deepseek-v4-flash` includes image input because NaN serves the Vision-Exp variant ([NaN docs](https://nan.builders/docs/models)); models.dev lists text only.
+- `qwen3.8-flash` serves 262K tokens, "the model's native window" ([NaN docs](https://nan.builders/docs/models), 2026-09-07). An earlier 1M override (maintainer-confirmed 2026-09-05) was withdrawn once the updated docs still said 262K; models.dev agrees at 262,144. Divergences like this are recorded as build-time `MANUAL_OVERRIDES` (with provenance) in `scripts/manual-overrides.ts` — apply one instead of editing the generated file.
+- `deepseek-v4-flash` includes image input because NaN serves the Vision-Exp variant ([NaN docs](https://nan.builders/docs/models), confirmed by the vision content-parts in [openapi.json](https://nan.builders/openapi.json)); models.dev lists text only.
+- `glm5.2` was removed by NaN (2026-09-05). models.dev still listed it on 2026-09-07, so the generator excludes it via `PROVIDER_REMOVED_MODEL_IDS` with a recorded reason — a regeneration must not resurrect provider-removed models.
 - `mimo-v2.5` is omnimodal (text/image/audio) on NaN, but pi's model type only represents text/image input, so audio is dropped from `input`.
 - NaN bills via membership quota, which models.dev reports as zero per-token cost — pi's cost display will read $0.
 - Compat (`supportsDeveloperRole: false`, `supportsReasoningEffort: true`, `supportsUsageInStreaming: true`, `maxTokensField: "max_tokens"`) matches the battle-tested LiteLLM config this package replaces; NaN's docs example (`supportsDeveloperRole: true`) is not battle-tested.
-- **Tier/quota**: which models you can call is decided by your NaN membership. With a key, the live fetch reflects exactly that (see *How it works* — tier detection). The premium-tier GLM 5.3 is not in the models.dev `nan` provider at all; only `glm5.3-flash` is.
+- **Tier/quota**: which models you can call is decided by your NaN membership. With a key, the live fetch reflects exactly that (see *How it works* — tier detection). The premium-tier `glm5.3` is absent from the models.dev `nan` provider and no source documents its max output tokens, so it is not in the static catalog (flagged as unemittable in the catalog metadata); premium keys still get it live via the `/models` refresh with conservative placeholder limits (128K context / 4K output). Only `glm5.3-flash` is in the static catalog.
 
 ### Relationship to `~/.pi/agent/models.json`
 

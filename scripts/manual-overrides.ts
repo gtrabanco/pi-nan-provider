@@ -38,10 +38,6 @@ export interface ManualModelOverride {
 export const MANUAL_OVERRIDES: Record<string, ManualModelOverride> = {
 	"deepseek-v4-flash": {
 		input: ["text", "image"],
-		note: "input includes image: NaN serves the Vision-Exp variant (confirmed at https://nan.builders/docs/models, 'takes images as input'); models.dev provider nan lists text only.",
-	},
-	"qwen3.8-flash": {
-		contextWindow: 1_000_000,
-		note: "contextWindow 1,000,000: maintainer-confirmed against api.nan.builders (2026-09-05); both models.dev and https://nan.builders/docs/models still listed 262,144 ('262K token context, the model's native window') as of 2026-09-05 — re-verify against the gateway/docs when they update.",
+		note: "input includes image: NaN serves the Vision-Exp variant ('takes images as input', https://nan.builders/docs/models, checked 2026-09-07; the image_url content-parts in https://nan.builders/openapi.json list deepseek-v4-flash among the vision models); models.dev provider nan lists text only.",
 	},
 };

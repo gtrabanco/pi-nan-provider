@@ -37,9 +37,35 @@ const PI_SUPPORTED_INPUT = new Set(["text", "image"]);
  * Manual corrections over models.dev live in scripts/manual-overrides.ts
  * (shared with test/generated-catalog.test.ts, which pins that every
  * override lands on the generated entry with its provenance note).
- * Capabilities diverging from models.dev are recorded there, never here.
+ * Capability divergences from models.dev are recorded there, never here.
+ * MANUAL_NOTES adds provenance-only notes to otherwise-untouched entries.
  */
-const MANUAL_NOTES: Record<string, string> = {};
+const MANUAL_NOTES: Record<string, string> = {
+	"qwen3.8-flash":
+		"contextWindow 262,144: the earlier 1,000,000 override (maintainer-confirmed 2026-09-05) was withdrawn 2026-09-07 — the updated https://nan.builders/docs/models still states '262K token context, the model's native window' and models.dev agrees at 262,144; NaN docs are treated as the most reliable source (maintainer instruction, 2026-09-07).",
+};
+
+/**
+ * Models the provider has removed but that models.dev may still list.
+ * Excluded at generation time with the recorded reason — a regeneration must
+ * never resurrect an entry the gateway no longer serves (this happened with
+ * glm5.2: hand-removed 2026-09-05, models.dev re-listed it by 2026-09-07).
+ */
+const PROVIDER_REMOVED_MODEL_IDS: Record<string, string> = {
+	"glm5.2":
+		"removed by NaN (2026-09-05); absent from the official chat model list in https://nan.builders/openapi.json and https://nan.builders/docs/models (checked 2026-09-07) while models.dev provider nan still listed it — excluded so regeneration does not resurrect it",
+};
+
+/**
+ * Models the provider documents and serves but that cannot be emitted yet:
+ * absent from models.dev, or missing a limit no source documents. Flagged in
+ * the catalog metadata instead of invented (no-fabrication rule); keys with
+ * access still receive them live via the /models refresh with conservative
+ * placeholder limits (UNKNOWN_MODEL_LIMITS).
+ */
+const KNOWN_UNEMITTABLE_MODEL_NOTES: readonly string[] = [
+	"glm5.3: served by NaN on the GLM 5.3 premium tier (https://nan.builders/docs/models + https://nan.builders/openapi.json, checked 2026-09-07) but absent from models.dev, and no source documents its max output tokens — no entry is generated (no-fabrication rule); premium keys still get it live via the /models refresh with conservative placeholder limits",
+];
 
 /**
  * LiteLLM compat confirmed against the live api.nan.builders gateway by the
@@ -113,6 +139,10 @@ function normalizeInput(modalitiesInput: string[] | undefined, modelId: string):
 }
 
 function convertModel(modelId: string, m: ModelsDevModel): GeneratedModel | { skip: string } {
+	const removedReason = PROVIDER_REMOVED_MODEL_IDS[modelId];
+	if (removedReason) {
+		return { skip: `provider-removed: "${modelId}" excluded from the catalog (${removedReason})` };
+	}
 	const contextWindow = m.limit?.context;
 	const maxTokens = m.limit?.output;
 	if (typeof contextWindow !== "number" || contextWindow <= 0) {
@@ -195,6 +225,7 @@ async function main(): Promise<void> {
 	const fetchedAt = new Date().toISOString();
 	const allNotes = [
 		...skipped,
+		...KNOWN_UNEMITTABLE_MODEL_NOTES,
 		...new Set(entries.flatMap((entry) => entry.notes ?? [])),
 	];
 

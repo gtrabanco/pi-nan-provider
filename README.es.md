@@ -105,7 +105,7 @@ Variables de entorno:
 
 ## Modelos
 
-Catálogo base (de models.dev, proveedor `nan`, obtenido 2026-09-04 — límites *servidos* por NaN, no máximos teóricos):
+Catálogo base (de models.dev, proveedor `nan`, obtenido 2026-09-07 y corregido contra [los docs de NaN](https://nan.builders/docs/models) y [openapi.json](https://nan.builders/openapi.json) — límites *servidos* por NaN, no máximos teóricos):
 
 | Modelo | Contexto | Máx. salida | Entrada | Razonamiento |
 |---|---|---|---|---|
@@ -113,19 +113,18 @@ Catálogo base (de models.dev, proveedor `nan`, obtenido 2026-09-04 — límites
 | `gemma4` | 262,144 | 32,768 | texto, imagen | sí |
 | `deepseek-v4-flash` | 1,000,000 | 384,000 | texto, imagen | sí |
 | `mimo-v2.5` | 1,048,576 | 131,072 | texto, imagen | sí |
-| `glm5.2` | 500,000 | 131,072 | texto | sí |
 | `glm5.3-flash` | 1,000,000 | 131,072 | texto, imagen | sí |
-| `qwen3.8-flash` | 1,000,000 | 131,072 | texto, imagen | sí |
+| `qwen3.8-flash` | 262,144 | 131,072 | texto, imagen | sí |
 
 Notas (grabadas por entrada en `scripts/models.generated.ts`):
 
-- La ventana de contexto de `qwen3.8-flash` está confirmada por el mantenedor en 1M (2026-09-05); models.dev y los docs de NaN aún listaban 262,144 en esa fecha. Este tipo de divergencias se registran como `MANUAL_OVERRIDES` en tiempo de build (con procedencia) en `scripts/manual-overrides.ts` — añade una ahí en vez de editar el fichero generado.
-
-- `deepseek-v4-flash` incluye entrada de imagen porque NaN sirve la variante Vision-Exp ([docs de NaN](https://nan.builders/docs/models)); models.dev la lista como solo texto.
+- `qwen3.8-flash` sirve 262K tokens, «la ventana nativa del modelo» ([docs de NaN](https://nan.builders/docs/models), 2026-09-07). Un override previo de 1M (confirmado por el mantenedor el 2026-09-05) se retiró cuando los docs actualizados siguieron diciendo 262K; models.dev coincide en 262,144. Este tipo de divergencias se registran como `MANUAL_OVERRIDES` en tiempo de build (con procedencia) en `scripts/manual-overrides.ts` — añade una ahí en vez de editar el fichero generado.
+- `deepseek-v4-flash` incluye entrada de imagen porque NaN sirve la variante Vision-Exp ([docs de NaN](https://nan.builders/docs/models), confirmado por los content-parts de visión en [openapi.json](https://nan.builders/openapi.json)); models.dev la lista como solo texto.
+- `glm5.2` fue eliminado por NaN (2026-09-05). models.dev aún lo listaba el 2026-09-07, así que el generador lo excluye vía `PROVIDER_REMOVED_MODEL_IDS` con la razón registrada — una regeneración no debe resucitar modelos retirados por el proveedor.
 - `mimo-v2.5` es omnimodal (texto/imagen/audio) en NaN, pero el tipo de modelo de pi solo representa entrada texto/imagen, así que el audio se omite en `input`.
 - NaN factura por cuota de membresía, que models.dev reporta como coste cero por token — el coste mostrado por pi será $0.
 - Compat (`supportsDeveloperRole: false`, `supportsReasoningEffort: true`, `supportsUsageInStreaming: true`, `maxTokensField: "max_tokens"`) coincide con la config LiteLLM probada en batalla que este paquete reemplaza; el ejemplo de los docs de NaN (`supportsDeveloperRole: true`) no está probado.
-- **Tier/cuota**: qué modelos puedes llamar lo decide tu membresía de NaN. Con clave, el fetch en vivo refleja exactamente eso (ver *Cómo funciona* — detección de tier). El GLM 5.3 de tier premium no está en el proveedor `nan` de models.dev; solo está `glm5.3-flash`.
+- **Tier/cuota**: qué modelos puedes llamar lo decide tu membresía de NaN. Con clave, el fetch en vivo refleja exactamente eso (ver *Cómo funciona* — detección de tier). El `glm5.3` de tier premium no está en el proveedor `nan` de models.dev y ninguna fuente documenta su límite de salida, así que no entra en el catálogo estático (marcado como no emitible en los metadatos); las claves premium lo reciben en vivo vía el refresh de `/models`, con límites conservadores (128K contexto / 4K salida). Solo está `glm5.3-flash` en el catálogo estático.
 
 ### Relación con `~/.pi/agent/models.json`
 
