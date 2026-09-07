@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-09-09
+
+### Added
+
+- **Automated nan-mcp-server update detection**. New `scripts/check-nan-mcp-server.ts`
+  (wired as `bun run check-nan-mcp-server`) compares the npm registry against the pinned
+  `DEFAULT_NAN_MEDIA_MCP_VERSION`, inspects the *live* server tool surface via unpkg, and reports
+  whether a bump is **non-breaking** or **breaking** for the bridged tools, plus the upstream commit
+  list. A new scheduled workflow (`.github/workflows/check-nan-mcp-server-update.yml`, weekly +
+  manual) opens/refreshes a single `dependencies`-labelled update issue when a newer release exists.
+  Read-only against the repo; never auto-bumps.
+- Bridged-tool constants (`NAN_MEDIA_MCP_SERVER_TOOLS`) typed as the single source of truth for both
+  the media tool specs and the check script, so the bridge cannot drift from the surface it claims.
+- Tests for the check script (`test/check-nan-mcp-server.test.ts`): version compare, tool-surface
+  extraction, breaking/safe verdict, report builder, and injected-fetch network fetchers.
+
+### Changed
+
+- **Pinned nan-mcp-server to `1.0.8`** (verified non-breaking: the server tool surface is unchanged;
+  upstream only tightened `edit_image` validation, added docs/tests).
+- `nan_edit_image` schema now enforces `minItems: 1` / `maxItems: 4` on `images`, matching the
+  upstream 1.0.8 zod schema (previously the annotation said "up to 4" without enforcing it).
+- Schema-mirroring comments updated from v1.0.7 to v1.0.8.
+
 ## [0.5.2] — 2026-09-07
 
 ### Changed
@@ -47,7 +71,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial public release of the nan provider package for pi.
 
-[Unreleased]: https://github.com/gtrabanco/pi-nan-provider/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/gtrabanco/pi-nan-provider/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/gtrabanco/pi-nan-provider/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/gtrabanco/pi-nan-provider/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/gtrabanco/pi-nan-provider/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/gtrabanco/pi-nan-provider/compare/v0.4.0...v0.5.0

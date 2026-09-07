@@ -18,7 +18,7 @@ const PROTOCOL_VERSION = "2024-11-05";
 const CLIENT_INFO = { name: "pi-nan-provider", version: "0.2.0" };
 
 export interface StdioMcpCallOptions {
-	/** Command to spawn, e.g. ["npx", "-y", "nan-mcp-server@1.0.7"]. */
+	/** Command to spawn, e.g. ["npx", "-y", "nan-mcp-server@1.0.8"]. */
 	command: readonly string[];
 	/** Extra environment for the child (merged over process.env). */
 	env?: Record<string, string | undefined>;

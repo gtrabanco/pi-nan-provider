@@ -1,0 +1,45 @@
+name: Check nan-mcp-server updates
+
+# Scheduled detection of a newer `nan-mcp-server` release. This package bridges
+# the community stdio MCP server's tools (media: image/TTS/STT) into pi tools,
+# pinned via DEFAULT_NAN_MEDIA_MCP_VERSION. This workflow runs the check script
+# (scripts/check-nan-mcp-server.ts) which compares the npm registry against the
+# pin and, when a newer version exists, opens (or refreshes) a single
+# `dependencies`-labelled issue describing whether the bump is breaking or safe.
+#
+# Run on a schedule so maintainers get a signal instead of a silent drift. Also
+# available manually (workflow_dispatch).
+#
+# The check is read-only against our repo (issues: write is only used to file
+# the update issue). It does NOT publish or touch the package version — a human
+# decides whether / how to bump (breaking vs safe) from the issue body.
+
+on:
+  schedule:
+    # Weekly, Monday 06:00 UTC.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-updates:
+    if: github.repository == 'gtrabanco/pi-nan-provider'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check for nan-mcp-server updates
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # --issue creates/updates the update issue only when an update is found
+        # and the token is present. Without a token it just reports to stdout,
+        # so a dry run (no secret) is safe and non-destructive.
+        run: bun run scripts/check-nan-mcp-server.ts --issue

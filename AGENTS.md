@@ -115,7 +115,10 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
     "growing registry" — use tools/list to discover.
   - Community `nan-mcp-server` (https://github.com/luciferfran/nan-mcp-server):
     stdio MCP server, spawned per tool call (lazy), opt-in NAN_MEDIA_MCP=1,
-    version-pinned via NAN_MEDIA_MCP_VERSION (default 1.0.7) or a full command
+    version-pinned via NAN_MEDIA_MCP_VERSION (default 1.0.8) or a full command
     override via NAN_MEDIA_MCP_COMMAND. Tools: generate_image, edit_image,
     text_to_speech, list_voices, speech_to_text, embed, rerank, list_models
-    (we bridge the audio/image/transcription scope).
+    (we bridge the audio/image/transcription scope). An automated check
+    (scripts/check-nan-mcp-server.ts + .github/workflows/check-nan-mcp-server-update.yml)
+    compares the npm registry against the pin weekly and files a `dependencies` issue
+    with a breaking/safe verdict from the live server tool surface (unpkg).

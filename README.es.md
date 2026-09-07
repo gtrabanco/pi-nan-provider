@@ -98,8 +98,27 @@ Variables de entorno:
 | Variable | Por defecto | Significado |
 |---|---|---|
 | `NAN_MEDIA_MCP` | — | Override por sesión del puente de media: cualquier valor explícito (incl. `0`) gana al toggle persistido de `/nan-mcp`; sin definir → persistido/por defecto |
-| `NAN_MEDIA_MCP_VERSION` | `1.0.7` | Versión del servidor fijada para `npx -y nan-mcp-server@<v>` (recomendación de supply-chain del propio proyecto) |
-| `NAN_MEDIA_MCP_COMMAND` | — | Comando personalizado completo, p. ej. `bunx nan-mcp-server@1.0.7` |
+| `NAN_MEDIA_MCP_VERSION` | `1.0.8` | Versión del servidor fijada para `npx -y nan-mcp-server@<v>` (recomendación de supply-chain del propio proyecto) |
+| `NAN_MEDIA_MCP_COMMAND` | — | Comando personalizado completo, p. ej. `bunx nan-mcp-server@1.0.8` |
+
+#### Detección automatizada de actualizaciones
+
+Una nueva versión de `nan-mcp-server` no desviará silenciosamente el pin de esta conexión. El
+planificador (`.github/workflows/check-nan-mcp-server-update.yml`) ejecuta `bun run scripts/check-nan-mcp-server.ts`
+semanalmente y, cuando el registro npm muestra una versión más reciente, abre (o refresca) un único
+issue etiquetado `dependencies` que describe si el bump es **breaking** o **seguro**, más la lista de
+commits aguas arriba. Puedes ejecutarlo localmente en cualquier momento:
+
+```bash
+bun run check-nan-mcp-server            # informe legible
+bun run check-nan-mcp-server --json     # JSON para máquina
+bun run check-nan-mcp-server --issue    # crea/refresca el issue (requiere GITHUB_TOKEN)
+```
+
+La decisión se toma a partir de la *superficie de tools* en vivo (vía unpkg), no de docs obsoletos: si
+el último servidor sigue exponiendo todas las tools conectadas (`generate_image`, `edit_image`,
+`text_to_speech`, `list_voices`, `speech_to_text`), el bump se reporta como **no rompente**; si elimina
+o renombra alguna tool conectada, el issue se marca **breaking** para revisión manual antes de subir.
 | `NAN_MEDIA_MCP_TIMEOUT_MS` | `120000` | Timeout por llamada; el proceso se mata al expirar |
 | `NAN_MCP_TOOLS` | — | Override por sesión del puente oficial: `0`/`false`/`off` desactiva `nan_web_search`; sin definir → persistido/por defecto |
 

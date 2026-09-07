@@ -98,8 +98,27 @@ Environment variables:
 | Variable | Default | Meaning |
 |---|---|---|
 | `NAN_MEDIA_MCP` | — | Per-session override for the media bridge: any explicit value (incl. `0`) beats the `/nan-mcp` persisted toggle; unset → persisted/default |
-| `NAN_MEDIA_MCP_VERSION` | `1.0.7` | Pinned server version for `npx -y nan-mcp-server@<v>` (upstream's own supply-chain recommendation) |
-| `NAN_MEDIA_MCP_COMMAND` | — | Full custom command, e.g. `bunx nan-mcp-server@1.0.7` |
+| `NAN_MEDIA_MCP_VERSION` | `1.0.8` | Pinned server version for `npx -y nan-mcp-server@<v>` (upstream's own supply-chain recommendation) |
+| `NAN_MEDIA_MCP_COMMAND` | — | Full custom command, e.g. `bunx nan-mcp-server@1.0.8` |
+
+#### Automated update detection
+
+A newer `nan-mcp-server` release won't silently drift this bridge's pin. The scheduler
+(`.github/workflows/check-nan-mcp-server-update.yml`) runs `bun run scripts/check-nan-mcp-server.ts`
+weekly and, when the npm registry shows a newer version, opens (or refreshes) one
+`dependencies`-labelled issue describing whether the bump is **breaking** or **safe**, plus the
+upstream commit list. Run it locally any time:
+
+```bash
+bun run check-nan-mcp-server            # human-readable report
+bun run check-nan-mcp-server --json     # machine-readable JSON
+bun run check-nan-mcp-server --issue    # create/refresh the issue (needs GITHUB_TOKEN)
+```
+
+The decision is made from the *live* server tool surface (via unpkg), not from stale docs: if the
+latest server still exposes every bridged tool (`generate_image`, `edit_image`, `text_to_speech`,
+`list_voices`, `speech_to_text`), the bump is reported as **non-breaking**; if it drops or renames a
+bridged tool, the issue is flagged **breaking** for manual review before bumping.
 | `NAN_MEDIA_MCP_TIMEOUT_MS` | `120000` | Per-call timeout; the process is killed after it |
 | `NAN_MCP_TOOLS` | — | Per-session override for the official bridge: `0`/`false`/`off` disables `nan_web_search`; unset → persisted/default |
 
