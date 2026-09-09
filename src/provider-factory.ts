@@ -32,6 +32,7 @@ import {
 	resolveCatalog,
 	type CatalogSource,
 } from "./fetch-models.ts";
+import { sanitizeOpenAICompatPayload } from "./openai-compat-sanitizer.ts";
 
 export interface OpenAICompatibleProviderConfig {
 	/** Provider id as registered in pi, e.g. "nan". */
@@ -78,6 +79,48 @@ export async function resolveOpenAICompletionsApi(): Promise<OpenAICompletionsAp
 	cachedApiFactory = (await import("@earendil-works/pi-ai/api/openai-completions.lazy"))
 		.openAICompletionsApi;
 	return cachedApiFactory;
+}
+
+/**
+ * Wrap an api so every outgoing `/chat/completions` payload is made conformant
+ * to the strict OpenAI Chat Completions schema NaN enforces (see
+ * ./openai-compat-sanitizer.ts). NaN returns HTTP 400 `Invalid request. Check
+ * your request parameters.` for any payload that violates it — including a
+ * replayed assistant message with a `toolCall` block inside `content`, a
+ * `reasoning_details` field, or undocumented top-level fields like `store` /
+ * `stream_options`. Sanitizing via the `onPayload` hook works regardless of
+ * which pi-ai version the runtime bundles, so the fix is not tied to a
+ * specific upstream build.
+ *
+ * Any caller-supplied `onPayload` (e.g. pi's own debug/passthrough hook) is
+ * preserved and chained AFTER sanitization, so the final payload is always
+ * schema-valid.
+ */
+function isObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+export function wrapApiForStrictSanitization(api: ProviderStreams): ProviderStreams {
+	const withSanitizer = <TOptions extends object | undefined>(options: TOptions): TOptions => {
+		const userOnPayload = isObject(options) ? (options.onPayload as unknown) : undefined;
+		return {
+			...((options ?? {}) as Record<string, unknown>),
+			onPayload: async (payload: unknown, model: unknown) => {
+				const sanitized = sanitizeOpenAICompatPayload(payload);
+				if (typeof userOnPayload === "function") {
+					const userResult = await (userOnPayload as (p: unknown, m: unknown) => unknown)(sanitized, model);
+					return userResult ?? sanitized;
+				}
+				return sanitized;
+			},
+		} as TOptions;
+	};
+
+	return {
+		...api,
+		stream: (model, context, options) => api.stream(model, context, withSanitizer(options)),
+		streamSimple: (model, context, options) => api.streamSimple(model, context, withSanitizer(options)),
+	};
 }
 
 /**
@@ -130,6 +173,6 @@ export async function createNanCompatibleProvider(
 			const current = liveIds;
 			return current ? models.filter((model) => current.has(model.id)) : models;
 		},
-		api: apiFactory(),
+		api: wrapApiForStrictSanitization(apiFactory()),
 	});
 }
