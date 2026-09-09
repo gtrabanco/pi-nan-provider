@@ -86,6 +86,22 @@ describe("manual overrides in the generated catalog", () => {
 		}
 	});
 
+	test("every generated entry tolerates a missing finish_reason (gateway stream truncation)", () => {
+		// The NaN LiteLLM gateway intermittently cuts SSE streams before emitting
+		// finish_reason; with supportsFinishReason true pi-ai throws
+		// "Stream ended without finish_reason". The compat must disable that.
+		expect(NAN_GENERATED_MODELS.length).toBeGreaterThan(0);
+		for (const entry of NAN_GENERATED_MODELS) {
+			expect(entry.compat?.supportsFinishReason, entry.id).toBe(false);
+		}
+		// The provenance note must record the flag.
+		expect(
+			GENERATED_CATALOG_META.notes.some(
+				(note) => note.includes("supportsFinishReason") && note.includes("false"),
+			),
+		).toBe(true);
+	});
+
 	test("overrides never fabricate values without a note", () => {
 		// Structural guard: a field-keyed override with an empty/missing note
 		// would violate the repo's no-fabrication rule.

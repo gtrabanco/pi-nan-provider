@@ -12,12 +12,16 @@
  *     only model `id`s — no capability fields. It is used solely to confirm
  *     which model IDs are currently live.
  *
- * Merge: live IDs × generated capability data. A live ID with no generated
- * match is kept with conservative placeholder limits (the same defaults used
- * in custom-provider.md's dynamic-discovery example) and no reasoning
- * support — capabilities stay "unknown", nothing is fabricated. On fetch
- * failure, timeout, or an unusable response, callers fall back to the
- * generated catalog so startup is never blocked.
+ * Merge: live IDs × generated capability data — an allowlist, not an open
+ * ingest. Only allowlisted IDs surface: a live ID with generated data keeps
+ * its generated capabilities, and an allowlisted uncatalogued ID (premium
+ * live-only) gets conservative placeholder limits (the same defaults used in
+ * custom-provider.md's dynamic-discovery example) with no reasoning support -
+ * capabilities stay "unknown", nothing is fabricated. Every other live ID is
+ * dropped so undocumented models (and any model NaN starts serving later)
+ * and non-chat endpoints never surface. On fetch failure, timeout, or an
+ * unusable response, callers fall back to the generated catalog so startup
+ * is never blocked.
  */
 
 import type { Model, OpenAICompletionsCompat } from "@earendil-works/pi-ai";
@@ -60,6 +64,28 @@ export const NAN_COMPAT_API = "openai-completions" as const;
  */
 export const UNKNOWN_MODEL_LIMITS = { contextWindow: 128_000, maxTokens: 4_096 } as const;
 
+/**
+ * The allowlist of model ids this package may surface. Everything a live
+ * /models response returns that is NOT here is dropped — so models that are
+ * undocumented (and might become available later, e.g. one NaN starts
+ * serving after a release) can never leak through the package.
+ *
+ * Every current chat model is listed: the six models.dev-documented entries
+ * plus the premium live-only glm5.3 (which NaN serves via /models but that
+ * models.dev omits — see the "unemittable" note in scripts/generate-models.ts).
+ * Non-chat endpoints (flux-2-klein, kokoro, whisper, qwen3-embedding, rerank)
+ * are deliberately excluded: they are MCP-bridge territory, not chat models.
+ */
+const ALLOWED_MODEL_IDS = [
+	"deepseek-v4-flash",
+	"gemma4",
+	"glm5.3-flash",
+	"glm5.3",
+	"mimo-v2.5",
+	"qwen3.6",
+	"qwen3.8-flash",
+] as const;
+
 /** Timeout for the live /models fetch; matches the pi-synthetic-provider precedent (~3s). */
 export const DEFAULT_MODELS_TIMEOUT_MS = 3_000;
 
@@ -87,9 +113,10 @@ export function toModel(entry: GeneratedModelEntry, source: CatalogSource): Mode
 	};
 }
 
-/** The generated fallback catalog as pi-ai Models for the given provider. */
+/** The generated fallback catalog as pi-ai Models for the given provider (allowlisted entries only). */
 export function baselineModels(source: CatalogSource): Model<"openai-completions">[] {
-	return NAN_GENERATED_MODELS.map((entry) => toModel(entry, source));
+	const allowed = new Set<string>(ALLOWED_MODEL_IDS);
+	return NAN_GENERATED_MODELS.filter((entry) => allowed.has(entry.id)).map((entry) => toModel(entry, source));
 }
 
 export interface LiveModelListOptions {
@@ -142,15 +169,17 @@ export interface MergedCatalog {
 	models: Model<"openai-completions">[];
 	/** Live IDs resolved against generated capability data. */
 	matched: string[];
-	/** Live IDs kept with unknown capabilities (conservative limits). */
+	/** Allowlisted live IDs kept with unknown capabilities (conservative limits). */
 	unknown: string[];
 }
 
 /**
- * Merge live model IDs with the generated capability catalog.
- * Known IDs get generated data; unknown IDs get conservative placeholder
- * limits, `reasoning: false`, and zero cost — documented defaults, not
- * invented capabilities.
+ * Merge live model IDs with the generated capability catalog, gated by the
+ * allowlist. Only allowlisted IDs surface: live IDs with generated data keep
+ * their generated capabilities; allowlisted uncatalogued IDs (glm5.3) get
+ * conservative placeholder limits, `reasoning: false`, and zero cost
+ * (documented defaults, not invented capabilities). Every non-allowlisted
+ * live ID is dropped.
  */
 export function mergeLiveWithGenerated(
 	liveIds: readonly string[],
@@ -158,16 +187,25 @@ export function mergeLiveWithGenerated(
 	generated: readonly GeneratedModelEntry[] = NAN_GENERATED_MODELS,
 ): MergedCatalog {
 	const byId = new Map(generated.map((entry) => [entry.id, entry]));
+	const allowed = new Set<string>(ALLOWED_MODEL_IDS);
 	const models: Model<"openai-completions">[] = [];
 	const matched: string[] = [];
 	const unknown: string[] = [];
 
 	for (const id of liveIds) {
+		if (!allowed.has(id)) continue;
 		const entry = byId.get(id);
 		if (entry) {
 			models.push(toModel(entry, source));
 			matched.push(id);
 		} else {
+			// Conservative placeholder for allowlisted uncatalogued live ids
+			// (e.g. premium glm5.3): limits are the documented safe envelope and
+			// capabilities stay "unknown". supportsFinishReason: false is NOT a
+			// capability claim — it is a client-tolerance flag for the same
+			// gateway-level SSE truncation handled in NAN_COMPAT (LiteLLM cutting
+			// streams before finish_reason); without it pi-ai throws "Stream
+			// ended without finish_reason" on those models too.
 			models.push({
 				id,
 				name: id,
@@ -179,6 +217,7 @@ export function mergeLiveWithGenerated(
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 				contextWindow: UNKNOWN_MODEL_LIMITS.contextWindow,
 				maxTokens: UNKNOWN_MODEL_LIMITS.maxTokens,
+				compat: { supportsFinishReason: false },
 			});
 			unknown.push(id);
 		}
@@ -205,7 +244,7 @@ export interface ResolvedCatalog {
 	 * when the live fetch failed and the generated fallback was used.
 	 */
 	liveIds: Set<string> | undefined;
-	/** Live IDs kept with unknown capabilities (present only when liveIds is set). */
+	/** Allowlisted live IDs kept with unknown capabilities (present only when liveIds is set). */
 	unknownIds: string[];
 }
 

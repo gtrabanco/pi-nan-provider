@@ -80,11 +80,12 @@ const NAN_COMPAT = {
 	supportsDeveloperRole: false,
 	supportsReasoningEffort: true,
 	supportsUsageInStreaming: true,
+	supportsFinishReason: false,
 	maxTokensField: "max_tokens" as const,
 };
 
 const NAN_COMPAT_NOTE =
-	"compat matches the maintainer's working ~/.pi/agent/models.json LiteLLM config for api.nan.builders (2026-09-04): supportsDeveloperRole false, supportsReasoningEffort true, supportsUsageInStreaming true, maxTokensField max_tokens. NaN's docs example sets only supportsDeveloperRole: true and is not battle-tested.";
+	"compat matches the maintainer's working ~/.pi/agent/models.json LiteLLM config for api.nan.builders (2026-09-04): supportsDeveloperRole false, supportsReasoningEffort true, supportsUsageInStreaming true, maxTokensField max_tokens. NaN's docs example sets only supportsDeveloperRole: true and is not battle-tested. supportsFinishReason false added 2026-09-08: the LiteLLM gateway intermittently cuts SSE streams before emitting finish_reason (observed on glm5.3-flash, ~2026-09-08), and with the default true pi-ai throws 'Stream ended without finish_reason'; false makes pi-ai treat those truncated streams as stop/toolUse instead of erroring.";
 
 interface ModelsDevModel {
 	id?: string;

@@ -121,25 +121,39 @@ describe("mergeLiveWithGenerated", () => {
 		expect(model.baseUrl).toBe(SOURCE.baseUrl);
 	});
 
-	test("live ids without generated matches get conservative unknown limits, not fabricated data", () => {
-		const merged = mergeLiveWithGenerated(["brand-new-model", "qwen3-embedding"], SOURCE);
-		expect(merged.unknown).toEqual(["brand-new-model", "qwen3-embedding"]);
+	test("uncatalogued live ids surface only when allowlisted; others are dropped", () => {
+		const merged = mergeLiveWithGenerated(["glm5.3", "brand-new-model", "qwen3-embedding"], SOURCE);
+		expect(merged.unknown).toEqual(["glm5.3"]);
 		expect(merged.matched).toEqual([]);
-		for (const model of merged.models) {
-			expect(model.contextWindow).toBe(UNKNOWN_MODEL_LIMITS.contextWindow);
-			expect(model.maxTokens).toBe(UNKNOWN_MODEL_LIMITS.maxTokens);
-			expect(model.reasoning).toBe(false);
-			expect(model.input).toEqual(["text"]);
-			expect(model.cost).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
-			expect(model.name).toBe(model.id);
+		expect(merged.models.map((model) => model.id)).toEqual(["glm5.3"]);
+		const model = merged.models[0]!;
+		expect(model.contextWindow).toBe(UNKNOWN_MODEL_LIMITS.contextWindow);
+		expect(model.maxTokens).toBe(UNKNOWN_MODEL_LIMITS.maxTokens);
+		expect(model.reasoning).toBe(false);
+		expect(model.input).toEqual(["text"]);
+		expect(model.cost).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+		expect(model.name).toBe(model.id);
+	});
+
+	test("mixed catalog keeps generated and allowlisted live entries side by side", () => {
+		const merged = mergeLiveWithGenerated(["glm5.3-flash", "glm5.3"], SOURCE);
+		expect(merged.models.length).toBe(2);
+		expect(merged.matched).toEqual(["glm5.3-flash"]);
+		expect(merged.unknown).toEqual(["glm5.3"]);
+	});
+});
+
+describe("supportsFinishReason compat", () => {
+	test("baseline models propagate supportsFinishReason: false", () => {
+		for (const model of baselineModels(SOURCE)) {
+			expect(model.compat?.supportsFinishReason, model.id).toBe(false);
 		}
 	});
 
-	test("mixed catalog keeps generated and unknown entries side by side", () => {
-		const merged = mergeLiveWithGenerated(["glm5.3-flash", "future-model"], SOURCE);
-		expect(merged.models.length).toBe(2);
-		expect(merged.matched).toEqual(["glm5.3-flash"]);
-		expect(merged.unknown).toEqual(["future-model"]);
+	test("uncatalogued live-only ids also carry supportsFinishReason: false", () => {
+		// glm5.3 (premium, absent from models.dev) must not crash either.
+		const merged = mergeLiveWithGenerated(["glm5.3"], SOURCE);
+		expect(merged.models[0]!.compat?.supportsFinishReason).toBe(false);
 	});
 });
 
@@ -172,13 +186,13 @@ describe("baselineModels", () => {
 describe("fetchNanCompatibleModels", () => {
 	test("success merges live ids with generated capabilities (partial catalog)", async () => {
 		const models = await fetchNanCompatibleModels(SOURCE, {
-			fetchImpl: jsonFetch({ data: [{ id: "qwen3.6" }, { id: "totally-new" }] }),
+			fetchImpl: jsonFetch({ data: [{ id: "qwen3.6" }, { id: "glm5.3" }] }),
 		});
 		expect(models.length).toBe(2);
 		const qwen = models.find((model) => model.id === "qwen3.6")!;
 		expect(qwen.contextWindow).toBe(262_144); // generated data wins
-		const newcomer = models.find((model) => model.id === "totally-new")!;
-		expect(newcomer.contextWindow).toBe(UNKNOWN_MODEL_LIMITS.contextWindow);
+		const premium = models.find((model) => model.id === "glm5.3")!;
+		expect(premium.contextWindow).toBe(UNKNOWN_MODEL_LIMITS.contextWindow);
 	});
 
 	test("timeout falls back entirely to the generated catalog", async () => {

@@ -128,7 +128,7 @@ describe("fetchModels wiring through createProvider", () => {
 
 	test("refresh with network merges live ids and publishes the overlay", async () => {
 		const provider = await createNanCompatibleProvider(NAN_PROVIDER, {
-			fetchImpl: jsonFetch({ data: [{ id: "qwen3.6" }, { id: "mystery-model" }] }),
+			fetchImpl: jsonFetch({ data: [{ id: "qwen3.6" }, { id: "glm5.3" }] }),
 		});
 		let published = false;
 		await provider.refreshModels!(
@@ -143,7 +143,7 @@ describe("fetchModels wiring through createProvider", () => {
 		);
 		expect(published).toBe(true);
 		const models = provider.getModels() as Model<"openai-completions">[];
-		expect(models.some((model) => model.id === "mystery-model")).toBe(true);
+		expect(models.some((model) => model.id === "glm5.3")).toBe(true);
 		expect(models.find((model) => model.id === "qwen3.6")!.contextWindow).toBe(262_144);
 	});
 
