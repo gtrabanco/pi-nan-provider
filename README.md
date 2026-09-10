@@ -1,7 +1,7 @@
 # @gtrabanco/pi-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.6.2-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-0.6.3-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 
 [NaN Builders](https://nan.builders) model provider + MCP bridges for [pi](https://github.com/earendil-works/pi). 
 
@@ -42,6 +42,12 @@ The provider uses a **two-layer model catalog** to ensure reliability:
 > **Tier Detection**: The live list is authoritative. If your key has premium access, those models will appear automatically; otherwise, they are filtered out.
 
 The registration is synchronous on purpose: the generated fallback catalog is available immediately, and pi's Models runtime drives the live refresh (network refresh at interactive startup and periodically, cache-only at registration), persisting the overlay between runs.
+
+### 🧠 Model-switch safety (cross-model reasoning guard)
+
+When you switch models, pi-ai replays the previous model's reasoning as plain assistant text — with **no size bound**. A single long or degenerate reasoning trace can therefore overflow a 262K-context model's window, and NaN answers with a generic `400 Invalid request. Check your request parameters.` that looks like a provider bug (upstream tracking: [pi-nan-provider#3](https://github.com/gtrabanco/pi-nan-provider/issues/3); open upstream issue: [pi#6167](https://github.com/earendil-works/pi/issues/6167)).
+
+This package caps every replayed **cross-model** reasoning block at 16,000 chars with a visible truncation marker. Same-model reasoning is never altered, and the guard only acts on requests targeting this package's providers. Set `NAN_THINKING_GUARD=0` to disable it.
 
 ## 🔑 Authentication
 

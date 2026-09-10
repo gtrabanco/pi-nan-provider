@@ -1,7 +1,7 @@
 # @gtrabanco/pi-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.6.2-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-0.6.3-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 
 [NaN Builders](https://nan.builders) model provider + MCP bridges para [pi](https://github.com/earendil-works/pi). 
 
@@ -27,7 +27,7 @@ Registra el proveedor `nan` vía `pi.registerProvider()` usando la API OpenAI-co
 
 ---
 
-**Docs in English** (este archivo) · [Documentación en español](README.es.md)
+**Documentación en español** (este archivo) · [Docs in English](README.md)
 
 ## ⚙️ Cómo funciona
 
@@ -42,6 +42,12 @@ El proveedor utiliza un **catálogo de modelos de dos capas** para garantizar la
 > **Detección de Tier**: La lista en vivo es la autoridad. Si tu clave tiene acceso premium, esos modelos aparecerán automáticamente; de lo contrario, se filtran.
 
 El registro es síncrono a propósito: el catálogo de fallback está disponible al instante, y el runtime de Models de pi dirige el refresco en vivo (refresco de red en el arranque interactivo y periódico, solo caché en el registro), persistiendo el overlay entre ejecuciones.
+
+### 🧠 Seguridad al cambiar de modelo (guard de razonamiento cross-model)
+
+Al cambiar de modelo, pi-ai reenvía el razonamiento del modelo anterior como texto plano de asistente — **sin límite de tamaño**. Un único razonamiento largo o degenerado puede desbordar la ventana de un modelo de 262K, y NaN responde con un `400 Invalid request. Check your request parameters.` genérico que parece un bug del proveedor (seguimiento upstream: [pi-nan-provider#3](https://github.com/gtrabanco/pi-nan-provider/issues/3); issue abierta upstream: [pi#6167](https://github.com/earendil-works/pi/issues/6167)).
+
+Este paquete limita cada bloque de razonamiento **cross-model** a 16.000 caracteres con un marcador visible de truncado. El razonamiento del mismo modelo no se toca nunca, y el guard solo actúa sobre peticiones dirigidas a los proveedores de este paquete. Pon `NAN_THINKING_GUARD=0` para desactivarlo.
 
 ## 🔑 Autenticación
 

@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] — 2026-09-10
+
+### Fixed
+
+- **HTTP 400 `Invalid request. Check your request parameters.` on NaN model switch caused by an unbounded replayed
+  reasoning trace.** pi-ai's `transformMessages` downgrades a previous model's `thinking` blocks to plain assistant
+  text **with no size bound** when history is replayed into a different model
+  (`packages/ai/src/api/transform-messages.ts`, still true on pi 0.85.1 and `main`). A long or degenerate reasoning
+  trace — observed in the wild: `glm5.3-flash` ending with `stopReason: "length"` after emitting a 445,888-char /
+  131,072-token thinking block — is therefore replayed as a 445 KB assistant `content` string. On a 262K-context NaN
+  model (`qwen3.6`) that pushes the request past its window, and NaN's gateway answers a generic 400 instead of an
+  error that names the context overflow. Live-verified 2026-09-10: the exact outgoing payload returns 200 on
+  `deepseek-v4-flash` and `glm5.3-flash` (both 1M-context), and 200 on `qwen3.6` once only that replayed message is
+  removed.
+
+  `src/cross-model-thinking-guard.ts` now runs on pi's `context` hook (registered from `src/index.ts`), which fires
+  **before** pi-ai converts the blocks, and caps each replayed cross-model `thinking` block at
+  `MAX_CROSS_MODEL_THINKING_CHARS` (16,000 chars, ~4K tokens) with a visible truncation marker. Same-model replay is
+  never altered (signatures and continuity depend on it), non-NaN targets and non-assistant messages are untouched,
+  and the input is never mutated. `NAN_THINKING_GUARD=0` disables it. Tests cover the cap, the marker,
+  signature/sibling preservation, same-model/undefined/foreign-provider no-ops, multiple blocks, the env opt-out, and
+  the extension wiring.
+
+  This is a bounded mitigation, not the root fix: the unbounded conversion belongs upstream. Tracking issue:
+  https://github.com/gtrabanco/pi-nan-provider/issues/3 (see also https://github.com/earendil-works/pi/issues/6167).
+
 ## [0.6.2] — 2026-09-09
 
 ### Fixed
