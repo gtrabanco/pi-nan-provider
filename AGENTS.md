@@ -37,6 +37,27 @@ Regenerate the catalog after touching `scripts/generate-models.ts`:
 bun run generate-models
 ```
 
+## Live NaN API during diagnosis
+
+Diagnostic calls against the real gateway are allowed — they spend the
+maintainer's quota, so they are **permission-gated**:
+
+- **Ask the maintainer before running any live probe, with an approximate token
+  cost (input + output).** No silent probing. If the cost is not worth it, report
+  the behavior to NaN and let them reproduce it instead of debugging it here.
+- **Tests must never hit the network.** `bunfig.toml` preloads
+  `test/network-guard.ts`, which makes any un-injected `fetch` throw. Keep it:
+  inject `fetchImpl` / `options.fetch`, or use the local fixture. The permission
+  gate covers ad-hoc diagnosis only, never `bun test`.
+- **Default to `qwen3.6` — it is unlimited.**
+- **For massive/bulk probes prefer a model the maintainer uses less with a large
+  token budget, e.g. `mimo-v2.5`** (1M context).
+- **When the model under investigation is the point** (e.g. reproducing a
+  model-specific 400), use it, but minimize tokens: smallest viable prompt,
+  lowest `max_tokens`, stop at the first decisive response.
+- Repro commands that run a real `pi` session (`pi --fork ... -p ...`) use the
+  same key; keep them minimal and delete the forked session files afterwards.
+
 ## One shared implementation for all providers
 
 `nan` (and any future provider, e.g. `helmcode`) must stay behind the single shared
