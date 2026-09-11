@@ -1,18 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	boundCrossModelThinking,
-	CROSS_MODEL_THINKING_TRUNCATION_MARKER,
 	crossModelThinkingGuardEnabled,
-	MAX_CROSS_MODEL_THINKING_CHARS,
 	NAN_THINKING_GUARD_ENV,
+	stripCrossModelThinking,
 } from "../src/cross-model-thinking-guard.ts";
 import { registerCrossModelThinkingGuard } from "../src/index.ts";
 import { PROVIDERS } from "../src/providers.ts";
 
 const NAN_IDS = new Set(PROVIDERS.map((p) => p.id));
 const TARGET = { provider: "nan", api: "openai-completions", id: "qwen3.6" };
-const OPTIONS = { providerIds: NAN_IDS, maxCharsPerBlock: 10 };
+const OPTIONS = { providerIds: NAN_IDS };
 
 interface TestBlock {
 	type?: string;
@@ -39,26 +37,25 @@ function assistant(overrides: Partial<TestMessage> = {}): TestMessage {
 		role: "assistant",
 		provider: "nan",
 		api: "openai-completions",
-		model: "glm5.3-flash",
+		// A neutral SOURCE model: the guard drops reasoning from any model that is
+		// not the target. No model is forced or special-cased.
+		model: "other-model",
 		content: [{ type: "thinking", thinking: "x".repeat(100), thinkingSignature: "sig" }],
 		...overrides,
 	};
 }
 
-/** The single thinking block of the first returned message. */
-function thinkingOf(message: TestMessage | undefined): string {
-	return (message?.content?.[0] as { thinking: string }).thinking;
+function typesOf(message: TestMessage | undefined): string[] {
+	return (message?.content ?? []).map((block) => block.type ?? "?");
 }
 
-describe("boundCrossModelThinking", () => {
-	test("truncates an oversized cross-model thinking block to the cap plus a visible marker", () => {
-		const result = boundCrossModelThinking([assistant()], TARGET, OPTIONS);
-		const block = result[0]!.content![0] as { thinking: string };
-		expect(block.thinking).toBe("x".repeat(10) + CROSS_MODEL_THINKING_TRUNCATION_MARKER);
-		expect(block.thinking.length).toBeGreaterThan(10);
+describe("stripCrossModelThinking", () => {
+	test("drops a cross-model thinking block", () => {
+		const result = stripCrossModelThinking([assistant()], TARGET, OPTIONS);
+		expect(typesOf(result[0])).toEqual([]);
 	});
 
-	test("preserves the block signature and sibling blocks", () => {
+	test("preserves sibling text and tool-call blocks", () => {
 		const message = assistant({
 			content: [
 				{ type: "thinking", thinking: "y".repeat(50), thinkingSignature: "keep-me" },
@@ -66,71 +63,93 @@ describe("boundCrossModelThinking", () => {
 				{ type: "toolCall", id: "call_1", name: "bash", arguments: {} },
 			],
 		});
-		const content = boundCrossModelThinking([message], TARGET, OPTIONS)[0]!.content!;
-		expect((content[0] as { thinkingSignature: string }).thinkingSignature).toBe("keep-me");
-		expect(content[1]).toEqual({ type: "text", text: "answer" });
-		expect(content[2]).toEqual({ type: "toolCall", id: "call_1", name: "bash", arguments: {} });
+		const content = stripCrossModelThinking([message], TARGET, OPTIONS)[0]!.content!;
+		expect(content).toEqual([
+			{ type: "text", text: "answer" },
+			{ type: "toolCall", id: "call_1", name: "bash", arguments: {} },
+		]);
+	});
+
+	test("keeps tool calls when the message was thinking + tool calls only", () => {
+		const message = assistant({
+			content: [
+				{ type: "thinking", thinking: "lots of reasoning" },
+				{ type: "toolCall", id: "call_9", name: "bash", arguments: { command: "ls" } },
+			],
+		});
+		const result = stripCrossModelThinking([message], TARGET, OPTIONS)[0]!;
+		expect(typesOf(result)).toEqual(["toolCall"]);
+	});
+
+	test("drops every thinking block when several are present", () => {
+		const message = assistant({
+			content: [
+				{ type: "thinking", thinking: "a" },
+				{ type: "text", text: "mid" },
+				{ type: "thinking", thinking: "b" },
+			],
+		});
+		expect(typesOf(stripCrossModelThinking([message], TARGET, OPTIONS)[0])).toEqual(["text"]);
 	});
 
 	test("never mutates the input message or its blocks", () => {
 		const message = assistant();
-		boundCrossModelThinking([message], TARGET, OPTIONS);
-		expect((message.content![0] as { thinking: string }).thinking).toBe("x".repeat(100));
+		stripCrossModelThinking([message], TARGET, OPTIONS);
+		expect(message.content).toEqual([{ type: "thinking", thinking: "x".repeat(100), thinkingSignature: "sig" }]);
 	});
 
-	test("returns the same array reference when a cross-model block is already within the cap", () => {
-		const messages = [assistant({ content: [{ type: "thinking", thinking: "short" }] })];
-		expect(boundCrossModelThinking(messages, TARGET, OPTIONS)).toBe(messages);
+	test("returns the same array reference when there is nothing to drop", () => {
+		const messages = [assistant({ content: [{ type: "text", text: "no reasoning here" }] })];
+		expect(stripCrossModelThinking(messages, TARGET, OPTIONS)).toBe(messages);
 	});
 
-	test("leaves same-model replay untouched even when oversized", () => {
+	test("leaves same-model reasoning untouched", () => {
 		const messages = [assistant({ model: "qwen3.6" })];
-		expect(boundCrossModelThinking(messages, TARGET, OPTIONS)).toBe(messages);
+		expect(stripCrossModelThinking(messages, TARGET, OPTIONS)).toBe(messages);
+	});
+
+	test("drops reasoning from ANY previous model — no model is special-cased", () => {
+		for (const source of ["deepseek-v4-flash", "mimo-v2.5", "gemma4", "guessed-model", "", undefined]) {
+			expect(typesOf(stripCrossModelThinking([assistant({ model: source })], TARGET, OPTIONS)[0])).toEqual([]);
+		}
+	});
+
+	test("treats an assistant message with no model metadata as cross-model", () => {
+		const message: TestMessage = { role: "assistant", content: [{ type: "thinking", thinking: "z" }] };
+		expect(typesOf(stripCrossModelThinking([message], TARGET, OPTIONS)[0])).toEqual([]);
 	});
 
 	test("ignores a target whose provider is not registered by this package", () => {
 		const messages = [assistant()];
-		expect(boundCrossModelThinking(messages, { provider: "anthropic", api: "anthropic-messages", id: "claude" }, OPTIONS)).toBe(messages);
+		expect(stripCrossModelThinking(messages, { provider: "anthropic", api: "anthropic-messages", id: "claude" }, OPTIONS)).toBe(messages);
 	});
 
 	test("ignores an undefined target (model not resolved yet)", () => {
 		const messages = [assistant()];
-		expect(boundCrossModelThinking(messages, undefined, OPTIONS)).toBe(messages);
-	});
-
-	test("treats an assistant message with no model metadata as cross-model", () => {
-		const message: TestMessage = { role: "assistant", content: [{ type: "thinking", thinking: "z".repeat(40) }] };
-		expect(thinkingOf(boundCrossModelThinking([message], TARGET, OPTIONS)[0])).toBe("z".repeat(10) + CROSS_MODEL_THINKING_TRUNCATION_MARKER);
+		expect(stripCrossModelThinking(messages, undefined, OPTIONS)).toBe(messages);
 	});
 
 	test("leaves non-assistant messages untouched", () => {
 		const messages = [{ role: "toolResult", toolCallId: "call_1", content: [{ type: "text", text: "x".repeat(100) }] }];
-		expect(boundCrossModelThinking(messages, TARGET, OPTIONS)).toBe(messages);
+		expect(stripCrossModelThinking(messages, TARGET, OPTIONS)).toBe(messages);
 	});
 
-	test("leaves non-string/redacted thinking blocks untouched", () => {
-		const messages = [assistant({ content: [{ type: "thinking", redacted: true }, { type: "thinking", thinking: undefined }] })];
-		expect(boundCrossModelThinking(messages, TARGET, OPTIONS)).toBe(messages);
-	});
-
-	test("truncates only the oversized block when several are present", () => {
-		const message = assistant({
-			content: [
-				{ type: "thinking", thinking: "small" },
-				{ type: "thinking", thinking: "L".repeat(30) },
-			],
-		});
-		const content = boundCrossModelThinking([message], TARGET, OPTIONS)[0]!.content!;
-		expect(content[0]!.thinking).toBe("small");
-		expect(content[1]!.thinking).toBe("L".repeat(10) + CROSS_MODEL_THINKING_TRUNCATION_MARKER);
-	});
-
-	test("uses the documented default cap when none is passed", () => {
-		const huge = "h".repeat(MAX_CROSS_MODEL_THINKING_CHARS + 5_000);
-		const message = assistant({ content: [{ type: "thinking", thinking: huge }] });
-		expect(thinkingOf(boundCrossModelThinking([message], TARGET, { providerIds: NAN_IDS })[0])).toBe(
-			huge.slice(0, MAX_CROSS_MODEL_THINKING_CHARS) + CROSS_MODEL_THINKING_TRUNCATION_MARKER,
+	test("measured effect: removes 30%+ of a realistic multi-message session", () => {
+		// Mirrors the observed composition: reasoning is a large share of the context.
+		const messages = Array.from({ length: 40 }, (_, i) =>
+			assistant({
+				model: i % 2 === 0 ? "glm5.3-flash" : "deepseek-v4-flash",
+				content: [
+					{ type: "thinking", thinking: "r".repeat(9_000) },
+					{ type: "text", text: "answer ".repeat(200) },
+					{ type: "toolCall", id: `call_${i}`, name: "bash", arguments: {} },
+				],
+			}),
 		);
+		const before = JSON.stringify(messages).length;
+		const after = JSON.stringify(stripCrossModelThinking(messages, TARGET, OPTIONS)).length;
+		const thinkingChars = 40 * 9_000;
+		expect(after).toBeLessThan(before - thinkingChars + 200);
 	});
 });
 
@@ -161,11 +180,11 @@ describe("registerCrossModelThinkingGuard (extension wiring)", () => {
 		return handler!;
 	}
 
-	test("registers a context handler that bounds cross-model thinking for a NaN target", () => {
+	test("registers a context handler that strips cross-model reasoning for a NaN target", () => {
 		const handler = capture();
-		const message = assistant({ content: [{ type: "thinking", thinking: "x".repeat(MAX_CROSS_MODEL_THINKING_CHARS + 500) }] });
+		const message = assistant({ content: [{ type: "thinking", thinking: "big" }, { type: "text", text: "keep" }] });
 		const result = handler({ type: "context", messages: [message] }, { model: TARGET });
-		expect(thinkingOf(result!.messages![0])).toBe("x".repeat(MAX_CROSS_MODEL_THINKING_CHARS) + CROSS_MODEL_THINKING_TRUNCATION_MARKER);
+		expect(typesOf(result!.messages![0])).toEqual(["text"]);
 	});
 
 	test("returns nothing (no context rewrite) for a non-NaN target", () => {

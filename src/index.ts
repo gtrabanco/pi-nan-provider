@@ -29,9 +29,8 @@ import type { ContextEvent, ExtensionAPI, ProviderConfig } from "@earendil-works
 import type { Provider } from "@earendil-works/pi-ai";
 import { registerNanMcpCommand } from "./commands.ts";
 import {
-	boundCrossModelThinking,
 	crossModelThinkingGuardEnabled,
-	MAX_CROSS_MODEL_THINKING_CHARS,
+	stripCrossModelThinking,
 } from "./cross-model-thinking-guard.ts";
 import { baselineModels } from "./fetch-models.ts";
 import { createNanWebSearchTool, webSearchBridgeEnabled, NAN_API_KEY_ENV } from "./mcp/nan-search.ts";
@@ -114,29 +113,27 @@ function registerMcpToolsCompat(pi: ExtensionAPI): void {
 }
 
 /**
- * Bound the reasoning pi-ai replays across a model switch.
+ * Drop the reasoning pi-ai replays across a model switch.
  *
  * pi-ai's `transformMessages` downgrades a previous model's `thinking` blocks
- * to plain text with no size bound (still true on 0.85.1 / main), so a long or
- * degenerate reasoning trace is re-inlined into the assistant `content` and
- * can push the request past the destination model's context window. NaN's
- * gateway answers that with a generic `400 Invalid request. Check your request
- * parameters.`, which reads as a provider bug and not as an oversized prompt.
- * This hook runs before pi-ai converts the blocks, so capping them here keeps
- * the replayed context bounded. See src/cross-model-thinking-guard.ts.
+ * to plain text with no size bound (still true on 0.85.1 / main), and nothing
+ * bounds the sum across messages — measured at 30–60% of the whole context on
+ * real sessions. Switching from a 1M-context model to a 262K one (`qwen3.6`)
+ * then overflows the window, and NaN's gateway answers a generic
+ * `400 Invalid request. Check your request parameters.` This hook runs before
+ * pi-ai converts the blocks, so removing the cross-model reasoning here keeps
+ * the replayed context small. Answers and tool results are untouched. See
+ * src/cross-model-thinking-guard.ts.
  *
  * Scope: only requests targeting this package's providers are touched, and
- * only messages from a DIFFERENT model — same-model reasoning is never altered.
+ * only messages from a DIFFERENT model — same-model reasoning is never removed.
  */
 export function registerCrossModelThinkingGuard(pi: ExtensionAPI): void {
 	if (typeof pi.on !== "function") return; // old pi without the context hook
 	const providerIds = new Set(PROVIDERS.map((provider) => provider.id));
 	pi.on("context", (event, ctx) => {
 		if (!crossModelThinkingGuardEnabled()) return;
-		const guarded = boundCrossModelThinking(event.messages, ctx.model, {
-			maxCharsPerBlock: MAX_CROSS_MODEL_THINKING_CHARS,
-			providerIds,
-		});
+		const guarded = stripCrossModelThinking(event.messages, ctx.model, { providerIds });
 		if (guarded === event.messages) return;
 		return { messages: guarded as ContextEvent["messages"] };
 	});

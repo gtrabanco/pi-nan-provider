@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4] — 2026-09-11
+
+### Fixed
+
+- **Switching to `qwen3.6` (262K context) still returned the generic HTTP 400 after 0.6.3.** The 0.6.3 guard capped
+  each replayed cross-model `thinking` block at 16,000 chars, but nothing bounded the **sum** across messages —
+  measured on real sessions, replayed reasoning is **30–60% of the whole context** (e.g. 356,723 of 903,464 chars in
+  one session; 349,882 of 749,525 in another). A session above qwen3.6's 262K window therefore still overflowed.
+
+  `src/cross-model-thinking-guard.ts` now **drops every replayed cross-model `thinking` block outright** instead of
+  capping it. Only the reasoning trace is removed — each model's answers and tool results stay intact, so `qwen3.6`
+  can still answer questions about research done by `glm5.3-flash`/`deepseek-v4-flash`. Same-model replay is never
+  altered (signatures and continuity depend on it), non-NaN targets and non-assistant messages are untouched, and the
+  input is never mutated. `NAN_THINKING_GUARD=0` disables it.
+
+  Offline simulation over the maintainer's real sessions (chars/3.47 + ~31K tools + ~12K system, no live tokens): one
+  session went 334K → 223K tokens and another 268K → 167K (it was **over** the 262K window); every sampled session
+  fits after the drop. Tests cover the drop, sibling/tool-call preservation, multiple blocks,
+  same-model/undefined/foreign-provider no-ops, the measured size reduction, the env opt-out, and the extension
+  wiring.
+
 ## [0.6.3] — 2026-09-10
 
 ### Fixed
