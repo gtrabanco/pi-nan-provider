@@ -93,6 +93,12 @@ export async function resolveOpenAICompletionsApi(): Promise<OpenAICompletionsAp
  * which pi-ai version the runtime bundles, so the fix is not tied to a
  * specific upstream build.
  *
+ * `stream_options` is the one field whose removal is conditional: when the
+ * model's effective `compat.supportsUsageInStreaming` is true (catalog value
+ * or user `models.json` override), pi-ai requested usage and the gateway will
+ * return it — stripping the field would silently zero `message.usage`
+ * (issue #4). Every other model keeps the strict payload.
+ *
  * Any caller-supplied `onPayload` (e.g. pi's own debug/passthrough hook) is
  * preserved and chained AFTER sanitization, so the final payload is always
  * schema-valid.
@@ -101,13 +107,27 @@ function isObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }
 
+/**
+ * Whether the model's effective compat asks pi-ai for streaming usage. pi-ai
+ * emits `stream_options: { include_usage: true }` when this is not false, and
+ * `models.json` overrides compose above the registered catalog, so this reads
+ * the user's confirmed value rather than the generated default.
+ */
+function modelSupportsUsageInStreaming(model: unknown): boolean {
+	if (!isObject(model)) return false;
+	const compat = model.compat;
+	return isObject(compat) && compat.supportsUsageInStreaming === true;
+}
+
 export function wrapApiForStrictSanitization(api: ProviderStreams): ProviderStreams {
 	const withSanitizer = <TOptions extends object | undefined>(options: TOptions): TOptions => {
 		const userOnPayload = isObject(options) ? (options.onPayload as unknown) : undefined;
 		return {
 			...((options ?? {}) as Record<string, unknown>),
 			onPayload: async (payload: unknown, model: unknown) => {
-				const sanitized = sanitizeOpenAICompatPayload(payload);
+				const sanitized = sanitizeOpenAICompatPayload(payload, {
+					preserveStreamOptions: modelSupportsUsageInStreaming(model),
+				});
 				if (typeof userOnPayload === "function") {
 					const userResult = await (userOnPayload as (p: unknown, m: unknown) => unknown)(sanitized, model);
 					return userResult ?? sanitized;

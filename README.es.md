@@ -71,7 +71,19 @@ Puedes sobrescribir el `compat` de cualquier modelo en `~/.pi/agent/models.json`
 
 > Poner `supportsFinishReason: false` restaura el antiguo stall silencioso — no recomendado.
 
-**Uso de tokens en streaming:** `supportsUsageInStreaming` es `false` porque el esquema estricto de NaN no documenta `stream_options` y el sanitizer de peticiones lo elimina. Por eso el usage aparece a cero; la flag ahora coincide con lo que realmente se envía.
+**Uso de tokens en streaming:** `supportsUsageInStreaming` es `false` por defecto porque el esquema publicado de NaN no documenta `stream_options`; sin él, el usage aparece a cero. Si has confirmado que tu modelo devuelve el chunk de usage en streaming, activalo por modelo — el sanitizer de peticiones entonces reenvía `stream_options: { "include_usage": true }` y pi muestra los tokens reales en lugar de ceros:
+
+```json
+{
+  "providers": {
+    "nan": {
+      "modelOverrides": {
+        "qwen3.6": { "compat": { "supportsUsageInStreaming": true } }
+      }
+    }
+  }
+}
+```
 
 ## 🔑 Autenticación
 

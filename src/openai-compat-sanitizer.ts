@@ -34,9 +34,13 @@
  *  4. Top-level fields NaN's schema does not list: `store` and
  *     `stream_options`. These are opt-in/usage fields pi-ai sends by default
  *     for a "standard" provider; NaN does not document them, so they are
- *     removed. (Removing `stream_options` only costs live token-usage in the
- *     stream; NaN models are membership-quota based with zero per-token cost,
- *     so this is a safe trade.)
+ *     removed by default. `stream_options` is the one exception that can be
+ *     explicitly opted into: when the model's effective
+ *     `compat.supportsUsageInStreaming` is true (a catalog flag or a user
+ *     `models.json` override), the caller has confirmed the gateway reports
+ *     usage and `stream_options` is preserved — deleting it unconditionally
+ *     would silently zero out `message.usage` (issue #4). `store` is always
+ *     removed.
  *  5. An EMPTY `tools` array. Verified against the live gateway (2026-09-09):
  *     NaN rejects `tools: []` with the same 400, while `stream: true`, a
  *     `system` message, string content, and a `tool` role message are all
@@ -183,12 +187,23 @@ function sanitizeMessage(message: unknown): unknown {
 	return out;
 }
 
+export interface SanitizerOptions {
+	/**
+	 * Keep `stream_options` in the payload. Set only when the model's effective
+	 * `compat.supportsUsageInStreaming` is true: pi-ai then asks the gateway for
+	 * `stream_options: { include_usage: true }` and expects the terminal usage
+	 * chunk. When false/absent, `stream_options` is stripped from the strict
+	 * NaN payload as before.
+	 */
+	preserveStreamOptions?: boolean;
+}
+
 /**
  * Rewrite an OpenAI-compatible `/chat/completions` payload so every field
  * conforms to NaN's published schema. Returns the updated payload; if the
  * payload has no `messages` array it is returned unchanged.
  */
-export function sanitizeOpenAICompatPayload(payload: unknown): unknown {
+export function sanitizeOpenAICompatPayload(payload: unknown, options: SanitizerOptions = {}): unknown {
 	if (!isObject(payload) || !Array.isArray(payload.messages)) return payload;
 
 	const messages = payload.messages.map(sanitizeMessage);
@@ -221,7 +236,11 @@ export function sanitizeOpenAICompatPayload(payload: unknown): unknown {
 
 	// Top-level fields absent from NaN's schema.
 	delete out.store;
-	delete out.stream_options;
+	// `stream_options` is preserved only when the model declares that the
+	// gateway reports usage in the stream (issue #4). Otherwise it is stripped:
+	// pi-ai would not send it for such a model anyway, and a hand-built payload
+	// must stay schema-strict.
+	if (options.preserveStreamOptions !== true) delete out.stream_options;
 	// NaN documents `max_tokens`, not `max_completion_tokens`.
 	if ("max_completion_tokens" in out && !("max_tokens" in out)) {
 		out.max_tokens = out.max_completion_tokens;

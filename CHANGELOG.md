@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.7] — 2026-09-13
+
+### Fixed
+
+- **A model that declares streaming usage now reports real token counts instead of an all-zero `message.usage` ([#4](https://github.com/gtrabanco/pi-nan-provider/issues/4)).**
+  The strict-schema sanitizer removed `stream_options` from every outgoing `/chat/completions` payload unconditionally. pi-ai only emits
+  `stream_options: { include_usage: true }` when the model's effective `compat.supportsUsageInStreaming` is not `false`, and an OpenAI-compatible
+  gateway only returns the terminal usage chunk when asked for it — so a user who truthfully overrode the flag through `models.json` still got zeros:
+  the sanitizer silently undid the override. Rule 4 is now gated on the model's effective compat: when `supportsUsageInStreaming` is `true` the
+  sanitizer forwards `stream_options` untouched, and pi's session accounting, context tracking and downstream tooling see real input/output/cache
+  counts. Every other model keeps the exact strict payload as before (`stream_options` and `store` removed; `store` is never preserved). The
+  generated catalog default stays `false` — NaN's published schema does not document `stream_options`, so opting in remains an explicit,
+  per-model user decision rather than a guessed capability.
+
+### Added
+
+- `test/issue-4-token-usage.test.ts` — end-to-end acceptance tests through the real pi-ai adapter and a mock NaN gateway that only emits the usage
+  chunk when the request carried `stream_options.include_usage` (like the real endpoint): an opted-in catalog model and a glm5.3 `models.json`-style
+  override must both receive `stream_options` and surface non-zero usage; without the opt-in the conservative strict payload is unchanged.
+
 ## [0.6.6] — 2026-09-13
 
 ### Fixed

@@ -206,8 +206,10 @@ export function mergeLiveWithGenerated(
 			// NAN_COMPAT: the NaN/LiteLLM gateway cuts SSE streams before
 			// finish_reason, so supportsFinishReason must stay true (pi-ai then
 			// raises the retryable "Stream ended without finish_reason" instead
-			// of silently stalling), and supportsUsageInStreaming must stay false
-			// because src/openai-compat-sanitizer.ts strips stream_options.
+			// of silently stalling), and supportsUsageInStreaming stays false
+			// because NaN's schema does not document `stream_options`: the
+			// sanitizer strips it unless the model's effective compat opts in
+			// (issue #4), so false matches the default wire payload.
 			models.push({
 				id,
 				name: id,

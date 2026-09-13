@@ -136,9 +136,14 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
   `supportsFinishReason: true` so pi-ai raises the retryable
   `Stream ended without finish_reason` (pi-ai's `RETRYABLE_PROVIDER_ERROR_PATTERN`
   matches `"ended without"`, so the turn is retried) instead of silently
-  synthesizing `stop`/`toolUse`. `supportsUsageInStreaming` is `false` because
-  `src/openai-compat-sanitizer.ts` strips `stream_options`. Regression tests:
-  `test/issue-2-truncated-stream.test.ts`; issue #2.
+  synthesizing `stop`/`toolUse`. `supportsUsageInStreaming` stays `false` by
+  default (NaN's published schema does not document `stream_options`), but the
+  sanitizer gates its `stream_options` removal on the model's effective
+  `compat.supportsUsageInStreaming`, so a confirmed per-model `models.json`
+  override now yields real usage instead of being silently undone
+  (`test/issue-4-token-usage.test.ts`; issues #2, #4). Regression tests:
+  `test/issue-2-truncated-stream.test.ts`, `test/issue-4-token-usage.test.ts`;
+  issues #2 and #4.
 - A NaN request that still exceeds the destination model's context window (the
   cross-model thinking guard is disabled with `NAN_THINKING_GUARD=0`, the
   inflation is not a `thinking` block, or the window is smaller) gets NaN's

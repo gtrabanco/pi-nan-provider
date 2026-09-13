@@ -84,9 +84,12 @@ const NAN_COMPAT = {
 	supportsDeveloperRole: false,
 	supportsReasoningEffort: true,
 	// pi-ai only sends `stream_options: { include_usage: true }` when this is
-	// true, but src/openai-compat-sanitizer.ts strips `stream_options` before
-	// sending (NaN's schema does not document it). Declaring true would be a
-	// lie the sanitizer immediately undoes; false matches what is sent.
+	// not false. NaN's published schema does not document `stream_options`, so
+	// the conservative default is false: the sanitizer strips it and usage
+	// stays zero. A user who confirms their gateway reports streaming usage
+	// can opt in per model with a models.json compat override
+	// (`supportsUsageInStreaming: true`); the sanitizer then forwards
+	// `stream_options` instead of deleting it (issue #4, 2026-09-13).
 	supportsUsageInStreaming: false,
 	// The NaN/LiteLLM gateway intermittently closes SSE streams before emitting
 	// `finish_reason`. With true, pi-ai raises "Stream ended without
@@ -99,7 +102,7 @@ const NAN_COMPAT = {
 };
 
 const NAN_COMPAT_NOTE =
-	"compat matches the maintainer's working ~/.pi/agent/models.json LiteLLM config for api.nan.builders (2026-09-04): supportsDeveloperRole false, supportsReasoningEffort true, maxTokensField max_tokens. NaN's docs example sets only supportsDeveloperRole: true and is not battle-tested. supportsFinishReason true (2026-09-13, issue #2): the LiteLLM gateway intermittently closes SSE streams before emitting finish_reason; with true pi-ai raises 'Stream ended without finish_reason', which matches pi-ai's retryable-provider pattern ('ended without') and is retried automatically, whereas false silently synthesized stop/toolUse and stalled the turn mid-answer. supportsUsageInStreaming false (2026-09-13, issue #2): pi-ai only sends stream_options when this is true, but src/openai-compat-sanitizer.ts strips stream_options before sending, so requesting it would contradict the sanitizer with no effect.";
+	"compat matches the maintainer's working ~/.pi/agent/models.json LiteLLM config for api.nan.builders (2026-09-04): supportsDeveloperRole false, supportsReasoningEffort true, maxTokensField max_tokens. NaN's docs example sets only supportsDeveloperRole: true and is not battle-tested. supportsFinishReason true (2026-09-13, issue #2): the LiteLLM gateway intermittently closes SSE streams before emitting finish_reason; with true pi-ai raises 'Stream ended without finish_reason', which matches pi-ai's retryable-provider pattern ('ended without') and is retried automatically, whereas false silently synthesized stop/toolUse and stalled the turn mid-answer. supportsUsageInStreaming false (2026-09-13): pi-ai only sends stream_options when this is not false, and NaN's published schema does not document it, so the conservative default stays false (sanitizer removes stream_options, usage reads zero). A user who has confirmed that their model returns a streaming usage chunk can opt in per model with a models.json compat override (supportsUsageInStreaming: true); the sanitizer then forwards stream_options instead of deleting it (issue #4).";
 
 interface ModelsDevModel {
 	id?: string;

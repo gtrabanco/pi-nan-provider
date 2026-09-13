@@ -71,7 +71,19 @@ You can override any model's `compat` per-model in `~/.pi/agent/models.json` (pi
 
 > Setting `supportsFinishReason: false` restores the old silent-stall behavior — not recommended.
 
-**Streaming token usage:** `supportsUsageInStreaming` is `false` because NaN's strict schema does not document `stream_options` and the request sanitizer removes it. Usage therefore reads as zero; the flag now matches what is actually sent.
+**Streaming token usage:** `supportsUsageInStreaming` is `false` by default because NaN's published schema does not document `stream_options`; without it usage reads as zero. If you have confirmed that your model returns a streaming usage chunk, opt in per model — the request sanitizer then forwards `stream_options: { "include_usage": true }` and pi reports real token counts instead of zeros:
+
+```json
+{
+  "providers": {
+    "nan": {
+      "modelOverrides": {
+        "qwen3.6": { "compat": { "supportsUsageInStreaming": true } }
+      }
+    }
+  }
+}
+```
 
 ## 🔑 Authentication
 
