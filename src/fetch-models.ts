@@ -201,11 +201,13 @@ export function mergeLiveWithGenerated(
 		} else {
 			// Conservative placeholder for allowlisted uncatalogued live ids
 			// (e.g. premium glm5.3): limits are the documented safe envelope and
-			// capabilities stay "unknown". supportsFinishReason: false is NOT a
-			// capability claim — it is a client-tolerance flag for the same
-			// gateway-level SSE truncation handled in NAN_COMPAT (LiteLLM cutting
-			// streams before finish_reason); without it pi-ai throws "Stream
-			// ended without finish_reason" on those models too.
+			// capabilities stay "unknown". The compat keys are the same
+			// gateway-behavior flags applied to every catalog model in
+			// NAN_COMPAT: the NaN/LiteLLM gateway cuts SSE streams before
+			// finish_reason, so supportsFinishReason must stay true (pi-ai then
+			// raises the retryable "Stream ended without finish_reason" instead
+			// of silently stalling), and supportsUsageInStreaming must stay false
+			// because src/openai-compat-sanitizer.ts strips stream_options.
 			models.push({
 				id,
 				name: id,
@@ -217,7 +219,7 @@ export function mergeLiveWithGenerated(
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 				contextWindow: UNKNOWN_MODEL_LIMITS.contextWindow,
 				maxTokens: UNKNOWN_MODEL_LIMITS.maxTokens,
-				compat: { supportsFinishReason: false },
+				compat: { supportsFinishReason: true, supportsUsageInStreaming: false },
 			});
 			unknown.push(id);
 		}

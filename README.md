@@ -1,7 +1,7 @@
 # @gtrabanco/pi-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.6.4-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-0.6.5-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 
 [NaN Builders](https://nan.builders) model provider + MCP bridges for [pi](https://github.com/earendil-works/pi). 
 
@@ -48,6 +48,28 @@ The registration is synchronous on purpose: the generated fallback catalog is av
 When you switch models, pi-ai replays the previous model's reasoning as plain assistant text — with **no size bound**. A single long or degenerate reasoning trace can therefore overflow a 262K-context model's window, and NaN answers with a generic `400 Invalid request. Check your request parameters.` that looks like a provider bug (upstream tracking: [pi-nan-provider#3](https://github.com/gtrabanco/pi-nan-provider/issues/3); open upstream issue: [pi#6167](https://github.com/earendil-works/pi/issues/6167)).
 
 This package **drops every replayed cross-model reasoning block**, so switching from a 1M-context model to a 262K one (`qwen3.6`) no longer overflows the window. The models' answers and tool results are untouched — only their internal reasoning traces are removed, so `qwen3.6` can still answer about what another model did. Same-model reasoning is never altered, and the guard only acts on requests targeting this package's providers. Set `NAN_THINKING_GUARD=0` to disable it.
+
+### ⏱️ Intermittent truncated streams (auto-retry, no silent stall)
+
+NaN's LiteLLM gateway occasionally closes an SSE stream **before** emitting the final `finish_reason` chunk (observed on `glm5.3-flash`; [issue #2](https://github.com/gtrabanco/pi-nan-provider/issues/2)). The catalog declares `supportsFinishReason: true`, so pi-ai turns that into the error `Stream ended without finish_reason` — which matches pi's retryable-provider pattern and is **retried automatically**, instead of silently accepting a half-finished answer. If a gateway version never sends `finish_reason`, the turn now fails visibly once the retry budget is exhausted.
+
+You can override any model's `compat` per-model in `~/.pi/agent/models.json` (pi's `docs/models.md` → Per-model Overrides); overrides compose above the registered provider. Example (forcing the retry behavior explicitly):
+
+```json
+{
+  "providers": {
+    "nan": {
+      "modelOverrides": {
+        "glm5.3-flash": { "compat": { "supportsFinishReason": true } }
+      }
+    }
+  }
+}
+```
+
+> Setting `supportsFinishReason: false` restores the old silent-stall behavior — not recommended.
+
+**Streaming token usage:** `supportsUsageInStreaming` is `false` because NaN's strict schema does not document `stream_options` and the request sanitizer removes it. Usage therefore reads as zero; the flag now matches what is actually sent.
 
 ## 🔑 Authentication
 

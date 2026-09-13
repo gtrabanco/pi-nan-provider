@@ -55,14 +55,16 @@ describe("manual overrides in the generated catalog", () => {
 		).toBe(true);
 	});
 
-	test("glm5.3 premium model is flagged as unemittable, not invented", () => {
-		// Served by NaN on the premium tier but absent from models.dev and with
-		// no documented max output tokens — must stay out of the static catalog
-		// and be flagged in the metadata (no-fabrication rule).
+	test("glm5.3 premium model stays live-only (documented by models.dev, out of the static catalog)", () => {
+		// Served by NaN on the premium tier and now documented by models.dev
+		// (1M context / 131,072 max output, checked 2026-09-13), but deliberately
+		// kept out of the static fallback so a non-premium key never sees it when
+		// the live /models fetch is unavailable. Premium keys still get it live
+		// via the /models refresh (conservative placeholder limits).
 		expect(byId.get("glm5.3")).toBeUndefined();
 		expect(
 			GENERATED_CATALOG_META.notes.some(
-				(note) => note.includes("glm5.3") && note.includes("premium tier") && note.includes("no-fabrication"),
+				(note) => note.includes("glm5.3") && note.includes("premium-tier") && note.includes("live-only"),
 			),
 		).toBe(true);
 	});
@@ -86,18 +88,19 @@ describe("manual overrides in the generated catalog", () => {
 		}
 	});
 
-	test("every generated entry tolerates a missing finish_reason (gateway stream truncation)", () => {
-		// The NaN LiteLLM gateway intermittently cuts SSE streams before emitting
-		// finish_reason; with supportsFinishReason true pi-ai throws
-		// "Stream ended without finish_reason". The compat must disable that.
+	test("every generated entry treats a missing finish_reason as a retryable error (issue #2)", () => {
+		// The NaN LiteLLM gateway intermittently closes SSE streams before
+		// emitting finish_reason. supportsFinishReason must be true so pi-ai
+		// raises the retryable "Stream ended without finish_reason" instead of
+		// silently synthesizing stop/toolUse and stalling the turn.
 		expect(NAN_GENERATED_MODELS.length).toBeGreaterThan(0);
 		for (const entry of NAN_GENERATED_MODELS) {
-			expect(entry.compat?.supportsFinishReason, entry.id).toBe(false);
+			expect(entry.compat?.supportsFinishReason, entry.id).toBe(true);
 		}
 		// The provenance note must record the flag.
 		expect(
 			GENERATED_CATALOG_META.notes.some(
-				(note) => note.includes("supportsFinishReason") && note.includes("false"),
+				(note) => note.includes("supportsFinishReason") && note.includes("true"),
 			),
 		).toBe(true);
 	});

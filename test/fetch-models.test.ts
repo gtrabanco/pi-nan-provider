@@ -143,17 +143,17 @@ describe("mergeLiveWithGenerated", () => {
 	});
 });
 
-describe("supportsFinishReason compat", () => {
-	test("baseline models propagate supportsFinishReason: false", () => {
+describe("finish-reason compat (retryable truncation)", () => {
+	test("baseline models propagate supportsFinishReason: true so truncation is a retryable error", () => {
 		for (const model of baselineModels(SOURCE)) {
-			expect(model.compat?.supportsFinishReason, model.id).toBe(false);
+			expect(model.compat?.supportsFinishReason, model.id).toBe(true);
 		}
 	});
 
-	test("uncatalogued live-only ids also carry supportsFinishReason: false", () => {
-		// glm5.3 (premium, absent from models.dev) must not crash either.
+	test("uncatalogued live-only ids also carry supportsFinishReason: true", () => {
+		// glm5.3 (premium, kept out of the static catalog) must not silently stall either.
 		const merged = mergeLiveWithGenerated(["glm5.3"], SOURCE);
-		expect(merged.models[0]!.compat?.supportsFinishReason).toBe(false);
+		expect(merged.models[0]!.compat?.supportsFinishReason).toBe(true);
 	});
 });
 

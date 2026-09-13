@@ -57,15 +57,19 @@ const PROVIDER_REMOVED_MODEL_IDS: Record<string, string> = {
 };
 
 /**
- * Models the provider documents and serves but that cannot be emitted yet:
- * absent from models.dev, or missing a limit no source documents. Flagged in
- * the catalog metadata instead of invented (no-fabrication rule); keys with
- * access still receive them live via the /models refresh with conservative
- * placeholder limits (UNKNOWN_MODEL_LIMITS).
+ * Premium/tier-gated models that models.dev documents but that are deliberately
+ * kept OUT of the static fallback catalog. The static baseline is what pi
+ * registers with zero network, and it must not advertise a premium model to a
+ * key that cannot call it: NaN's live `/models` response is the tier
+ * authority, so premium keys still receive these models through the live
+ * refresh with conservative placeholder limits (UNKNOWN_MODEL_LIMITS).
+ * Excluded at generation time with the recorded reason so a regeneration
+ * cannot resurrect them into the baseline.
  */
-const KNOWN_UNEMITTABLE_MODEL_NOTES: readonly string[] = [
-	"glm5.3: served by NaN on the GLM 5.3 premium tier (https://nan.builders/docs/models + https://nan.builders/openapi.json, checked 2026-09-07) but absent from models.dev, and no source documents its max output tokens — no entry is generated (no-fabrication rule); premium keys still get it live via the /models refresh with conservative placeholder limits",
-];
+const LIVE_ONLY_MODEL_IDS: Record<string, string> = {
+	"glm5.3":
+		"premium-tier model (models.dev now documents it with 1M context / 131,072 max output; NaN docs https://nan.builders/docs/models + https://nan.builders/openapi.json, checked 2026-09-13) kept live-only so a non-premium key never sees a model it cannot call when the live /models fetch is unavailable; premium keys still get it via the /models refresh with conservative placeholder limits",
+};
 
 /**
  * LiteLLM compat confirmed against the live api.nan.builders gateway by the
@@ -79,13 +83,23 @@ const KNOWN_UNEMITTABLE_MODEL_NOTES: readonly string[] = [
 const NAN_COMPAT = {
 	supportsDeveloperRole: false,
 	supportsReasoningEffort: true,
-	supportsUsageInStreaming: true,
-	supportsFinishReason: false,
+	// pi-ai only sends `stream_options: { include_usage: true }` when this is
+	// true, but src/openai-compat-sanitizer.ts strips `stream_options` before
+	// sending (NaN's schema does not document it). Declaring true would be a
+	// lie the sanitizer immediately undoes; false matches what is sent.
+	supportsUsageInStreaming: false,
+	// The NaN/LiteLLM gateway intermittently closes SSE streams before emitting
+	// `finish_reason`. With true, pi-ai raises "Stream ended without
+	// finish_reason", which its retryable-provider pattern ("ended without")
+	// matches, so the turn is retried automatically. With false, pi-ai
+	// silently synthesizes stop/toolUse and the turn stalls mid-answer
+	// (observed 2026-09-13 on glm5.3-flash; issue #2).
+	supportsFinishReason: true,
 	maxTokensField: "max_tokens" as const,
 };
 
 const NAN_COMPAT_NOTE =
-	"compat matches the maintainer's working ~/.pi/agent/models.json LiteLLM config for api.nan.builders (2026-09-04): supportsDeveloperRole false, supportsReasoningEffort true, supportsUsageInStreaming true, maxTokensField max_tokens. NaN's docs example sets only supportsDeveloperRole: true and is not battle-tested. supportsFinishReason false added 2026-09-08: the LiteLLM gateway intermittently cuts SSE streams before emitting finish_reason (observed on glm5.3-flash, ~2026-09-08), and with the default true pi-ai throws 'Stream ended without finish_reason'; false makes pi-ai treat those truncated streams as stop/toolUse instead of erroring.";
+	"compat matches the maintainer's working ~/.pi/agent/models.json LiteLLM config for api.nan.builders (2026-09-04): supportsDeveloperRole false, supportsReasoningEffort true, maxTokensField max_tokens. NaN's docs example sets only supportsDeveloperRole: true and is not battle-tested. supportsFinishReason true (2026-09-13, issue #2): the LiteLLM gateway intermittently closes SSE streams before emitting finish_reason; with true pi-ai raises 'Stream ended without finish_reason', which matches pi-ai's retryable-provider pattern ('ended without') and is retried automatically, whereas false silently synthesized stop/toolUse and stalled the turn mid-answer. supportsUsageInStreaming false (2026-09-13, issue #2): pi-ai only sends stream_options when this is true, but src/openai-compat-sanitizer.ts strips stream_options before sending, so requesting it would contradict the sanitizer with no effect.";
 
 interface ModelsDevModel {
 	id?: string;
@@ -143,6 +157,10 @@ function convertModel(modelId: string, m: ModelsDevModel): GeneratedModel | { sk
 	const removedReason = PROVIDER_REMOVED_MODEL_IDS[modelId];
 	if (removedReason) {
 		return { skip: `provider-removed: "${modelId}" excluded from the catalog (${removedReason})` };
+	}
+	const liveOnlyReason = LIVE_ONLY_MODEL_IDS[modelId];
+	if (liveOnlyReason) {
+		return { skip: `live-only: "${modelId}" kept out of the static catalog (${liveOnlyReason})` };
 	}
 	const contextWindow = m.limit?.context;
 	const maxTokens = m.limit?.output;
@@ -225,9 +243,19 @@ async function main(): Promise<void> {
 
 	const fetchedAt = new Date().toISOString();
 	const allNotes = [
-		...skipped,
-		...KNOWN_UNEMITTABLE_MODEL_NOTES,
-		...new Set(entries.flatMap((entry) => entry.notes ?? [])),
+		...new Set([
+			...skipped,
+			// Record every exclusion unconditionally (not only when models.dev
+			// still lists the id) so a regeneration can never drop the reason a
+			// model is absent from the catalog.
+			...Object.entries(PROVIDER_REMOVED_MODEL_IDS).map(
+				([id, reason]) => `provider-removed: "${id}" excluded from the catalog (${reason})`,
+			),
+			...Object.entries(LIVE_ONLY_MODEL_IDS).map(
+				([id, reason]) => `live-only: "${id}" kept out of the static catalog (${reason})`,
+			),
+			...entries.flatMap((entry) => entry.notes ?? []),
+		]),
 	];
 
 	const generated = `// This file is auto-generated by scripts/generate-models.ts
