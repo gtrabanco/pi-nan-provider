@@ -16,6 +16,10 @@
  *
  * Fields override the models.dev-derived entry one-for-one:
  * name, reasoning, input, cost, contextWindow, maxTokens.
+ *
+ * An override may also act as a pin — a value models.dev already agrees with,
+ * kept so an upstream regression cannot silently drop a confirmed capability.
+ * A pin's note must say it is a pin; never present it as a divergence.
  */
 
 export interface ManualModelOverride {
@@ -38,6 +42,6 @@ export interface ManualModelOverride {
 export const MANUAL_OVERRIDES: Record<string, ManualModelOverride> = {
 	"deepseek-v4-flash": {
 		input: ["text", "image"],
-		note: "input includes image: NaN serves the Vision-Exp variant ('takes images as input', https://nan.builders/docs/models, checked 2026-09-07; the image_url content-parts in https://nan.builders/openapi.json list deepseek-v4-flash among the vision models); models.dev provider nan lists text only.",
+		note: "input includes image: NaN serves the Vision-Exp variant ('takes images as input', https://nan.builders/docs/models; the image_url content-parts in https://nan.builders/openapi.json list deepseek-v4-flash among the vision models). models.dev provider nan also lists text+image now (DeepSeek V4.1 Flash entry, checked 2026-09-13; its 2026-09-07 snapshot listed text only), so this override is kept as a pin for the vision capability rather than as a divergence.",
 	},
 };

@@ -111,7 +111,9 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
   `MANUAL_OVERRIDES` (mandatory provenance note) in `scripts/manual-overrides.ts`,
   applied by `scripts/generate-models.ts` — never hand-edited into
   `scripts/models.generated.ts` and never invented. e.g. deepseek-v4-flash
-  image input (Vision-Exp variant; models.dev lists text only). Re-verify
+  image input (Vision-Exp variant; models.dev now also lists text+image,
+  checked 2026-09-13, so the override is kept as a pin rather than a
+  divergence). Re-verify
   overrides when the sources update: the qwen3.8-flash contextWindow 1,000,000
   override (maintainer-confirmed 2026-09-05) was withdrawn 2026-09-07 — the
   updated NaN docs still say 262K "the model's native window" and models.dev
@@ -121,10 +123,22 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
   community `deepseek-v4-flash`, `mimo-v2.5`, `qwen3.8-flash`, `glm5.3-flash`,
   `qwen3.6`, `gemma4` (all text+image vision) + premium-tier `glm5.3`
   (~753B MoE, text-only input, 1M context, 400M tokens/rolling 4h window).
+  glm5.3 is now documented by models.dev too (1M context / 131,072 max output,
+  checked 2026-09-13) but stays out of the static catalog via
+  `LIVE_ONLY_MODEL_IDS` (premium tier) so a non-premium key never sees a
+  model it cannot call when the live `/models` fetch is unavailable; premium
+  keys still receive it live with conservative placeholder limits.
   `glm5.2` was removed by the provider (2026-09-05); models.dev may still list
   it — the generator excludes it via `PROVIDER_REMOVED_MODEL_IDS`. Non-chat
   endpoints: qwen3-embedding, rerank, kokoro (TTS), whisper (STT),
   flux-2-klein (images) — MCP-bridge territory, not chat catalog models.
+- NaN can close an SSE stream **before** `finish_reason`. The catalog sets
+  `supportsFinishReason: true` so pi-ai raises the retryable
+  `Stream ended without finish_reason` (pi-ai's `RETRYABLE_PROVIDER_ERROR_PATTERN`
+  matches `"ended without"`, so the turn is retried) instead of silently
+  synthesizing `stop`/`toolUse`. `supportsUsageInStreaming` is `false` because
+  `src/openai-compat-sanitizer.ts` strips `stream_options`. Regression tests:
+  `test/issue-2-truncated-stream.test.ts`; issue #2.
 - Relative imports inside this package use `.ts` extensions (pi's official
   extension examples do the same; pi transpiles extension sources).
 - pi intentionally has NO built-in MCP client (docs/usage.md). MCP integration

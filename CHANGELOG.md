@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.5] — 2026-09-13
+
+### Fixed
+
+- **Intermittent "Stream ended without finish_reason" no longer stalls a turn silently ([#2](https://github.com/gtrabanco/pi-nan-provider/issues/2)).**
+  The generated catalog declared `supportsFinishReason: false`, so when NaN's LiteLLM gateway closed an SSE stream before the final
+  `finish_reason` chunk, pi-ai synthesized `stop`/`toolUse` and the turn ended mid-answer with no error and no retry (observed on
+  `glm5.3-flash`: 2 of 42 turns truncated in one real session). The catalog now declares `supportsFinishReason: true`: pi-ai raises
+  `Stream ended without finish_reason`, which matches its retryable-provider pattern (`"ended without"`), so the turn is retried
+  automatically. A model whose gateway never emits `finish_reason` now fails **loudly** after the retry budget instead of stalling
+  silently. Regression tests (`test/issue-2-truncated-stream.test.ts`) drive the real pi-ai `openai-completions` adapter with a
+  truncated SSE stream and assert `stopReason: "error"` plus a retryable classification.
+- **The streaming-usage declaration no longer contradicts the request sanitizer.** `supportsUsageInStreaming` is now `false`,
+  matching the fact that `src/openai-compat-sanitizer.ts` strips `stream_options` (NaN's strict schema does not document it).
+  Previously the flag was `true`, so pi-ai requested usage it never received; usage stays zero, but the declaration is now honest.
+- **`glm5.3` is now documented by models.dev** (1M context / 131,072 max output, checked 2026-09-13). It stays deliberately
+  **live-only** (premium tier): a new `LIVE_ONLY_MODEL_IDS` generator guard keeps it out of the static fallback so a non-premium key
+  never sees a model it cannot call when the live `/models` fetch is unavailable; premium keys still receive it live with the
+  conservative placeholder limits. Catalog exclusion notes are now recorded unconditionally, so a regeneration cannot drop the
+  reason a model is absent.
+- `deepseek-v4-flash` provenance note updated: models.dev now lists the DeepSeek V4.1 Flash entry with image input too; the override
+  is kept as a pin, not presented as a divergence.
+
+### Added
+
+- `test/issue-2-truncated-stream.test.ts` — end-to-end acceptance tests through the real pi-ai adapter: a truncated stream must
+  produce `stopReason: "error"` and be classified retryable, never a silent `stop`.
+
 ## [0.6.4] — 2026-09-11
 
 ### Fixed
@@ -86,6 +114,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   string/object arguments, missing tool-call id, `store`/`stream_options` / empty-`tools` removal,
   `max_completion_tokens` mapping, same-model reasoning replay, and the `onPayload` chain).
 
+## [0.6.1] — 2026-09-09
+
+### Fixed
+
+- Initial mitigation for the intermittent "Stream ended without finish_reason" gateway truncation: the generated catalog set
+  `supportsFinishReason: false`. **Superseded by 0.6.5** — that flag hid the truncation instead of recovering it; see
+  [#2](https://github.com/gtrabanco/pi-nan-provider/issues/2).
+
 ## [0.6.0] — 2026-09-09
 
 ### Added
@@ -150,7 +186,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial public release of the nan provider package for pi.
 
-[Unreleased]: https://github.com/gtrabanco/pi-nan-provider/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/gtrabanco/pi-nan-provider/compare/v0.6.5...HEAD
+[0.6.5]: https://github.com/gtrabanco/pi-nan-provider/compare/v0.6.4...v0.6.5
+[0.6.4]: https://github.com/gtrabanco/pi-nan-provider/compare/v0.6.3...v0.6.4
+[0.6.3]: https://github.com/gtrabanco/pi-nan-provider/compare/v0.6.2...v0.6.3
+[0.6.2]: https://github.com/gtrabanco/pi-nan-provider/compare/v0.6.1...v0.6.2
+[0.6.1]: https://github.com/gtrabanco/pi-nan-provider/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/gtrabanco/pi-nan-provider/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/gtrabanco/pi-nan-provider/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/gtrabanco/pi-nan-provider/compare/v0.5.0...v0.5.1

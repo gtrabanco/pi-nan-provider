@@ -299,7 +299,7 @@ describe("createNanCompatibleProvider real request is NaN-schema-valid (replay s
 			baseUrl: "https://api.nan.builders/v1",
 			reasoning: true,
 			input: ["text", "image"],
-			compat: { supportsDeveloperRole: false, supportsReasoningEffort: true, supportsUsageInStreaming: true, supportsFinishReason: false, maxTokensField: "max_tokens" },
+			compat: { supportsDeveloperRole: false, supportsReasoningEffort: true, supportsUsageInStreaming: false, supportsFinishReason: true, maxTokensField: "max_tokens" },
 		} as never;
 		const fetchImpl: typeof fetch = (async (_url, init) => {
 			body = JSON.parse(init!.body as string) as Json;
