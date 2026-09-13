@@ -26,6 +26,7 @@ import type {
 	ProviderStreams,
 	RefreshModelsContext,
 } from "@earendil-works/pi-ai";
+import { withContextOverflowClassification } from "./context-overflow-classifier.ts";
 import {
 	baselineModels,
 	DEFAULT_MODELS_TIMEOUT_MS,
@@ -173,6 +174,12 @@ export async function createNanCompatibleProvider(
 			const current = liveIds;
 			return current ? models.filter((model) => current.has(model.id)) : models;
 		},
-		api: wrapApiForStrictSanitization(apiFactory()),
+		// Sanitize the payload for NaN's strict schema, then classify an opaque
+		// generic 400 as a context overflow when the request we just sent was over
+		// the model's window. The second layer keeps a replayed cross-model
+		// reasoning trace (or any other over-window request the context-hook guard
+		// cannot reach, e.g. NAN_THINKING_GUARD=0) recoverable instead of wedging
+		// the session — see src/context-overflow-classifier.ts.
+		api: withContextOverflowClassification(wrapApiForStrictSanitization(apiFactory())),
 	});
 }

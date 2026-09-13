@@ -139,6 +139,17 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
   synthesizing `stop`/`toolUse`. `supportsUsageInStreaming` is `false` because
   `src/openai-compat-sanitizer.ts` strips `stream_options`. Regression tests:
   `test/issue-2-truncated-stream.test.ts`; issue #2.
+- A NaN request that still exceeds the destination model's context window (the
+  cross-model thinking guard is disabled with `NAN_THINKING_GUARD=0`, the
+  inflation is not a `thinking` block, or the window is smaller) gets NaN's
+  generic 400 `Invalid request. Check your request parameters.`, which pi-ai's
+  `isContextOverflow()` does NOT match — so pi never compacts and the session
+  wedges (upstream `earendil-works/pi#9409`). `src/context-overflow-classifier.ts`
+  re-checks the request size at the provider boundary and rewrites that error
+  into a pi-recognizable overflow message (chars/3.47 estimate; conservative:
+  only when estimated over the window). Wired in `src/provider-factory.ts` after
+  the sanitizer. Regression tests: `test/issue-3-model-switch-overflow.test.ts`,
+  `test/context-overflow-classifier.test.ts`; issue #3.
 - Relative imports inside this package use `.ts` extensions (pi's official
   extension examples do the same; pi transpiles extension sources).
 - pi intentionally has NO built-in MCP client (docs/usage.md). MCP integration

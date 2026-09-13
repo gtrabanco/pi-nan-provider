@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.6] — 2026-09-13
+
+### Fixed
+
+- **A NaN model switch that still overflows no longer wedges the session on the opaque `400 Invalid request. Check your request parameters.` ([#3](https://github.com/gtrabanco/pi-nan-provider/issues/3)).**
+  The `0.6.3`/`0.6.4` cross-model thinking guard drops the reasoning pi-ai replays across a model switch, so the request usually fits. When a request
+  still exceeds the destination model's context window — the guard is disabled with `NAN_THINKING_GUARD=0`, the inflation is not a `thinking` block
+  (large tool outputs, images), or the window is smaller — NaN's LiteLLM gateway answers the generic 400 instead of naming the overflow. pi's
+  auto-compaction keys on pi-ai's `isContextOverflow()`, whose documented patterns do not match that generic text, so the session stuck at the
+  ceiling (upstream `earendil-works/pi#9409`, listed by the issue).
+
+  New `src/context-overflow-classifier.ts` makes the package **re-check the request size on the way out**: when the terminal error carries NaN's
+  generic-400 marker and the request we sent was estimated to exceed the model's context window, the error message is rewritten into a form that
+  matches pi-ai's overflow patterns (original provider text preserved), so pi compacts and retries instead of stalling. Reclassification is
+  conservative — a generic 400 on a within-window request is left untouched, so unrelated errors are never mislabelled. Estimation uses the same
+  chars/3.47 ratio as the issue's offline measurements (system prompt and tool schemas counted explicitly). Wired into the shared provider factory
+  after the strict-schema sanitizer, so it applies to every NaN-compatible provider.
+
+### Added
+
+- `test/issue-3-model-switch-overflow.test.ts` — end-to-end acceptance tests through the real pi-ai adapter and a mock NaN gateway: with
+  `NAN_THINKING_GUARD=0` an over-window replay's generic 400 must be classifiable as a context overflow; with the guard enabled the same session
+  must fit and succeed; a generic 400 on a within-window request must stay a generic error.
+- `test/context-overflow-classifier.test.ts` — unit coverage for the estimator, the generic-400 matcher, and the conservative reclassification.
+
 ## [0.6.5] — 2026-09-13
 
 ### Fixed
