@@ -27,8 +27,9 @@ describe("tier detection (filterModels driven by live /models)", () => {
 	test("after a successful live refresh, only key-visible models are available", async () => {
 		// NaN lists exactly the models your membership can call: a premium key
 		// that sees qwen3.6 and the premium-tier glm5.3, but not the
-		// baseline-only gemma4/glm5.3-flash etc. Undocumented live ids never
-		// surface (allowlist, not open ingest).
+		// baseline-only gemma4/glm5.3-flash etc. filterModels gates on the live
+		// /models list so the key decides availability — every live model
+		// surfaces through.
 		const provider = await createNanCompatibleProvider(NAN_PROVIDER, {
 			fetchImpl: jsonFetch({ data: [{ id: "qwen3.6" }, { id: "glm5.3" }] }),
 		});

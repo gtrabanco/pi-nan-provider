@@ -103,7 +103,7 @@ describe("issue #2 — a truncated NaN stream is a retryable error, never a sile
 		assertRetryableTruncation(await runTruncatedStream(model!));
 	});
 
-	test("end-to-end (live-only allowlisted model): the placeholder also errors + retries", async () => {
+	test("end-to-end (uncatalogued placeholder model): the placeholder also errors + retries", async () => {
 		const placeholder = mergeLiveWithGenerated(["glm5.3"], SOURCE, GENERATED_WITHOUT_GLM53).models[0];
 		expect(placeholder).toBeDefined();
 		assertRetryableTruncation(await runTruncatedStream(placeholder!));

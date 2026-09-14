@@ -121,11 +121,11 @@ describe("mergeLiveWithGenerated", () => {
 		expect(model.baseUrl).toBe(SOURCE.baseUrl);
 	});
 
-	test("uncatalogued live ids surface only when allowlisted; others are dropped", () => {
+	test("all live ids surface; uncatalogued ones get unknown capabilities", () => {
 		const merged = mergeLiveWithGenerated(["glm5.3", "brand-new-model", "qwen3-embedding"], SOURCE);
-		expect(merged.unknown).toEqual(["glm5.3"]);
+		expect(merged.unknown).toEqual(["glm5.3", "brand-new-model", "qwen3-embedding"]);
 		expect(merged.matched).toEqual([]);
-		expect(merged.models.map((model) => model.id)).toEqual(["glm5.3"]);
+		expect(merged.models.map((model) => model.id).sort()).toEqual(["brand-new-model", "glm5.3", "qwen3-embedding"]);
 		const model = merged.models[0]!;
 		expect(model.contextWindow).toBe(UNKNOWN_MODEL_LIMITS.contextWindow);
 		expect(model.maxTokens).toBe(UNKNOWN_MODEL_LIMITS.maxTokens);
@@ -135,7 +135,7 @@ describe("mergeLiveWithGenerated", () => {
 		expect(model.name).toBe(model.id);
 	});
 
-	test("mixed catalog keeps generated and allowlisted live entries side by side", () => {
+	test("mixed catalog keeps generated and uncatalogued live entries side by side", () => {
 		const merged = mergeLiveWithGenerated(["glm5.3-flash", "glm5.3"], SOURCE);
 		expect(merged.models.length).toBe(2);
 		expect(merged.matched).toEqual(["glm5.3-flash"]);
