@@ -137,7 +137,7 @@ Ambos puentes están **activados y son perezosos (lazy) por defecto**. Usa `/nan
 | Variable | Por defecto | Descripción |
 | :--- | :--- | :--- |
 | `NAN_MEDIA_MCP` | — | Override por sesión (`0` o `false` para desactivar). |
-| `NAN_MEDIA_MCP_VERSION` | `1.0.8` | Versión del servidor fijada (recomendado). |
+| `NAN_MEDIA_MCP_VERSION` | `1.1.2` | Versión del servidor fijada (recomendado). |
 | `NAN_MEDIA_MCP_COMMAND` | — | Override del comando personalizado. |
 | `NAN_MEDIA_MCP_TIMEOUT_MS` | `120000` | Timeout por llamada. |
 | `NAN_MCP_TOOLS` | — | Override para el puente oficial (`0` para desactivar). |

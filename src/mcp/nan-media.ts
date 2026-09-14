@@ -14,8 +14,8 @@
  *   other env vars inherit from your environment (generated files land in
  *   ~/nan-mcp-output/ by default).
  * - Version pinning follows the upstream server's own supply-chain guidance:
- *   NAN_MEDIA_MCP_VERSION (default "1.0.8"), or pass a custom command with
- *   NAN_MEDIA_MCP_COMMAND (space-separated, e.g. "bunx nan-mcp-server@1.0.8").
+ *   NAN_MEDIA_MCP_VERSION (default "1.1.2"), or pass a custom command with
+ *   NAN_MEDIA_MCP_COMMAND (space-separated, e.g. "bunx nan-mcp-server@1.1.2").
  */
 
 import { Type, type TSchema } from "@earendil-works/pi-ai";
@@ -28,7 +28,7 @@ export const NAN_MEDIA_MCP_ENV = "NAN_MEDIA_MCP";
 export const NAN_MEDIA_MCP_VERSION_ENV = "NAN_MEDIA_MCP_VERSION";
 export const NAN_MEDIA_MCP_COMMAND_ENV = "NAN_MEDIA_MCP_COMMAND";
 export const NAN_MEDIA_MCP_TIMEOUT_ENV = "NAN_MEDIA_MCP_TIMEOUT_MS";
-export const DEFAULT_NAN_MEDIA_MCP_VERSION = "1.0.8";
+export const DEFAULT_NAN_MEDIA_MCP_VERSION = "1.1.2";
 
 /**
  * The MCP tool names on the stdio nan-mcp-server that this package bridges as
@@ -143,7 +143,7 @@ function defineMediaTool<TParams extends TSchema>(spec: MediaToolSpec<TParams>):
 /**
  * Build the media tool set. Registered only when NAN_MEDIA_MCP=1 and the
  * runtime supports registerTool; execution spawns the MCP server per call.
- * Schemas mirror nan-mcp-server's zod input schemas (v1.0.8).
+ * Schemas mirror nan-mcp-server's zod input schemas (v1.1.2).
  */
 export function createNanMediaTools(): ToolDefinition[] {
 	return [

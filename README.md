@@ -137,7 +137,7 @@ Both bridges are **enabled and lazy by default**. Use `/nan-mcp` to manage them.
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `NAN_MEDIA_MCP` | — | Per-session override (`0` or `false` to disable). |
-| `NAN_MEDIA_MCP_VERSION` | `1.0.8` | Pinned server version (recommended). |
+| `NAN_MEDIA_MCP_VERSION` | `1.1.2` | Pinned server version (recommended). |
 | `NAN_MEDIA_MCP_COMMAND` | — | Custom command override. |
 | `NAN_MEDIA_MCP_TIMEOUT_MS` | `120000` | Per-call timeout. |
 | `NAN_MCP_TOOLS` | — | Override for the official bridge (`0` to disable). |

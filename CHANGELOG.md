@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.8] — 2026-09-14
+
+### Changed
+
+- **Bumped the media MCP bridge pin to `nan-mcp-server@1.1.2`** (auto-detected by `scripts/check-nan-mcp-server.ts`, see #6).
+  Every bridged tool (`generate_image`, `edit_image`, `text_to_speech`, `list_voices`, `speech_to_text`) is still present and its zod input
+  schema is unchanged, so the bump is non-breaking for this bridge. The upstream breaking change renamed `embed` → `embed_text` and
+  `rerank` → `rerank_documents`, and added `list_models` — none of which this package bridges (optional future work).
+
 ## [0.6.7] — 2026-09-13
 
 ### Fixed
