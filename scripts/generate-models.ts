@@ -83,14 +83,16 @@ const LIVE_ONLY_MODEL_IDS: Record<string, string> = {
 const NAN_COMPAT = {
 	supportsDeveloperRole: false,
 	supportsReasoningEffort: true,
-	// pi-ai only sends `stream_options: { include_usage: true }` when this is
-	// not false. NaN's published schema does not document `stream_options`, so
-	// the conservative default is false: the sanitizer strips it and usage
-	// stays zero. A user who confirms their gateway reports streaming usage
-	// can opt in per model with a models.json compat override
-	// (`supportsUsageInStreaming: true`); the sanitizer then forwards
-	// `stream_options` instead of deleting it (issue #4, 2026-09-13).
-	supportsUsageInStreaming: false,
+	// NaN's published schema is silent about `stream_options`, but the live
+	// gateway honors it (issue #7, measured 2026-09-16 on five chat models:
+	// 0 usage chunks without the flag, exactly 1 with it). pi-ai only sends
+	// `stream_options: { include_usage: true }` when this is not false, and the
+	// sanitizer forwards it when the model declares true, so chat models opt in
+	// by default and pi reports real token counts instead of zeros (issue #4).
+	// A model that does not report streaming usage can still opt out per model
+	// with a models.json compat override (`supportsUsageInStreaming: false`);
+	// the sanitizer then strips `stream_options` and the payload stays strict.
+	supportsUsageInStreaming: true,
 	// The NaN/LiteLLM gateway intermittently closes SSE streams before emitting
 	// `finish_reason`. With true, pi-ai raises "Stream ended without
 	// finish_reason", which its retryable-provider pattern ("ended without")
@@ -102,7 +104,7 @@ const NAN_COMPAT = {
 };
 
 const NAN_COMPAT_NOTE =
-	"compat matches the maintainer's working ~/.pi/agent/models.json LiteLLM config for api.nan.builders (2026-09-04): supportsDeveloperRole false, supportsReasoningEffort true, maxTokensField max_tokens. NaN's docs example sets only supportsDeveloperRole: true and is not battle-tested. supportsFinishReason true (2026-09-13, issue #2): the LiteLLM gateway intermittently closes SSE streams before emitting finish_reason; with true pi-ai raises 'Stream ended without finish_reason', which matches pi-ai's retryable-provider pattern ('ended without') and is retried automatically, whereas false silently synthesized stop/toolUse and stalled the turn mid-answer. supportsUsageInStreaming false (2026-09-13): pi-ai only sends stream_options when this is not false, and NaN's published schema does not document it, so the conservative default stays false (sanitizer removes stream_options, usage reads zero). A user who has confirmed that their model returns a streaming usage chunk can opt in per model with a models.json compat override (supportsUsageInStreaming: true); the sanitizer then forwards stream_options instead of deleting it (issue #4).";
+	"compat matches the maintainer's working ~/.pi/agent/models.json LiteLLM config for api.nan.builders (2026-09-04): supportsDeveloperRole false, supportsReasoningEffort true, maxTokensField max_tokens. NaN's docs example sets only supportsDeveloperRole: true and is not battle-tested. supportsFinishReason true (2026-09-13, issue #2): the LiteLLM gateway intermittently closes SSE streams before emitting finish_reason; with true pi-ai raises 'Stream ended without finish_reason', which matches pi-ai's retryable-provider pattern ('ended without') and is retried automatically, whereas false silently synthesized stop/toolUse and stalled the turn mid-answer. supportsUsageInStreaming true (2026-09-16, issue #7): NaN's published schema is silent about stream_options, but the live gateway honors it — two identical streaming calls per model, differing only in stream_options: { include_usage: true }, returned 0 usage chunks without it and exactly 1 with it (prompt/completion/reasoning/cached token counts) on deepseek-v4-flash, glm5.3-flash, qwen3.6, mimo-v2.5 and gemma4, and a real pi session then recorded token counts where it recorded zeros. pi-ai only sends stream_options when this is not false, and the sanitizer forwards it when the model declares true, so chat models opt in by default and usage is reported (issue #4). A model that does not report streaming usage can still opt out per model with a models.json compat override (supportsUsageInStreaming: false); the sanitizer then strips stream_options and the payload stays strict.";
 
 interface ModelsDevModel {
 	id?: string;

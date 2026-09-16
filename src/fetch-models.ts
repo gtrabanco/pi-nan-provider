@@ -177,10 +177,11 @@ export function mergeLiveWithGenerated(
 			// gateway cuts SSE streams before finish_reason, so supportsFinishReason
 			// must stay true (pi-ai then raises the retryable "Stream ended without
 			// finish_reason" instead of silently stalling), and
-			// supportsUsageInStreaming stays false because NaN's schema does not
-			// document `stream_options`: the sanitizer strips it unless the model's
-			// effective compat opts in (issue #4), so false matches the default wire
-			// payload.
+			// supportsUsageInStreaming is true because the live gateway honors
+			// `stream_options.include_usage` even though the published schema is
+			// silent (issue #7, measured 2026-09-16): the sanitizer forwards the
+			// field and pi reports real token counts. A model can still opt out
+			// with a models.json override of false.
 			models.push({
 				id,
 				name: id,
@@ -192,7 +193,7 @@ export function mergeLiveWithGenerated(
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 				contextWindow: UNKNOWN_MODEL_LIMITS.contextWindow,
 				maxTokens: UNKNOWN_MODEL_LIMITS.maxTokens,
-				compat: { supportsFinishReason: true, supportsUsageInStreaming: false },
+				compat: { supportsFinishReason: true, supportsUsageInStreaming: true },
 			});
 			unknown.push(id);
 		}

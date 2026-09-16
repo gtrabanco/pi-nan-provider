@@ -88,16 +88,17 @@ export async function resolveOpenAICompletionsApi(): Promise<OpenAICompletionsAp
  * ./openai-compat-sanitizer.ts). NaN returns HTTP 400 `Invalid request. Check
  * your request parameters.` for any payload that violates it — including a
  * replayed assistant message with a `toolCall` block inside `content`, a
- * `reasoning_details` field, or undocumented top-level fields like `store` /
- * `stream_options`. Sanitizing via the `onPayload` hook works regardless of
+ * `reasoning_details` field, or the undocumented top-level `store` field.
+ * Sanitizing via the `onPayload` hook works regardless of
  * which pi-ai version the runtime bundles, so the fix is not tied to a
  * specific upstream build.
  *
  * `stream_options` is the one field whose removal is conditional: when the
- * model's effective `compat.supportsUsageInStreaming` is true (catalog value
- * or user `models.json` override), pi-ai requested usage and the gateway will
- * return it — stripping the field would silently zero `message.usage`
- * (issue #4). Every other model keeps the strict payload.
+ * model's effective `compat.supportsUsageInStreaming` is true (the catalog
+ * default for chat models since issue #7, or a user `models.json` override),
+ * pi-ai requested usage and the gateway will return it — stripping the field
+ * would silently zero `message.usage` (issue #4). Every other model keeps the
+ * strict payload.
  *
  * Any caller-supplied `onPayload` (e.g. pi's own debug/passthrough hook) is
  * preserved and chained AFTER sanitization, so the final payload is always

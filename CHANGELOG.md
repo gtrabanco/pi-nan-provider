@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.9] — 2026-09-16
+
+### Fixed
+
+- **Token usage is no longer all-zero by default: chat models now opt in to streaming usage ([#7](https://github.com/gtrabanco/pi-nan-provider/issues/7)).**
+  The generated catalog declared `supportsUsageInStreaming: false` everywhere because NaN's published schema
+  (`https://nan.builders/openapi.json`) does not document `stream_options`, so usage read as zero unless every user rediscovered and set the
+  per-model flag by hand. The reporter measured the live gateway on 2026-09-16 with two identical streaming calls per model, differing only in
+  `stream_options`: `deepseek-v4-flash`, `glm5.3-flash`, `qwen3.6`, `mimo-v2.5` and `gemma4` each returned **0** usage chunks without the flag and
+  exactly **1** with `stream_options: { include_usage: true }`, carrying prompt/completion/reasoning/cached token counts; a real pi session then
+  recorded `{input:168, output:3, cacheRead:39040, totalTokens:39211}` where it had recorded zeros. The schema is silent, not forbidding, so the
+  catalog (and the uncatalogued live-model placeholder) now declares `supportsUsageInStreaming: true`: pi-ai asks for the usage chunk, the
+  sanitizer forwards `stream_options`, and pi reports real token counts out of the box. The conservative path remains as an explicit per-model
+  opt-out — a `models.json` override of `false` strips `stream_options` and keeps the strict payload (the sanitizer gating itself shipped in 0.6.7
+  with #4; this release only corrects the default).
+
+### Added
+
+- `test/issue-7-streaming-usage-default.test.ts` — end-to-end acceptance tests through the real pi-ai adapter and a mock NaN gateway that only
+  emits the usage chunk when the request carried `stream_options.include_usage` (matching the measurement): a stock catalog model and an
+  uncatalogued live model must both send the opt-in and surface non-zero usage; an explicit `false` override must keep the strict payload.
+
 ## [0.6.8] — 2026-09-14
 
 ### Changed

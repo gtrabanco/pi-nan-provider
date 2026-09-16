@@ -14,10 +14,10 @@
  * undone by the sanitizer.
  *
  * The fix under test: gate rule 4 on the model's effective
- * `compat.supportsUsageInStreaming`. When the model declares it (catalog or a
- * user override), `stream_options` survives sanitization and pi-ai reports
- * real token counts. When it does not, the payload stays exactly as strict as
- * today (no `stream_options`) — the conservative default is unchanged.
+ * `compat.supportsUsageInStreaming`. When the model declares it (the catalog
+ * default since issue #7, or a user override), `stream_options` survives
+ * sanitization and pi-ai reports real token counts. When it declares `false`
+ * (an explicit user opt-out), the payload stays strict (no `stream_options`).
  *
  * These tests are FROZEN acceptance criteria. They drive the real pi-ai
  * `openai-completions` adapter end-to-end through the real provider against a
@@ -168,9 +168,11 @@ describe("issue #4 — an opted-in model reports real token usage instead of zer
 	});
 });
 
-describe("issue #4 — the conservative default is unchanged", () => {
-	test("without the opt-in the sanitizer still strips stream_options and no usage chunk is requested", async () => {
-		const model = modelFor("qwen3.6"); // generated catalog: supportsUsageInStreaming false
+describe("issue #4 — the sanitizer gates streaming usage on the model's effective compat", () => {
+	test("an explicit opt-out override strips stream_options and no usage chunk is requested", async () => {
+		// The catalog default is now `true` (issue #7); the conservative path
+		// remains reachable as a per-model `models.json` opt-out.
+		const model = modelFor("qwen3.6", { supportsUsageInStreaming: false });
 		expect(model.compat?.supportsUsageInStreaming).toBe(false);
 
 		const gateway = usageGateway();

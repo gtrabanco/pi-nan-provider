@@ -17,8 +17,11 @@
  * A second, independent defect: the catalog claimed
  * `supportsUsageInStreaming: true` (so pi-ai asks for
  * `stream_options: { include_usage: true }`) while the request sanitizer
- * strips `stream_options` before sending. The flag contradicted the
- * sanitizer. The declaration must match what is actually sent.
+ * stripped `stream_options` before sending. The flag contradicted the
+ * sanitizer. The declaration must match what is actually sent — issue #4 made
+ * the sanitizer honor the declaration, and issue #7 flipped the declaration
+ * back to `true` for chat models on live-gateway evidence, so the invariant
+ * checked below now holds with `stream_options` forwarded.
  *
  * These tests are FROZEN acceptance criteria. They exercise the real pi-ai
  * `openai-completions` adapter end-to-end (no network; fetch is injected), so
@@ -124,18 +127,18 @@ describe("issue #2 — a truncated NaN stream is a retryable error, never a sile
 });
 
 describe("issue #2 — the streaming-usage declaration matches the sanitizer", () => {
-	test("catalog contract: every generated model declares supportsUsageInStreaming false (stream_options is stripped)", () => {
+	test("catalog contract: every generated model declares supportsUsageInStreaming true (stream_options is forwarded)", () => {
 		for (const model of baselineModels(SOURCE)) {
-			expect(model.compat?.supportsUsageInStreaming, model.id).toBe(false);
+			expect(model.compat?.supportsUsageInStreaming, model.id).toBe(true);
 		}
 	});
 
-	test("catalog contract: the live-only placeholder declares supportsUsageInStreaming false", () => {
+	test("catalog contract: the live-only placeholder declares supportsUsageInStreaming true", () => {
 		const placeholder = mergeLiveWithGenerated(["glm5.3"], SOURCE, GENERATED_WITHOUT_GLM53).models[0]!;
-		expect(placeholder.compat?.supportsUsageInStreaming).toBe(false);
+		expect(placeholder.compat?.supportsUsageInStreaming).toBe(true);
 	});
 
-	test("end-to-end: no outgoing request carries stream_options while the flag says it does not", async () => {
+	test("end-to-end: an outgoing request carries stream_options exactly when the flag says it does", async () => {
 		let body: Record<string, unknown> = {};
 		const capturingFetch = (async (_url: unknown, init?: RequestInit) => {
 			body = JSON.parse(init!.body as string) as Record<string, unknown>;
@@ -153,7 +156,7 @@ describe("issue #2 — the streaming-usage declaration matches the sanitizer", (
 			// consume to completion
 		}
 
-		expect(model.compat?.supportsUsageInStreaming).toBe(false);
-		expect("stream_options" in body).toBe(false);
+		expect(model.compat?.supportsUsageInStreaming).toBe(true);
+		expect(body.stream_options).toEqual({ include_usage: true });
 	});
 });

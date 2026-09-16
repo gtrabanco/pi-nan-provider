@@ -33,14 +33,16 @@
  *     not silently lost.
  *  4. Top-level fields NaN's schema does not list: `store` and
  *     `stream_options`. These are opt-in/usage fields pi-ai sends by default
- *     for a "standard" provider; NaN does not document them, so they are
- *     removed by default. `stream_options` is the one exception that can be
- *     explicitly opted into: when the model's effective
- *     `compat.supportsUsageInStreaming` is true (a catalog flag or a user
- *     `models.json` override), the caller has confirmed the gateway reports
- *     usage and `stream_options` is preserved — deleting it unconditionally
- *     would silently zero out `message.usage` (issue #4). `store` is always
- *     removed.
+ *     for a "standard" provider; NaN's published schema does not document
+ *     them, so they are removed by default. `stream_options` is the one
+ *     exception that can be explicitly opted into: when the model's effective
+ *     `compat.supportsUsageInStreaming` is true (the catalog default for chat
+ *     models since issue #7 — the live gateway was measured honoring
+ *     `include_usage` on 2026-09-16 — or a user `models.json` override), the
+ *     gateway reports usage and `stream_options` is preserved — deleting it
+ *     unconditionally would silently zero out `message.usage` (issue #4).
+ *     A per-model override of `false` keeps the strict payload. `store` is
+ *     always removed.
  *  5. An EMPTY `tools` array. Verified against the live gateway (2026-09-09):
  *     NaN rejects `tools: []` with the same 400, while `stream: true`, a
  *     `system` message, string content, and a `tool` role message are all

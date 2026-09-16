@@ -71,14 +71,14 @@ Puedes sobrescribir el `compat` de cualquier modelo en `~/.pi/agent/models.json`
 
 > Poner `supportsFinishReason: false` restaura el antiguo stall silencioso — no recomendado.
 
-**Uso de tokens en streaming:** `supportsUsageInStreaming` es `false` por defecto porque el esquema publicado de NaN no documenta `stream_options`; sin él, el usage aparece a cero. Si has confirmado que tu modelo devuelve el chunk de usage en streaming, activalo por modelo — el sanitizer de peticiones entonces reenvía `stream_options: { "include_usage": true }` y pi muestra los tokens reales en lugar de ceros:
+**Uso de tokens en streaming:** `supportsUsageInStreaming` es `true` por defecto. El esquema publicado de NaN no documenta `stream_options`, pero el gateway real lo acepta y lo aplica — medido el 2026-09-16 ([#7](https://github.com/gtrabanco/pi-nan-provider/issues/7)): dos llamadas de streaming idénticas por modelo, 0 chunks de usage sin el flag y exactamente 1 con él, en `deepseek-v4-flash`, `glm5.3-flash`, `qwen3.6`, `mimo-v2.5` y `gemma4`. Por eso pi muestra tokens reales de entrada/salida/reasoning/caché en lugar de ceros. Si un modelo resulta no devolver el usage en streaming, desactívalo por modelo — el sanitizer entonces elimina `stream_options` y el payload vuelve a ser estricto:
 
 ```json
 {
   "providers": {
     "nan": {
       "modelOverrides": {
-        "qwen3.6": { "compat": { "supportsUsageInStreaming": true } }
+        "some-model": { "compat": { "supportsUsageInStreaming": false } }
       }
     }
   }

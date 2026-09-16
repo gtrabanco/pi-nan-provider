@@ -136,14 +136,21 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
   `supportsFinishReason: true` so pi-ai raises the retryable
   `Stream ended without finish_reason` (pi-ai's `RETRYABLE_PROVIDER_ERROR_PATTERN`
   matches `"ended without"`, so the turn is retried) instead of silently
-  synthesizing `stop`/`toolUse`. `supportsUsageInStreaming` stays `false` by
-  default (NaN's published schema does not document `stream_options`), but the
-  sanitizer gates its `stream_options` removal on the model's effective
-  `compat.supportsUsageInStreaming`, so a confirmed per-model `models.json`
-  override now yields real usage instead of being silently undone
-  (`test/issue-4-token-usage.test.ts`; issues #2, #4). Regression tests:
-  `test/issue-2-truncated-stream.test.ts`, `test/issue-4-token-usage.test.ts`;
-  issues #2 and #4.
+  synthesizing `stop`/`toolUse`. `supportsUsageInStreaming` is `true` for chat
+  models (issue #7): NaN's published schema does not document `stream_options`,
+  but the live gateway honors `stream_options.include_usage` — measured
+  2026-09-16 on `deepseek-v4-flash`, `glm5.3-flash`, `qwen3.6`, `mimo-v2.5` and
+  `gemma4` (0 usage chunks without the flag, exactly 1 with it, carrying
+  prompt/completion/reasoning/cached counts; a real pi session then recorded
+  real tokens where it recorded zeros). The sanitizer gates its
+  `stream_options` removal on the model's effective
+  `compat.supportsUsageInStreaming`, so the stock catalog reports real usage and
+  a per-model `models.json` override of `false` restores the strict payload
+  (`test/issue-4-token-usage.test.ts`, `test/issue-7-streaming-usage-default.test.ts`;
+  issues #2, #4, #7). Regression tests:
+  `test/issue-2-truncated-stream.test.ts`, `test/issue-4-token-usage.test.ts`,
+  `test/issue-7-streaming-usage-default.test.ts`;
+  issues #2, #4 and #7.
 - A NaN request that still exceeds the destination model's context window (the
   cross-model thinking guard is disabled with `NAN_THINKING_GUARD=0`, the
   inflation is not a `thinking` block, or the window is smaller) gets NaN's
