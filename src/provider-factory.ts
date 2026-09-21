@@ -18,6 +18,10 @@
  * API factory. Subpath specifiers (`@earendil-works/pi-ai/api/...`) get the
  * alias applied as a prefix and resolve to `<compat.js>/api/...`, which does
  * not exist — the extension then fails to load entirely.
+ *
+ * Streaming API resolution: bare root under pi's compat alias is the instance
+ * anchor; otherwise a file URL from import.meta.resolve; never a bare subpath
+ * (loud failure — issue #8). Full logic in src/pi-ai-loader.ts.
  */
 
 import * as piAi from "@earendil-works/pi-ai";
@@ -33,6 +37,7 @@ import {
 	resolveCatalog,
 	type CatalogSource,
 } from "./fetch-models.ts";
+import { resolveOpenAICompletionsApi } from "./pi-ai-loader.ts";
 import { sanitizeOpenAICompatPayload } from "./openai-compat-sanitizer.ts";
 
 export interface OpenAICompatibleProviderConfig {
@@ -51,35 +56,6 @@ export interface NanCompatibleProviderOptions {
 	timeoutMs?: number;
 	/** Injectable for tests; defaults to global fetch. */
 	fetchImpl?: typeof fetch;
-}
-
-/**
- * Resolve the openai-completions streaming implementation at runtime.
- *
- * Under pi, the bare-root namespace is pi's compat entrypoint, which
- * re-exports `openAICompletionsApi` on both pi-ai 0.83 and 0.84 — so the
- * first branch always wins and no pi-ai subpath is ever resolved there.
- * Outside pi (plain node/bun: tests and direct consumers) the real root
- * does not export the lazy factory; the dynamic subpath import below uses
- * the package's normal `./api/*` export. It is never reached under pi, so
- * the alias-prefix pitfall cannot bite at runtime.
- */
-type OpenAICompletionsApiFactory = () => ProviderStreams;
-
-let cachedApiFactory: OpenAICompletionsApiFactory | undefined;
-
-export async function resolveOpenAICompletionsApi(): Promise<OpenAICompletionsApiFactory> {
-	if (cachedApiFactory) return cachedApiFactory;
-	const fromRoot = (
-		piAi as unknown as Partial<Record<"openAICompletionsApi", OpenAICompletionsApiFactory>>
-	).openAICompletionsApi;
-	if (typeof fromRoot === "function") {
-		cachedApiFactory = fromRoot;
-		return cachedApiFactory;
-	}
-	cachedApiFactory = (await import("@earendil-works/pi-ai/api/openai-completions.lazy"))
-		.openAICompletionsApi;
-	return cachedApiFactory;
 }
 
 /**
@@ -157,8 +133,10 @@ export function wrapApiForStrictSanitization(api: ProviderStreams): ProviderStre
  * - fetchModels: live `/models` IDs × generated capability data; falls back
  *   to the baseline when the endpoint is unreachable. pi's Models runtime
  *   drives refreshes (startup/periodic) and persists the overlay.
- * - api: the openai-completions streaming implementation (see
- *   `resolveOpenAICompletionsApi` for why this is resolved dynamically).
+ * - api: the openai-completions streaming implementation resolved via
+ *   `resolveOpenAICompletionsApi` (bare root under pi's compat alias as
+ *   the instance anchor; otherwise a file URL from import.meta.resolve;
+ *   never a bare subpath — loud failure if unresolved). Issue #8.
  */
 export async function createNanCompatibleProvider(
 	config: OpenAICompatibleProviderConfig,
