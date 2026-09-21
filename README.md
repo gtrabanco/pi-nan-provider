@@ -166,7 +166,7 @@ Shows your NaN token usage per model, monthly limits, and time until the billing
 
 1. **Install the NaN CLI**:
    ```bash
-   curl -fsSL https://nan.builders/install.sh | sh
+   curl -fsSL https://nan.builders/install | sh
    ```
 2. **Log in**:
    ```bash

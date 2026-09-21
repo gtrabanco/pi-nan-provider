@@ -166,7 +166,7 @@ Muestra tu uso de tokens de NaN por modelo, los límites mensuales y el tiempo h
 
 1. **Instala la CLI de NaN**:
    ```bash
-   curl -fsSL https://nan.builders/install.sh | sh
+   curl -fsSL https://nan.builders/install | sh
    ```
 2. **Inicia sesión**:
    ```bash
