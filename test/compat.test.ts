@@ -92,7 +92,7 @@ describe("pi version compatibility (one entrypoint, any runtime)", () => {
 			"nan_list_voices",
 			"nan_speech_to_text",
 		]);
-		expect(recorded.commands.map((command) => command.name)).toEqual(["nan-mcp"]);
+		expect(recorded.commands.map((command) => command.name)).toEqual(["nan-mcp", "nan-usage"]);
 	});
 
 	test("legacy pi: falls back to registerProvider(name, config) with env-var auth", async () => {

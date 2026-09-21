@@ -154,6 +154,78 @@ bun run check-nan-mcp-server --issue    # crea/refresca el issue
 
 ---
 
+## 📊 Uso de Cuotas: `/nan-usage`
+
+Muestra tu uso de tokens de NaN por modelo, los límites mensuales y el tiempo hasta el reinicio del ciclo de facturación.
+
+### Cómo funciona
+
+`/nan-usage` lee el token de sesión desde `~/.config/nan/session.json` — el mismo archivo que usa la [CLI de NaN](https://github.com/helmcode/nan-cli). Si el archivo existe y contiene una sesión válida, el comando obtiene datos de uso reales del dashboard de NaN. Si no, muestra los límites de cuota estáticos de la documentación.
+
+### Configuración
+
+1. **Instala la CLI de NaN**:
+   ```bash
+   curl -fsSL https://nan.builders/install.sh | sh
+   ```
+2. **Inicia sesión**:
+   ```bash
+   nan auth login
+   ```
+   Te envía un enlace de inicio de sesión por email. Pega el enlace en la terminal.
+3. **Usa en pi**:
+   ```
+   /nan-usage
+   ```
+
+> [!TIP]
+> El token de sesión se comparte automáticamente — no necesitas variables de entorno ni configuración extra. Si la sesión expira, ejecuta `nan auth login` de nuevo.
+
+### Lo que ves
+
+**Con sesión válida** (uso real):
+```
+📊 NaN Quota Status
+
+⏱️  Next billing reset: 2026-10-01 UTC (8d 14h 32m 15s)
+
+Models with monthly caps:
+
+DeepSeek V4 Flash:
+  [████████░░░░░░░░░░░░] 40.2%
+  Used: 1.2B / 3.0B (1.8B remaining)
+
+MiMo V2.5:
+  [██░░░░░░░░░░░░░░░░░░] 12.5%
+  Used: 125.0M / 1.0B (875.0M remaining)
+
+Uncapped models:
+
+Qwen 3.6: 890.5K used
+Gemma 4: 234.1K used
+```
+
+**Sin sesión** (solo límites estáticos):
+```
+📊 NaN Quota Status (static limits)
+
+⏱️  Next billing reset: 2026-10-01 UTC (8d 14h 32m 15s)
+
+Model                        Monthly Cap
+─────────────────────────────────────────────────
+DeepSeek V4 Flash            3.0B
+MiMo V2.5                    1.0B
+Qwen 3.6                     uncapped
+Gemma 4                      uncapped
+Qwen 3.8 Flash               500.0M
+GLM 5.3 Flash                2.0B
+GLM 5.3 👑                   3.0B (rolling 400.0M/4h)
+
+💡 Run `nan auth login` to see real usage data.
+```
+
+---
+
 ## 📊 Modelos
 
 Catálogo base (verificado contra [docs de NaN](https://nan.builders/docs/models) y [OpenAPI](https://nan.builders/openapi.json)).

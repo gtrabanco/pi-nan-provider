@@ -28,6 +28,7 @@
 import type { ContextEvent, ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
 import type { Provider } from "@earendil-works/pi-ai";
 import { registerNanMcpCommand } from "./commands.ts";
+import { registerNanUsageCommand } from "./usage.ts";
 import {
 	crossModelThinkingGuardEnabled,
 	stripCrossModelThinking,
@@ -109,6 +110,7 @@ function registerMcpToolsCompat(pi: ExtensionAPI): void {
 	if (mediaMcpEnabled()) registerMediaTools();
 	if (typeof pi.registerCommand === "function") {
 		registerNanMcpCommand(pi, { registerWebSearchTools: registerSearchTool, registerMediaTools });
+		registerNanUsageCommand(pi);
 	}
 }
 

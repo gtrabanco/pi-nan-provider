@@ -154,6 +154,78 @@ bun run check-nan-mcp-server --issue    # create/refresh the issue
 
 ---
 
+## 📊 Quota Usage: `/nan-usage`
+
+Shows your NaN token usage per model, monthly limits, and time until the billing cycle resets.
+
+### How it works
+
+`/nan-usage` reads the session token from `~/.config/nan/session.json` — the same file the [NaN CLI](https://github.com/helmcode/nan-cli) uses. If the file exists and contains a valid session, the command fetches real usage data from NaN's dashboard. Otherwise, it shows static quota limits from the docs.
+
+### Setup
+
+1. **Install the NaN CLI**:
+   ```bash
+   curl -fsSL https://nan.builders/install.sh | sh
+   ```
+2. **Log in**:
+   ```bash
+   nan auth login
+   ```
+   This sends a sign-in link to your email. Paste the link back into the terminal.
+3. **Use in pi**:
+   ```
+   /nan-usage
+   ```
+
+> [!TIP]
+> The session token is shared automatically — no env vars or extra config needed. If the session expires, run `nan auth login` again.
+
+### What you see
+
+**With a valid session** (real usage):
+```
+📊 NaN Quota Status
+
+⏱️  Next billing reset: 2026-10-01 UTC (8d 14h 32m 15s)
+
+Models with monthly caps:
+
+DeepSeek V4 Flash:
+  [████████░░░░░░░░░░░░] 40.2%
+  Used: 1.2B / 3.0B (1.8B remaining)
+
+MiMo V2.5:
+  [██░░░░░░░░░░░░░░░░░░] 12.5%
+  Used: 125.0M / 1.0B (875.0M remaining)
+
+Uncapped models:
+
+Qwen 3.6: 890.5K used
+Gemma 4: 234.1K used
+```
+
+**Without a session** (static limits only):
+```
+📊 NaN Quota Status (static limits)
+
+⏱️  Next billing reset: 2026-10-01 UTC (8d 14h 32m 15s)
+
+Model                        Monthly Cap
+─────────────────────────────────────────────────
+DeepSeek V4 Flash            3.0B
+MiMo V2.5                    1.0B
+Qwen 3.6                     uncapped
+Gemma 4                      uncapped
+Qwen 3.8 Flash               500.0M
+GLM 5.3 Flash                2.0B
+GLM 5.3 👑                   3.0B (rolling 400.0M/4h)
+
+💡 Run `nan auth login` to see real usage data.
+```
+
+---
+
 ## 📊 Models
 
 Baseline catalog (verified against [NaN docs](https://nan.builders/docs/models) and [OpenAPI](https://nan.builders/openapi.json)).
