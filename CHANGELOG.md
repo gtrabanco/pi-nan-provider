@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.10] — 2026-09-21
+
+### Fixed
+
+- **pi-web models crash: `undefined is not an object (evaluating 'block.name.length')` before any network call ([#8](https://github.com/gtrabanco/pi-nan-provider/issues/8)).**
+  On pi-web's sessiond-on-Bun loader path (pi-web 1.202609.0 / pi 0.87.0 / Bun), `resolveOpenAICompletionsApi()` fell back to a bare subpath import
+  `@earendil-works/pi-ai/api/openai-completions.lazy`. The bare root `@earendil-works/pi-ai` was NOT aliased to the compat entrypoint under this
+  loader — the observed namespace was the pi-ai 0.87 CORE (which has no `openAICompletionsApi`), and the bare subpath specifier resolved to a stale
+  hoisted copy: `@earendil-works/pi-ai@0.85.1` under `~/.pi/agent/npm/node_modules`. That 0.85.1 version's `estimateMessageTokens` has no `system`
+  branch, so it treated pi 0.87's string-content `system` transcript message as a block list and crashed on `block.name.length`. No network request
+  was ever made.
+
+  New `src/pi-ai-loader.ts` binds the openai-completions streaming factory to the **same** `@earendil-works/pi-ai` package instance as the
+  extension's statically imported bare root — if the root exposes `openAICompletionsApi` it is used directly; otherwise a FILE URL is derived from
+  `import.meta.resolve("@earendil-works/pi-ai")` (sibling `api/openai-completions.lazy.js`, then `compat.js`). No bare pi-ai subpath specifier
+  is ever imported again from `src/`; resolution failure is loud (`PiAiStreamingApiResolutionError`) instead of silently loading a stale copy.
+  Guarded by `test/issue-8-pi-ai-instance.test.ts` and the updated `test/extension-load.test.ts`.
+
+### Added
+
+- `test/issue-8-pi-ai-instance.test.ts` — regression tests with real temp-package fixtures proving the streaming factory is bound to the host-resolved
+  package instance (a decoy sibling copy must never be selected), the file-URL derivation path, and a typed `PiAiStreamingApiResolutionError` on
+  failure; plus a default-host test against the installed pi-ai. `test/extension-load.test.ts` now also forbids dynamic bare pi-ai subpath imports
+  anywhere in `src/`.
+
 ## [0.6.9] — 2026-09-16
 
 ### Fixed

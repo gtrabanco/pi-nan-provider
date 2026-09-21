@@ -77,18 +77,29 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
 
 ## Verified API facts (do not re-derive from stale docs)
 
-- **Extension-side pi-ai imports (v0.5.0, verified on pi-ai 0.83.0 AND 0.84.4):**
+- **Extension-side pi-ai imports + streaming-API instance binding (v0.6.10; verified on pi-ai 0.83.0–0.84.4 and pi 0.87.0):**
   statically import ONLY the bare `@earendil-works/pi-ai` root from `src/`. pi's
-  extension loader maps that specifier to the compat entrypoint in every loading
-  mode (bundled CLI interception, Node-mode jiti aliases, compiled-binary
-  virtualModules), and the compat entrypoint re-exports every lazy API factory —
-  including `openAICompletionsApi`. A static SUBPATH import
-  (`@earendil-works/pi-ai/api/...`) gets the alias applied as a prefix and
-  resolves to `<compat.js>/api/...`, which does not exist: the whole extension
-  fails to load (the v0.4.x load failure). Type-only subpath imports are erased
-  before resolution and are safe; a DYNAMIC subpath `import()` is the sanctioned
-  plain-node fallback and never runs under pi because the root (compat) exports
-  the factory. Guarded by `test/extension-load.test.ts`.
+  extension loader maps that specifier to the compat entrypoint on the bundled
+  CLI, Node-mode jiti aliases and compiled-binary virtualModules, and compat
+  re-exports every lazy API factory — including `openAICompletionsApi`. A static
+  SUBPATH import (`@earendil-works/pi-ai/api/...`) gets the alias applied as a
+  prefix and resolves to `<compat.js>/api/...`, which does not exist: the whole
+  extension fails to load (the v0.4.x load failure). Type-only subpath imports
+  are erased before resolution and are safe.
+  **Exception (issue #8):** on pi-web's sessiond-on-Bun loader (pi-web
+  1.202609.0 / pi 0.87.0 / Bun) the bare root is NOT aliased to `/compat`
+  (observed namespace = core, `import.meta.resolve` = core), and a bare SUBPATH
+  specifier resolved to a stale hoisted `@earendil-works/pi-ai@0.85.1` under
+  `~/.pi/agent/npm/node_modules`; its `estimateMessageTokens` lacks the `system`
+  branch and crashes pi 0.87's string-content `system` transcript with
+  `block.name.length`. `src/pi-ai-loader.ts` therefore binds the streaming
+  factory to the same package instance as the bare-root import: use the root
+  export when present, else derive a FILE URL from
+  `import.meta.resolve("@earendil-works/pi-ai")`
+  (`api/openai-completions.lazy.js`, then `compat.js`). No bare pi-ai subpath
+  specifier is imported anywhere in `src/` (static or dynamic); failure is loud
+  (`PiAiStreamingApiResolutionError`). Guarded by `test/extension-load.test.ts`
+  and `test/issue-8-pi-ai-instance.test.ts`.
 - The REAL pi-ai root (plain node/bun, outside pi) does not export
   `openAICompletionsApi`; `createProvider` and `envApiKeyAuth(name, envVars)` are
   on the root. `envApiKeyAuth` implements exactly: stored credential key wins →
