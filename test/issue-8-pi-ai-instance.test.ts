@@ -23,8 +23,10 @@ import { pathToFileURL } from "node:url";
 import {
 	PI_AI_PACKAGE_SPECIFIER,
 	PiAiStreamingApiResolutionError,
+	hostAnchorUrl,
 	openAICompletionsApiFrom,
 	resolveOpenAICompletionsApi,
+	resolvePiAiSpecifier,
 	type ModuleNamespace,
 	type OpenAICompletionsApiFactory,
 	type PiAiLoaderHost,
@@ -202,5 +204,67 @@ describe("issue #8 — pi-ai instance resolution", () => {
 		expect(openAICompletionsApiFrom(null)).toBeUndefined();
 		expect(openAICompletionsApiFrom("nope")).toBeUndefined();
 		expect(openAICompletionsApiFrom({ openAICompletionsApi: 42 })).toBeUndefined();
+	});
+});
+
+/**
+ * The v0.6.10 fix resolved `@earendil-works/pi-ai` extension-relative, which
+ * under pi-web returns the stale hoisted 0.85.1 copy — so the crash survived.
+ * These tests pin the resolution to the HOST process entrypoint.
+ */
+describe("issue #8 — host-anchored specifier resolution", () => {
+	test("resolves FROM the host entrypoint, so the extension-tree copy is never selected", () => {
+		const calls: Array<{ specifier: string; parent?: string }> = [];
+		const resolved = resolvePiAiSpecifier(PI_AI_PACKAGE_SPECIFIER, {
+			anchorUrl: "file:///host/pi-web/dist/server/sessiond.js",
+			resolve: (specifier, parent) => {
+				calls.push({ specifier, parent });
+				return "file:///host/global/node_modules/@earendil-works/pi-ai/dist/index.js";
+			},
+		});
+
+		expect(resolved).toBe(
+			"file:///host/global/node_modules/@earendil-works/pi-ai/dist/index.js",
+		);
+		// The anchor MUST be passed as the resolver parent; without it the resolve
+		// is extension-relative and returns the stale copy.
+		expect(calls).toEqual([
+			{ specifier: PI_AI_PACKAGE_SPECIFIER, parent: "file:///host/pi-web/dist/server/sessiond.js" },
+		]);
+	});
+
+	test("falls back to extension-relative resolution when the anchor is rejected", () => {
+		const parents: Array<string | undefined> = [];
+		const resolved = resolvePiAiSpecifier(PI_AI_PACKAGE_SPECIFIER, {
+			anchorUrl: "file:///host/sessiond.js",
+			resolve: (_specifier, parent) => {
+				parents.push(parent);
+				if (parent !== undefined) throw new Error("parent argument unsupported");
+				return "file:///ext/node_modules/@earendil-works/pi-ai/dist/index.js";
+			},
+		});
+
+		expect(resolved).toBe("file:///ext/node_modules/@earendil-works/pi-ai/dist/index.js");
+		expect(parents).toEqual(["file:///host/sessiond.js", undefined]);
+	});
+
+	test("uses the CJS resolver only when both resolve calls fail", () => {
+		const resolved = resolvePiAiSpecifier(PI_AI_PACKAGE_SPECIFIER, {
+			anchorUrl: "file:///host/sessiond.js",
+			resolve: () => {
+				throw new Error("boom");
+			},
+			fallback: (specifier) => `cjs:${specifier}`,
+		});
+
+		expect(resolved).toBe(`cjs:${PI_AI_PACKAGE_SPECIFIER}`);
+	});
+
+	test("hostAnchorUrl maps the process entrypoint to a file URL and rejects empty input", () => {
+		expect(hostAnchorUrl("/srv/pi-web/dist/server/sessiond.js")).toBe(
+			pathToFileURL("/srv/pi-web/dist/server/sessiond.js").href,
+		);
+		expect(hostAnchorUrl(undefined)).toBeUndefined();
+		expect(hostAnchorUrl("")).toBeUndefined();
 	});
 });
