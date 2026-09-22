@@ -110,15 +110,14 @@ export function openAICompletionsApiFrom(namespace: unknown): OpenAICompletionsA
  * through an explicit shape. Bun/Node expose it at runtime; when it is missing
  * or throws, `createRequire` resolves the same bare root from this module.
  */
-type ImportMetaWithResolve = ImportMeta & { resolve?: (specifier: string, parent?: string) => string };
-
-/** Read `import.meta.resolve` if the runtime exposes it. */
+/** Read `import.meta.resolve` if the runtime exposes it.
+ * Referenced directly so pi's jiti loader can rewrite it. */
 function readImportMetaResolve(): ((specifier: string, parent?: string) => string) | undefined {
-	const meta = import.meta as ImportMetaWithResolve;
-	if (typeof meta.resolve !== "function") return undefined;
-	const resolve = meta.resolve.bind(meta);
-	return (specifier, parent) =>
-		parent === undefined ? resolve(specifier) : resolve(specifier, parent);
+	if (typeof import.meta.resolve !== "function") return undefined;
+	return (specifier: string, parent?: string): string =>
+		parent === undefined
+			? import.meta.resolve(specifier)
+			: import.meta.resolve(specifier, parent);
 }
 
 /**
