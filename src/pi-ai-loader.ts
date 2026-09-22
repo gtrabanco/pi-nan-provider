@@ -18,13 +18,15 @@
  * `undefined is not an object (evaluating 'block.name.length')` — before the
  * request is ever sent, so it reads like a NaN/gateway failure.
  *
- * `import.meta.resolve("@earendil-works/pi-ai")` returns the *same instance*
- * the bare-root static import used in every environment measured (both the
- * host's 0.87 core on pi-web, and the extension-tree copy under plain
- * node/jiti). It is therefore the anchor: derive a **file URL** for the
- * sibling `api/openai-completions.lazy.js` (then `compat.js`) from that
- * root and dynamic-import the URL. A file URL bypasses package resolution
- * entirely, so the loaded module is guaranteed to be the host's instance.
+ * The anchor is the **host process entrypoint** (`process.argv[1]`), passed to
+ * `import.meta.resolve(specifier, parent)`. An extension-relative resolve is
+ * NOT enough: it returns whatever the extension's own tree holds, which under
+ * pi-web is exactly the stale 0.85.1 copy (that was the v0.6.10 regression:
+ * the "host-resolved root" was still the extension's copy). From the
+ * host-resolved root derive a **file URL** for the sibling
+ * `api/openai-completions.lazy.js` (then `compat.js`) and dynamic-import the
+ * URL. A file URL bypasses package resolution entirely, so the loaded module is
+ * guaranteed to be the host's instance.
  *
  * Under the bundled CLI / Node-mode aliases / compiled binary, the bare root
  * is the compat entrypoint and already exposes the factory, so the first
@@ -42,6 +44,7 @@
 import * as piAi from "@earendil-works/pi-ai";
 import type { ProviderStreams } from "@earendil-works/pi-ai";
 import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 
 /** The only pi-ai specifier this package may import. */
 export const PI_AI_PACKAGE_SPECIFIER = "@earendil-works/pi-ai";
@@ -102,18 +105,87 @@ export function openAICompletionsApiFrom(namespace: unknown): OpenAICompletionsA
 	return typeof candidate === "function" ? (candidate as OpenAICompletionsApiFactory) : undefined;
 }
 
+/**
+ * `import.meta.resolve` is absent from bun-types' `ImportMeta`, so read it
+ * through an explicit shape. Bun/Node expose it at runtime; when it is missing
+ * or throws, `createRequire` resolves the same bare root from this module.
+ *
+ * Referenced directly (not via a variable or type cast) so pi's jiti loader
+ * can rewrite it. PR #11 (jiti compatibility) and PR #12 (host-anchored
+ * resolution) merge: the direct reference fixes jiti, the host anchor fixes
+ * pi-web.
+ */
+function readImportMetaResolve(): ((specifier: string, parent?: string) => string) | undefined {
+	if (typeof import.meta.resolve !== "function") return undefined;
+	return (specifier, parent) =>
+		parent === undefined ? import.meta.resolve(specifier) : import.meta.resolve(specifier, parent);
+}
+
+/**
+ * File URL of the host process entrypoint (pi-web's `sessiond.js`, the pi CLI,
+ * a test runner). Resolving FROM it pins the result to the host's module graph
+ * instead of the extension's own tree.
+ */
+export function hostAnchorUrl(entry: string | undefined): string | undefined {
+	if (typeof entry !== "string" || entry.length === 0) return undefined;
+	try {
+		return pathToFileURL(entry).href;
+	} catch {
+		return undefined;
+	}
+}
+
+/** Injection seam for {@link resolvePiAiSpecifier}. */
+export interface PiAiSpecifierResolution {
+	/** Anchor URL to resolve FROM; omitted means extension-relative resolution. */
+	anchorUrl?: string;
+	/** `import.meta.resolve`, when the runtime exposes it. */
+	resolve?: (specifier: string, parent?: string) => string;
+	/** Last-resort CJS resolver; only used when neither `resolve` call succeeds. */
+	fallback?: (specifier: string) => string;
+}
+
+/**
+ * Resolve a pi-ai specifier the way the host runtime does.
+ *
+ * The `anchorUrl` is the whole point. Under pi-web the extension's own tree
+ * holds a stale hoisted `@earendil-works/pi-ai` (0.85.1), so an
+ * extension-relative resolve returns a package the host never loaded, and the
+ * derived "host-resolved root" is still that stale copy. Passing the host
+ * entrypoint as the resolver's parent returns the instance the host itself
+ * uses (the v0.6.10 fix anchored on `import.meta.resolve` alone and therefore
+ * still selected the stale copy).
+ */
+export function resolvePiAiSpecifier(
+	specifier: string,
+	options: PiAiSpecifierResolution = {},
+): string {
+	const resolve = options.resolve ?? readImportMetaResolve();
+	const fallback =
+		options.fallback ?? ((value: string) => createRequire(import.meta.url).resolve(value));
+	if (resolve !== undefined) {
+		if (options.anchorUrl !== undefined) {
+			try {
+				const anchored = resolve(specifier, options.anchorUrl);
+				if (typeof anchored === "string" && anchored.length > 0) return anchored;
+			} catch {
+				// Runtimes without parent support fall through to the bare call.
+			}
+		}
+		try {
+			const resolved = resolve(specifier);
+			if (typeof resolved === "string" && resolved.length > 0) return resolved;
+		} catch {
+			// Fall through to createRequire — same bare root, same instance.
+		}
+	}
+	return fallback(specifier);
+}
+
 const defaultPiAiLoaderHost: PiAiLoaderHost = {
 	namespace: piAi as unknown as ModuleNamespace,
 	resolveSpecifier(specifier: string): string {
-		if (typeof import.meta.resolve === "function") {
-			try {
-				const resolved = import.meta.resolve(specifier);
-				if (typeof resolved === "string" && resolved.length > 0) return resolved;
-			} catch {
-				// Fall through to createRequire — same bare root, same instance.
-			}
-		}
-		return createRequire(import.meta.url).resolve(specifier);
+		return resolvePiAiSpecifier(specifier, { anchorUrl: hostAnchorUrl(process.argv[1]) });
 	},
 	importModule: (url: string) => import(url) as Promise<ModuleNamespace>,
 };

@@ -93,10 +93,13 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
   `~/.pi/agent/npm/node_modules`; its `estimateMessageTokens` lacks the `system`
   branch and crashes pi 0.87's string-content `system` transcript with
   `block.name.length`. `src/pi-ai-loader.ts` therefore binds the streaming
-  factory to the same package instance as the bare-root import: use the root
-  export when present, else derive a FILE URL from
-  `import.meta.resolve("@earendil-works/pi-ai")`
-  (`api/openai-completions.lazy.js`, then `compat.js`). No bare pi-ai subpath
+  factory to the same package instance the host loaded: use the root export
+  when present, else resolve the bare root **from the host process entrypoint**
+  (`process.argv[1]`) via
+  `import.meta.resolve("@earendil-works/pi-ai", hostAnchor)` — an
+  extension-relative resolve returns the extension tree's stale copy (the
+  v0.6.10 regression that left #8 open) — then derive a FILE URL for
+  `api/openai-completions.lazy.js` (then `compat.js`). No bare pi-ai subpath
   specifier is imported anywhere in `src/` (static or dynamic); failure is loud
   (`PiAiStreamingApiResolutionError`). Guarded by `test/extension-load.test.ts`
   and `test/issue-8-pi-ai-instance.test.ts`.

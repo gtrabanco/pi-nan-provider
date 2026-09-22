@@ -9,11 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.6.11] — 2026-09-22
+
+### Fixed
+
 - **Extension failed to load on the pi CLI since 0.6.10: `ResolveMessage: NameTooLong while resolving package 'data:text/javascript;base64,...' from '/$bunfs/root/pi'` ([#10](https://github.com/gtrabanco/pi-nan-provider/issues/10)).**
   `src/pi-ai-loader.ts` aliased `import.meta` to a local variable before reading `.resolve`. pi's jiti loader rewrites `import.meta.url` and
   `import.meta.resolve` but leaves a bare `import.meta` in its CommonJS wrapper, which is a `SyntaxError` there; jiti then falls back to importing
   the wrapper as a `data:` URL, which the compiled Bun binary cannot resolve. The loader now references `import.meta.resolve` directly.
   `test/extension-load.test.ts` forbids bare `import.meta` expressions in `src/`.
+
+- **pi-web crash on model open/switch: `undefined is not an object (evaluating 'block.name.length')` ([#8](https://github.com/gtrabanco/pi-nan-provider/issues/8)).**
+  v0.6.10 anchored on `import.meta.resolve("@earendil-works/pi-ai")` alone, which resolved relative to the importing module — the extension tree's
+  stale hoisted `@earendil-works/pi-ai@0.85.1`. The true fix resolves with the host process entrypoint as the resolver's parent so the derived root is
+  the instance the host loaded (verified on pi-web 1.202609.0 / pi 0.87.0 / Bun: `qwen3.6` and `gemma4` respond `stop=stop`, no crash). New exported
+  seams `hostAnchorUrl()` and `resolvePiAiSpecifier()` keep the anchor testable; guarded by `test/issue-8-pi-ai-instance.test.ts`.
+
 
 ## [0.6.10] — 2026-09-21
 
