@@ -102,20 +102,12 @@ export function openAICompletionsApiFrom(namespace: unknown): OpenAICompletionsA
 	return typeof candidate === "function" ? (candidate as OpenAICompletionsApiFactory) : undefined;
 }
 
-/**
- * `import.meta.resolve` is absent from bun-types' `ImportMeta`, so read it
- * through an explicit shape. Bun/Node expose it at runtime; when it is missing
- * or throws, `createRequire` resolves the same bare root from this module.
- */
-type ImportMetaWithResolve = ImportMeta & { resolve?: (specifier: string) => string };
-
 const defaultPiAiLoaderHost: PiAiLoaderHost = {
 	namespace: piAi as unknown as ModuleNamespace,
 	resolveSpecifier(specifier: string): string {
-		const meta = import.meta as ImportMetaWithResolve;
-		if (typeof meta.resolve === "function") {
+		if (typeof import.meta.resolve === "function") {
 			try {
-				const resolved = meta.resolve(specifier);
+				const resolved = import.meta.resolve(specifier);
 				if (typeof resolved === "string" && resolved.length > 0) return resolved;
 			} catch {
 				// Fall through to createRequire — same bare root, same instance.
