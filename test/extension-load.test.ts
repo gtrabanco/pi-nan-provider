@@ -53,6 +53,12 @@ const STATIC_SUBPATH_SPECIFIER = /(?:\bfrom\s*|\bimport\s*)["']@earendil-works\/
 /** Dynamic bare pi-ai subpath import — must never appear in src/. */
 const DYNAMIC_SUBPATH_IMPORT = /\bimport\s*\(\s*["']@earendil-works\/pi-ai\/[^"']+["']\s*\)/g;
 
+/** pi's jiti loader only rewrites `import.meta.<prop>`; a bare `import.meta`
+ * in its CommonJS wrapper is a SyntaxError that jiti catches and falls back
+ * to, importing the file as a `data:` URL (which fails in the compiled Bun).
+ */
+const BARE_IMPORT_META = /\bimport\.meta\b(?!\s*\.)/g;
+
 describe("extension load contract (pi module interception)", () => {
 	test("static pi-ai imports use only the bare root specifier", () => {
 		const offenders: string[] = [];
@@ -70,6 +76,17 @@ describe("extension load contract (pi module interception)", () => {
 		for (const file of tsFiles(SRC_DIR)) {
 			const source = readFileSync(file, "utf8");
 			for (const match of source.matchAll(DYNAMIC_SUBPATH_IMPORT)) {
+				offenders.push(`${file.replace(SRC_DIR, "src")}: ${match[0]}`);
+			}
+		}
+		expect(offenders).toEqual([]);
+	});
+
+	test("no bare import.meta expression", () => {
+		const offenders: string[] = [];
+		for (const file of tsFiles(SRC_DIR)) {
+			const source = readFileSync(file, "utf8");
+			for (const match of source.matchAll(BARE_IMPORT_META)) {
 				offenders.push(`${file.replace(SRC_DIR, "src")}: ${match[0]}`);
 			}
 		}
