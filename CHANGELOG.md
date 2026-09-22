@@ -9,10 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-## [0.6.11] — 2026-09-22
-
-### Fixed
-
 - **Extension failed to load on the pi CLI since 0.6.10: `ResolveMessage: NameTooLong while resolving package 'data:text/javascript;base64,...' from '/$bunfs/root/pi'` ([#10](https://github.com/gtrabanco/pi-nan-provider/issues/10)).**
   `src/pi-ai-loader.ts` aliased `import.meta` to a local variable before reading `.resolve`. pi's jiti loader rewrites `import.meta.url` and
   `import.meta.resolve` but leaves a bare `import.meta` in its CommonJS wrapper, which is a `SyntaxError` there; jiti then falls back to importing
