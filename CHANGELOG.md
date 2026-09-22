@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.11] — 2026-09-22
+
+### Fixed
+
+- **v0.6.10 did not actually fix the pi-web crash: the loader anchored on the WRONG package instance ([#8](https://github.com/gtrabanco/pi-nan-provider/issues/8)).**
+  `resolveOpenAICompletionsApi()` derived the "host-resolved root" from `import.meta.resolve("@earendil-works/pi-ai")` alone. Resolution is relative to the
+  importing module, and the extension lives in `~/.pi/agent/npm/node_modules/@gtrabanco/pi-nan-provider`, so that call returned the stale hoisted
+  `@earendil-works/pi-ai@0.85.1` in the extension tree — the very copy whose `estimateMessageTokens` lacks the `system` branch and crashes pi 0.87's
+  string-content `system` transcript with `block.name.length`. The check therefore kept loading the broken copy and the error was byte-for-byte unchanged.
+
+  `src/pi-ai-loader.ts` now resolves with the **host process entrypoint** (`process.argv[1]`: pi-web's `sessiond.js`, the pi CLI, or a test runner) passed
+  as the resolver's parent, so the derived root is the instance the host itself loaded. Verified live on pi-web 1.202609.0 / pi 0.87.0 / Bun: the request
+  succeeds and the session is named from the response instead of from the error. New exported seams `hostAnchorUrl()` and `resolvePiAiSpecifier()` keep the
+  anchor testable; guarded by `test/issue-8-pi-ai-instance.test.ts`.
+
 ## [0.6.10] — 2026-09-21
 
 ### Fixed
