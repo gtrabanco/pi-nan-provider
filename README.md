@@ -236,8 +236,24 @@ Baseline catalog (verified against [NaN docs](https://nan.builders/docs/models) 
 | `gemma4` | 262,144 | 32,768 | text, image | ✅ |
 | `deepseek-v4-flash` | 1,000,000 | 384,000 | text, image | ✅ |
 | `mimo-v2.5` | 1,048,576 | 131,072 | text, image | ✅ |
+| `mimo-v2.6-flash` | 1,048,576 | 131,072 | text, image | ✅ |
 | `glm5.3-flash` | 1,000,000 | 131,072 | text, image | ✅ |
 | `qwen3.8-flash` | 262,144 | 131,072 | text, image | ✅ |
+
+> [!NOTE]  
+> `mimo-v2.6-flash` is served by NaN but not yet listed on models.dev provider `nan`; it enters the catalog through a manual-only entry with the same limits as `mimo-v2.5`. The model will be auto-detected from models.dev once added there.
+
+---
+
+## 🧠 Reasoning controls
+
+NaN's `reasoning_effort` parameter controls how much the model thinks before answering — but the degree of control varies by model:
+
+| Model | Reasoning effort | How it works |
+| :--- | :--- | :--- |
+| `glm5.3`, `glm5.3-flash` | `low` · `medium` · `high` · `max` | Fully controllable — higher values let the model reason longer |
+| `qwen3.6`, `gemma4` | `none` · `minimal` · `low` · `medium` · `high` · `max` | `none`/`minimal` skip reasoning entirely; others cap at 2K / 8K / 16K / 32K tokens |
+| `deepseek-v4-flash`, `qwen3.8-flash`, `mimo-v2.5`, `mimo-v2.6-flash` | *(accepted but not adjustable)* | The parameter is accepted and never rejected, but the model manages its own reasoning depth — it is never an error to send a value these models don't adjust |
 
 ---
 

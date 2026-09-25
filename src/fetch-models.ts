@@ -39,6 +39,13 @@ export interface GeneratedModelEntry {
 	cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
 	contextWindow: number;
 	maxTokens: number;
+	/**
+	 * Reasoning effort values as declared by NaN docs.
+	 * An empty array means the parameter is accepted but depth is not
+	 * adjustable by the user — the model manages its own reasoning depth.
+	 * An undefined array means the field was not set (legacy / uncatalogued).
+	 */
+	reasoningEffortValues?: string[];
 	/** Compat applied to every NaN-compatible model (LiteLLM-confirmed, see scripts/generate-models.ts). */
 	compat?: OpenAICompletionsCompat;
 	/** Provenance notes for values overriding models.dev or needing manual confirmation. */

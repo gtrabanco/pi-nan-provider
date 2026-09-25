@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — 2026-09-25
+
+### Added
+
+- **`mimo-v2.6-flash` catalog entry (manual-only — not yet on models.dev).**
+  NaN serves this omnimodal model (text, image, audio input) but models.dev
+  provider `nan` does not list it yet. It enters the catalog with the same
+  limits as `mimo-v2.5`: 1,048,576 context / 131,072 max output / 1.0B monthly
+  quota. A `reasoning_effort_values: []` note records that the parameter is
+  accepted but depth is model-managed (https://nan.builders/docs/models,
+  checked 2026-09-25). When models.dev adds it, the generator will emit its
+  data natively and the manual override will no longer be needed.
+
+- **`reasoning_effort_values` on every generated model entry.**
+  Each model now carries the effort levels that the NaN docs declare as
+  available (https://nan.builders/docs/models #controlling-reasoning).
+  The values flow through to the pi model-selector so the UI can offer the
+  correct granularity per model.
+
+  | Model | Reasoning effort values |
+  | :--- | :--- |
+  | `glm5.3`, `glm5.3-flash` | `low` · `medium` · `high` · `max` (fully controllable) |
+  | `qwen3.6`, `gemma4` | `none` · `minimal` · `low` · `medium` · `high` · `max` |
+  | `deepseek-v4-flash`, `qwen3.8-flash`, `mimo-v2.5`, `mimo-v2.6-flash` | *empty* (accepted but model-managed) |
+
+- **`/nan-usage` now shows `mimo-v2.6-flash` quota (1.0B/month).**
+
+### Changed
+
+- Added `reasoningEffortValues` field to `GeneratedModelEntry` and the
+  generated catalog. Sources: NaN docs (https://nan.builders/docs/models
+  #controlling-reasoning, checked 2026-09-25) — models.dev does not expose
+  this field.
+
 ## [0.6.11] — 2026-09-22
 
 ### Fixed

@@ -37,6 +37,7 @@ export interface ModelQuota {
 export const MODEL_QUOTAS: readonly ModelQuota[] = [
 	{ model: "deepseek-v4-flash", label: "DeepSeek V4 Flash", monthlyCap: 3_000_000_000, rollingWindowCap: 0, rollingWindowHours: 0, premium: false },
 	{ model: "mimo-v2.5", label: "MiMo V2.5", monthlyCap: 1_000_000_000, rollingWindowCap: 0, rollingWindowHours: 0, premium: false },
+	{ model: "mimo-v2.6-flash", label: "MiMo V2.6 Flash", monthlyCap: 1_000_000_000, rollingWindowCap: 0, rollingWindowHours: 0, premium: false },
 	{ model: "qwen3.6", label: "Qwen 3.6", monthlyCap: 0, rollingWindowCap: 0, rollingWindowHours: 0, premium: false },
 	{ model: "gemma4", label: "Gemma 4", monthlyCap: 0, rollingWindowCap: 0, rollingWindowHours: 0, premium: false },
 	{ model: "qwen3.8-flash", label: "Qwen 3.8 Flash", monthlyCap: 500_000_000, rollingWindowCap: 0, rollingWindowHours: 0, premium: false },

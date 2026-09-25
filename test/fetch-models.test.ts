@@ -141,6 +141,20 @@ describe("mergeLiveWithGenerated", () => {
 		expect(merged.matched).toEqual(["glm5.3-flash"]);
 		expect(merged.unknown).toEqual(["glm5.3"]);
 	});
+
+	test("mimo-v2.6-flash resolves to catalog capabilities, not the 128K placeholder (2026-09-25)", () => {
+		// NaN serves this model but models.dev provider nan does not list it, so
+		// without the manual-only catalog entry the live merge handed it
+		// UNKNOWN_MODEL_LIMITS and pi showed a 128K context for a 1M-token model.
+		const merged = mergeLiveWithGenerated(["mimo-v2.6-flash"], SOURCE);
+		expect(merged.matched).toEqual(["mimo-v2.6-flash"]);
+		expect(merged.unknown).toEqual([]);
+		const model = merged.models[0]!;
+		expect(model.contextWindow).toBe(1_048_576);
+		expect(model.maxTokens).toBe(131_072);
+		expect(model.reasoning).toBe(true);
+		expect(model.input).toEqual(["text", "image"]);
+	});
 });
 
 describe("finish-reason compat (retryable truncation)", () => {

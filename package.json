@@ -1,6 +1,6 @@
 {
 	"name": "@gtrabanco/pi-nan-provider",
-	"version": "0.6.11",
+	"version": "0.7.0",
 	"description": "NaN Builders (api.nan.builders) model provider for pi - OpenAI-compatible registration with a models.dev-generated fallback, tier-aware live catalog, and MCP bridges (official web search + optional community media server)",
 	"keywords": [
 		"pi",
@@ -38,7 +38,8 @@
 		"check-nan-mcp-server": "bun run scripts/check-nan-mcp-server.ts",
 		"prepublishOnly": "bun run generate-models && bun test && bun run typecheck",
 		"test": "bun test",
-		"typecheck": "bunx tsc --noEmit"
+		"typecheck": "bunx tsc --noEmit",
+		"check-pi-sdk-versions": "node scripts/check-pi-sdk-versions.mjs --report"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-ai": ">=0.83.0 <1",

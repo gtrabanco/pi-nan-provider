@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { MANUAL_OVERRIDES } from "../scripts/manual-overrides.ts";
+import { MANUAL_ONLY_MODELS, MANUAL_OVERRIDES } from "../scripts/manual-overrides.ts";
 import { GENERATED_CATALOG_META, NAN_GENERATED_MODELS } from "../scripts/models.generated.ts";
 
 const byId = new Map(NAN_GENERATED_MODELS.map((entry) => [entry.id, entry]));
@@ -19,13 +19,78 @@ const byId = new Map(NAN_GENERATED_MODELS.map((entry) => [entry.id, entry]));
 describe("manual overrides in the generated catalog", () => {
 	test("catalog matches the served community chat models (official model list minus premium glm5.3)", () => {
 		// Official chat models per https://nan.builders/openapi.json (model param
-		// description) and https://nan.builders/docs/models (checked 2026-09-07):
-		// deepseek-v4-flash, mimo-v2.5, qwen3.8-flash, glm5.3-flash, qwen3.6,
-		// gemma4, glm5.3. glm5.3 is premium-tier and unemittable (no documented
-		// max output anywhere), so the static fallback holds the other six.
+		// description) and https://nan.builders/docs/models (checked 2026-09-25):
+		// deepseek-v4-flash, mimo-v2.5, mimo-v2.6-flash, qwen3.8-flash,
+		// glm5.3-flash, qwen3.6, gemma4, glm5.3. glm5.3 is premium-tier and
+		// unemittable (no documented max output anywhere), so the static fallback
+		// holds the other seven.
 		expect([...byId.keys()].sort()).toEqual(
-			["deepseek-v4-flash", "gemma4", "glm5.3-flash", "mimo-v2.5", "qwen3.6", "qwen3.8-flash"],
+			[
+				"deepseek-v4-flash",
+				"gemma4",
+				"glm5.3-flash",
+				"mimo-v2.5",
+				"mimo-v2.6-flash",
+				"qwen3.6",
+				"qwen3.8-flash",
+			],
 		);
+	});
+
+	test("mimo-v2.6-flash ships real limits instead of the 128K unknown-model placeholder", () => {
+		// models.dev provider nan does not list it (checked 2026-09-25), so it is
+		// emitted from MANUAL_ONLY_MODELS. Without it, the live /models merge hands
+		// it UNKNOWN_MODEL_LIMITS (128,000 / 4,096, reasoning off, text-only input)
+		// and pi would compact around 100K tokens instead of 1M.
+		const entry = byId.get("mimo-v2.6-flash");
+		expect(entry).toBeDefined();
+		expect(entry!.contextWindow).toBe(1_048_576);
+		expect(entry!.maxTokens).toBe(131_072);
+		expect(entry!.input).toEqual(["text", "image"]);
+		expect(entry!.reasoning).toBe(true);
+		expect(entry!.compat?.supportsFinishReason).toBe(true);
+		expect(entry!.compat?.supportsUsageInStreaming).toBe(true);
+	});
+
+	test("every manual-only model reaches the catalog, or its absence is recorded", () => {
+		for (const [modelId, manual] of Object.entries(MANUAL_ONLY_MODELS)) {
+			const entry = byId.get(modelId);
+			if (entry) {
+				// ManualModelOverride fields are optional by design, but all our
+				// manual-only entries set them explicitly, so we assert non-null.
+				expect(entry.contextWindow, `${modelId}.contextWindow`).toBe(manual.contextWindow!);
+				expect(entry.maxTokens, `${modelId}.maxTokens`).toBe(manual.maxTokens!);
+				expect(entry.input, `${modelId}.input`).toEqual(manual.input!);
+				expect(entry.reasoning, `${modelId}.reasoning`).toBe(manual.reasoning!);
+				// The generator prefixes the manual-only note with `manual-only:`
+				// and wraps the detail in parentheses, so we check for both the
+				// model ID and the manual note content as a substring.
+				expect(
+					entry.notes?.some((value) =>
+						value.includes(`manual-only: "${modelId}"`) && value.includes(manual.note),
+					),
+					`${modelId} note`,
+				).toBe(true);
+			} else {
+				// models.dev started listing it: the generator drops the manual entry and
+				// records why, so nothing disappears silently.
+				expect(
+					GENERATED_CATALOG_META.notes.some((note) =>
+						note.includes(`manual-only: "${modelId}" skipped`),
+					),
+					`${modelId} absence must be recorded`,
+				).toBe(true);
+			}
+		}
+	});
+
+	test("manual-only entries never fabricate values or provenance", () => {
+		for (const [modelId, manual] of Object.entries(MANUAL_ONLY_MODELS)) {
+			expect(manual.note.trim().length, `${modelId} note`).toBeGreaterThan(40);
+			expect(manual.input!.includes("text"), `${modelId} input must include text`).toBe(true);
+			expect(manual.contextWindow!, `${modelId} contextWindow`).toBeGreaterThan(0);
+			expect(manual.maxTokens!, `${modelId} maxTokens`).toBeGreaterThan(0);
+		}
 	});
 
 	test("qwen3.8-flash context window follows the docs at 262K native (1M override withdrawn)", () => {

@@ -51,11 +51,21 @@ describe("/nan-usage command", () => {
 		const models = MODEL_QUOTAS.map((q) => q.model);
 		expect(models).toContain("deepseek-v4-flash");
 		expect(models).toContain("mimo-v2.5");
+		expect(models).toContain("mimo-v2.6-flash");
 		expect(models).toContain("qwen3.6");
 		expect(models).toContain("gemma4");
 		expect(models).toContain("qwen3.8-flash");
 		expect(models).toContain("glm5.3-flash");
 		expect(models).toContain("glm5.3");
+	});
+
+	test("mimo-v2.6-flash has the documented 1.0B monthly quota", () => {
+		// https://nan.builders/docs/models#mimo-v2-6-flash (checked 2026-09-25):
+		// "Same limits as mimo-v2.5: 1.0B token monthly quota per member."
+		const quota = MODEL_QUOTAS.find((q) => q.model === "mimo-v2.6-flash");
+		expect(quota).toBeDefined();
+		expect(quota!.monthlyCap).toBe(1_000_000_000);
+		expect(quota!.premium).toBe(false);
 	});
 
 	test("glm5.3 is marked as premium with rolling window", () => {

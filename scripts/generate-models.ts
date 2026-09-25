@@ -21,7 +21,28 @@
  */
 
 import type { GeneratedModelEntry } from "../src/fetch-models.ts";
-import { MANUAL_OVERRIDES } from "./manual-overrides.ts";
+import type { ManualModelOverride } from "./manual-overrides.ts";
+import {
+	MANUAL_OVERRIDES,
+	MANUAL_ONLY_MODEL_IDS,
+	REASONING_EFFORT_VALUES,
+} from "./manual-overrides.ts";
+
+/**
+ * Reasoning effort values sourced from the NaN docs (https://nan.builders/docs/models
+ * #controlling-reasoning, checked 2026-09-25). models.dev has no reasoning_effort_values
+ * field — only reasoning_options which is [{type:"toggle"}] or [] — so the actual
+ * effort levels must be hand-maintained from the docs. An empty array means the
+ * parameter is accepted but depth is not adjustable by the user.
+ */
+const REASONING_EFFORT_VALUES_FROM_DOCS: Record<string, string[]> = {
+	...REASONING_EFFORT_VALUES,
+	// deepseek-v4-flash: any value (no effect) — model decides per request
+	"deepseek-v4-flash": [],
+	// qwen3.8-flash, mimo-v2.5: accepted, depth not adjustable
+	"qwen3.8-flash": [],
+	"mimo-v2.5": [],
+};
 
 const MODELS_DEV_API_URL = "https://models.dev/api.json";
 const SOURCE_PROVIDER_ID = "nan";
@@ -158,6 +179,43 @@ function normalizeInput(modalitiesInput: string[] | undefined, modelId: string):
 	return input;
 }
 
+/**
+ * Build a GeneratedModelEntry for a model that is not yet on models.dev
+ * (MANUAL_ONLY_MODEL_IDS). Uses conservative but accurate defaults from the
+ * NaN docs so that the live /models refresh does not hand them
+ * UNKNOWN_MODEL_LIMITS.
+ */
+function buildManualOnlyModelEntry(
+	modelId: string,
+	detail: string,
+	override: ManualModelOverride | undefined,
+): GeneratedModel {
+	const reasoningEffortValues =
+		override?.reasoningEffortValues ??
+		REASONING_EFFORT_VALUES_FROM_DOCS[modelId] ??
+		undefined;
+
+	return {
+		entry: {
+			id: modelId,
+			name: override?.name ?? modelId,
+			reasoning: override?.reasoning ?? true,
+			input: override?.input ?? ["text", "image"],
+			cost: override?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: override?.contextWindow ?? 1_048_576,
+			maxTokens: override?.maxTokens ?? 131_072,
+			reasoningEffortValues,
+			compat: { ...NAN_COMPAT },
+			notes: [
+				NAN_COMPAT_NOTE,
+				`manual-only: "${modelId}" not yet on models.dev provider nan (${detail}).`,
+				...(override ? [override.note] : []),
+			],
+			extras: {},
+		},
+	};
+}
+
 function convertModel(modelId: string, m: ModelsDevModel): GeneratedModel | { skip: string } {
 	const removedReason = PROVIDER_REMOVED_MODEL_IDS[modelId];
 	if (removedReason) {
@@ -184,6 +242,13 @@ function convertModel(modelId: string, m: ModelsDevModel): GeneratedModel | { sk
 		console.log(`generate-models: manual override for "${modelId}" (${overridden.join(", ")})`);
 	}
 
+	// Reasoning effort values sourced from the NaN docs (models.dev does not
+	// expose them — only reasoning_options: [{type:"toggle"}] or []).
+	// An empty array means the parameter is accepted but depth is not
+	// adjustable by the user; the model manages its own reasoning depth.
+	const reasoningEffortValues =
+		override?.reasoningEffortValues ?? REASONING_EFFORT_VALUES_FROM_DOCS[modelId] ?? undefined;
+
 	return {
 		entry: {
 			id: modelId,
@@ -198,6 +263,7 @@ function convertModel(modelId: string, m: ModelsDevModel): GeneratedModel | { sk
 			},
 			contextWindow: override?.contextWindow ?? contextWindow,
 			maxTokens: override?.maxTokens ?? maxTokens,
+			reasoningEffortValues,
 			compat: { ...NAN_COMPAT },
 			notes: [
 				NAN_COMPAT_NOTE,
@@ -233,6 +299,17 @@ async function main(): Promise<void> {
 		} else {
 			entries.push(result.entry);
 		}
+	}
+
+	// Add manual-only models (not yet on models.dev).
+	for (const [modelId, detail] of Object.entries(MANUAL_ONLY_MODEL_IDS)) {
+		const override = MANUAL_OVERRIDES[modelId];
+		if (override) {
+			console.log(`generate-models: manual override for "${modelId}" (${Object.keys(override).filter((k) => k !== "note").join(", ")})`);
+		}
+		const result = buildManualOnlyModelEntry(modelId, detail, MANUAL_OVERRIDES[modelId]);
+		entries.push(result.entry);
+		console.log(`generate-models: added manual-only model "${modelId}"`);
 	}
 
 	entries.sort((a, b) => a.id.localeCompare(b.id));
