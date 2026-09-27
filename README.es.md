@@ -1,7 +1,7 @@
 # @gtrabanco/pi-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.6.5-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-0.8.0-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 
 [NaN Builders](https://nan.builders) model provider + MCP bridges para [pi](https://github.com/earendil-works/pi). 
 
@@ -156,73 +156,98 @@ bun run check-nan-mcp-server --issue    # crea/refresca el issue
 
 ## 📊 Uso de Cuotas: `/nan-usage`
 
-Muestra tu uso de tokens de NaN por modelo, los límites mensuales y el tiempo hasta el reinicio del ciclo de facturación.
+Muestra tu uso de tokens de NaN por modelo combinado con los límites mensuales documentados, los totales de la ventana, tus totales acumulados y el tiempo hasta el reinicio del ciclo de facturación.
 
 ### Cómo funciona
 
-`/nan-usage` lee el token de sesión desde `~/.config/nan/session.json` — el mismo archivo que usa la [CLI de NaN](https://github.com/helmcode/nan-cli). Si el archivo existe y contiene una sesión válida, el comando obtiene datos de uso reales del dashboard de NaN. Si no, muestra los límites de cuota estáticos de la documentación.
+`/nan-usage` llama al endpoint [`GET /v1/usage`](https://nan.builders/docs/api#tag/usage) de NaN con **la misma API key que ya usas para chat** — la credencial guardada en pi (`/login nan`) o `NAN_API_KEY`. Sin login de la CLI, sin cookie de sesión, sin configuración extra.
+
+El endpoint devuelve tu uso (filas por fecha y modelo) y los totales de la ventana solicitada — máximo 90 días inclusivos. El comando lee esos totales y los combina con los límites publicados en la [documentación de NaN](https://nan.builders/docs/models) para mostrarte qué porcentaje de cada cuota mensual has consumido. `/usage` solo reporta consumo, así que los límites siempre vienen de la tabla documentada (comprobado 2026-09-27).
+
+Límite de tasa: 30 peticiones por minuto para `/usage`, separado del de los endpoints de modelos.
+
+### Uso
+
+```
+/nan-usage        # mes en curso en UTC (coincide con las cuotas mensuales)
+/nan-usage 7      # ventana móvil de 7 días (1-90)
+/nan-usage 30     # ventana móvil de 30 días
+/nan-usage help   # muestra la línea de uso
+```
 
 ### Configuración
 
-1. **Instala la CLI de NaN**:
-   ```bash
-   curl -fsSL https://nan.builders/install | sh
+1. **Autentica el proveedor `nan` en pi** con tu clave `sk-...`:
    ```
-2. **Inicia sesión**:
-   ```bash
-   nan auth login
+   /login nan
    ```
-   Te envía un enlace de inicio de sesión por email. Pega el enlace en la terminal.
-3. **Usa en pi**:
+   o expórtala en su lugar:
+   ```bash
+   export NAN_API_KEY=sk-...
+   ```
+2. **Úsalo en pi**:
    ```
    /nan-usage
    ```
 
 > [!TIP]
-> El token de sesión se comparte automáticamente — no necesitas variables de entorno ni configuración extra. Si la sesión expira, ejecuta `nan auth login` de nuevo.
+> ¿No se resuelve ninguna API key? El comando muestra la tabla estática de cuotas de la documentación y te indica cómo autenticarte.
 
 ### Lo que ves
 
-**Con sesión válida** (uso real):
+**Con API key** (uso real):
 ```
-📊 NaN Quota Status
+📊 NaN Usage
 
-⏱️  Next billing reset: 2026-10-01 UTC (8d 14h 32m 15s)
+🗓️  Window: 2026-09-01 → 2026-09-27 UTC (27 days)
+
+⏱️  Next billing reset: 2026-09-30 UTC (2d 14h 30m 0s)
 
 Models with monthly caps:
 
 DeepSeek V4 Flash:
-  [████████░░░░░░░░░░░░] 40.2%
-  Used: 1.2B / 3.0B (1.8B remaining)
+  [████████░░░░░░░░░░░░] 40.0% of monthly cap
+  Used: 1.2B / 3.0B (1.8B remaining) · 5,120 requests
 
 MiMo V2.5:
-  [██░░░░░░░░░░░░░░░░░░] 12.5%
-  Used: 125.0M / 1.0B (875.0M remaining)
+  [███░░░░░░░░░░░░░░░░░] 12.5% of monthly cap
+  Used: 125.0M / 1.0B (875.0M remaining) · 840 requests
+
+GLM 5.3 👑:
+  [████████░░░░░░░░░░░░] 40.0% of monthly cap
+  Used: 1.2B / 3.0B (1.8B remaining) · 2,400 requests
+  ↳ rolling window: 400.0M / 4h (daily granularity — /usage cannot break it down)
 
 Uncapped models:
 
-Qwen 3.6: 890.5K used
-Gemma 4: 234.1K used
+Qwen 3.6: 890.5K used · 123 requests
+
+Window totals: 2.6B tokens (2.0B prompt / 640.0M completion) · 18,432 requests
+All time: 13.2B tokens · 41,250 requests (cached 2026-02-01)
+💡 Source: GET /v1/usage · caps from https://nan.builders/docs/models
 ```
 
-**Sin sesión** (solo límites estáticos):
+**Sin API key** (solo límites estáticos):
 ```
 📊 NaN Quota Status (static limits)
 
-⏱️  Next billing reset: 2026-10-01 UTC (8d 14h 32m 15s)
+⏱️  Next billing reset: 2026-09-30 UTC (2d 14h 30m 0s)
 
 Model                        Monthly Cap
 ─────────────────────────────────────────────────
 DeepSeek V4 Flash            3.0B
 MiMo V2.5                    1.0B
+MiMo V2.6 Flash              1.0B
 Qwen 3.6                     uncapped
 Gemma 4                      uncapped
 Qwen 3.8 Flash               500.0M
 GLM 5.3 Flash                2.0B
-GLM 5.3 👑                   3.0B (rolling 400.0M/4h)
+GLM 5.3                      3.0B 👑 (rolling 400.0M/4h)
 
-💡 Run `nan auth login` to see real usage data.
+💡 Set NAN_API_KEY or run `/login nan` to see real usage (GET /v1/usage).
 ```
+
+Los errores siguen siendo accionables: `401` → ejecuta `/login nan` o corrige `NAN_API_KEY`, `404` → la cuenta no tiene identidad de uso que reportar, `429` → reintenta tras los segundos de `Retry-After`.
 
 ---
 

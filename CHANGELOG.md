@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] — 2026-09-27
+
+### Changed
+
+- **`/nan-usage` now reads NaN's `GET /v1/usage` endpoint**
+  ([API reference · Usage](https://nan.builders/docs/api#tag/usage), OpenAPI spec
+  checked 2026-09-27) instead of the dashboard endpoint that required a NaN CLI
+  session cookie. The endpoint is authenticated with the same personal API key
+  used for chat — pi's stored credential (`/login nan`) or `NAN_API_KEY` — so the
+  command no longer depends on the CLI at all.
+
+  The endpoint reports consumption, never caps: `src/usage.ts` requests the
+  window's `totals` (`limit=1` — the daily rows are never needed, `totals` always
+  spans the whole window) and merges them with the documented `MODEL_QUOTAS`
+  (https://nan.builders/docs/models). Output now includes the effective window,
+  per-model usage vs. monthly cap, request counts, window totals, all-time totals,
+  and models missing from the documented table. The default window is the current
+  UTC month (aligned with the monthly caps and the billing reset);
+  `/nan-usage <days>` (1–90, the endpoint's maximum) selects a rolling window and
+  `/nan-usage help` prints the usage line.
+
+  Failures are mapped from the documented statuses: `401` → run `/login nan` or
+  fix `NAN_API_KEY`, `404` → the account has no usage identity, `429` → retry
+  after `Retry-After` (30 requests/min, a budget separate from the model
+  endpoints), `409` → service-key alias, `400`/`5xx` → endpoint detail. Without
+  an API key the command still prints the static quota table, now pointing at
+  `/login nan` / `NAN_API_KEY`.
+
+- **(breaking) The NaN CLI login flow is gone from `/nan-usage`.** The command
+  never reads `~/.config/nan/session.json` or `cloud-api.nan.builders` anymore:
+  users who only ever ran `nan auth login` must authenticate pi instead
+  (`/login nan` or `NAN_API_KEY`). `test/nan-usage-command.test.ts` guards this
+  by scanning the module for any runtime reference to the CLI session.
+
+### Added
+
+- Optional `/nan-usage [days]` argument (1–90 rolling window) with argument
+  completion, plus injectable `fetchImpl` / `resolveApiKey` seams for tests
+  (`NanUsageCommandOptions`).
+
 ## [0.7.0] — 2026-09-25
 
 ### Added

@@ -1,21 +1,28 @@
 /**
- * `/nan-usage` — slash command showing NaN quota status per model.
+ * `/nan-usage` — slash command: NaN token usage merged with the documented
+ * quota limits.
  *
- * NaN's quota endpoint (`cloud-api.nan.builders/api/usage/quota`) requires
- * a session token (not API key auth). The token is obtained via the NaN CLI
- * login flow (email → link → `nan_session` cookie), stored in
- * `~/.config/nan/session.json`.
+ * Data source: NaN's `GET /v1/usage` (OpenAPI tag "Usage",
+ * https://nan.builders/docs/api#tag/usage), authenticated with the same
+ * personal API key used for chat (`Authorization: Bearer`) — pi's stored
+ * credential (`/login nan`) or `NAN_API_KEY`.
  *
- * This command auto-detects the nan-cli session file. No env vars needed —
- * just run `nan auth login` once and `/nan-usage` works.
+ * This replaced the previous dashboard flow, which needed a NaN CLI session
+ * cookie (`nan auth login` → `~/.config/nan/session.json`). `/usage` is
+ * member-scoped and API-key authed, so no CLI login is involved anymore
+ * (NaN docs, checked 2026-09-27).
  *
- * Quota sources: https://nan.builders/docs/models (checked 2026-09-21)
+ * The endpoint reports consumption, never caps: quotas below come from
+ * https://nan.builders/docs/models (checked 2026-09-21) and are merged with
+ * the returned per-model totals. `/usage` returns daily rows (paginated) plus
+ * `totals` covering the whole requested window — max 90 inclusive days, wider
+ * windows are rejected with 400 — so the command reads `totals.by_model` and
+ * asks for a single-row page. Rate limit: 30 requests/min, separate from the
+ * model endpoints.
  */
 
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { homedir } from "node:os";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { NAN_API_KEY_ENV, resolveNanApiKey } from "./mcp/nan-search.ts";
 
 // ── Known quota limits per model (from NaN docs) ──────────────────────────
 
@@ -45,57 +52,87 @@ export const MODEL_QUOTAS: readonly ModelQuota[] = [
 	{ model: "glm5.3", label: "GLM 5.3", monthlyCap: 3_000_000_000, rollingWindowCap: 400_000_000, rollingWindowHours: 4, premium: true },
 ];
 
-// ── Dashboard API types ───────────────────────────────────────────────────
+// ── GET /v1/usage types ───────────────────────────────────────────────────
 
-interface DashboardModelQuota {
+export interface UsageModelTotals {
 	model: string;
-	tokensUsed: number;
-	cap: number;
-	percentage: number;
-	resetAt: string | null;
-	windowHours: number | null;
+	prompt_tokens: number;
+	completion_tokens: number;
+	total_tokens: number;
+	api_requests: number;
 }
 
-interface DashboardUncappedModelQuota {
-	model: string;
-	tokensUsed: number;
-	resetAt: string | null;
-	windowHours: number | null;
+export interface UsageTotals {
+	prompt_tokens: number;
+	completion_tokens: number;
+	total_tokens: number;
+	api_requests: number;
+	by_model: UsageModelTotals[];
 }
 
-interface DashboardQuotaResponse {
-	periodStart: string;
-	models: Array<{
-		model: string;
-		tokensUsed: number;
-		cap: number;
-		windowHours?: number;
-		periodEnd?: string;
-	}>;
+export interface UsageAllTime {
+	prompt_tokens: number;
+	completion_tokens: number;
+	total_tokens: number;
+	api_requests: number;
+	cached_at: string | null;
 }
 
-// ── nan-cli session reader ────────────────────────────────────────────────
-
-interface NanCliSession {
-	token: string;
+export interface UsageReport {
+	object: "usage.report";
+	/** First day of the window actually served (after clamping). */
+	start_date: string;
+	/** Last day of the window actually served (after clamping). */
+	end_date: string;
+	/** Daily (date, model) rows — paginated; unused here (totals cover the window). */
+	data: unknown[];
+	totals: UsageTotals;
+	all_time: UsageAllTime;
+	has_more: boolean;
+	next_cursor: string | null;
 }
 
-/** Read the nan_session token from ~/.config/nan/session.json (shared with nan-cli). */
-function readNanCliSessionToken(): string | undefined {
-	try {
-		const sessionPath = join(homedir(), ".config", "nan", "session.json");
-		const data = readFileSync(sessionPath, "utf8");
-		const session = JSON.parse(data) as NanCliSession;
-		if (typeof session === "object" && session !== null && typeof session.token === "string" && session.token.length > 0) {
-			return session.token;
-		}
-	} catch {
-		// File doesn't exist or is invalid.
-	}
-	return undefined;
+export interface UsageFetchError {
+	/** HTTP status when the endpoint answered with an error. */
+	status?: number;
+	/** `Retry-After` seconds, present on 429. */
+	retryAfterSeconds?: number;
+	/** Endpoint or transport detail (error message / provider message). */
+	detail?: string;
 }
+
+export type FetchUsageResult =
+	| { ok: true; report: UsageReport }
+	| { ok: false; error: UsageFetchError };
+
+/** NaN's usage endpoint (OpenAPI tag "Usage"), API-key authed. */
+export const NAN_USAGE_URL = "https://api.nan.builders/v1/usage";
+export const USAGE_TIMEOUT_MS = 10_000;
+/** The endpoint rejects windows wider than 90 inclusive days with 400. */
+export const MAX_USAGE_WINDOW_DAYS = 90;
+
+const USAGE_LINE =
+	"Usage: /nan-usage [days] — days 1-90 (default: the current UTC month, matching the monthly caps). /nan-usage help";
 
 // ── Time helpers ──────────────────────────────────────────────────────────
+
+export interface UsageWindow {
+	/** Inclusive start, `YYYY-MM-DD` UTC. */
+	start: string;
+	/** Inclusive end, `YYYY-MM-DD` UTC. */
+	end: string;
+	/** Inclusive day count. */
+	days: number;
+}
+
+function isoDate(date: Date): string {
+	return date.toISOString().slice(0, 10);
+}
+
+function daysBetween(start: string, end: string): number {
+	const ms = Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`);
+	return Math.round(ms / 86_400_000) + 1;
+}
 
 function formatDuration(ms: number): string {
 	if (ms <= 0) return "already reset";
@@ -113,97 +150,96 @@ function formatDuration(ms: number): string {
 	return parts.join(" ");
 }
 
-function getNextBillingReset(): Date {
-	const now = new Date();
+function getNextBillingReset(now = new Date()): Date {
 	const year = now.getUTCFullYear();
 	const month = now.getUTCMonth();
 	return new Date(Date.UTC(year, month + 1, 0, 0, 0, 0));
 }
 
-function formatTokens(n: number): string {
+function resetLine(now = new Date()): string {
+	const resetDate = getNextBillingReset(now);
+	const timeUntilReset = resetDate.getTime() - now.getTime();
+	return `⏱️  Next billing reset: ${isoDate(resetDate)} UTC (${formatDuration(timeUntilReset)})`;
+}
+
+/** Default window: the current UTC month, so usage lines up with the monthly caps. */
+export function currentMonthWindow(now = new Date()): UsageWindow {
+	const start = isoDate(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)));
+	const end = isoDate(now);
+	return { start, end, days: daysBetween(start, end) };
+}
+
+/** Rolling window of `days` inclusive days ending today (UTC), clamped to 1–90. */
+export function rollingWindow(days: number, now = new Date()): UsageWindow {
+	const span = Math.min(Math.max(Math.trunc(days), 1), MAX_USAGE_WINDOW_DAYS);
+	const start = isoDate(new Date(now.getTime() - (span - 1) * 86_400_000));
+	const end = isoDate(now);
+	return { start, end, days: daysBetween(start, end) };
+}
+
+export type UsageArgs =
+	| { kind: "window"; window: UsageWindow }
+	| { kind: "help" }
+	| { kind: "invalid"; message: string };
+
+/** Parse the optional `/nan-usage [days]` argument. */
+export function parseUsageArgs(tokens: readonly string[], now = new Date()): UsageArgs {
+	if (tokens.length === 0) return { kind: "window", window: currentMonthWindow(now) };
+	if (tokens.length === 1) {
+		const token = tokens[0]!;
+		if (["help", "-h", "--help"].includes(token.toLowerCase())) return { kind: "help" };
+		if (/^\d+$/.test(token)) {
+			const days = Number(token);
+			if (days >= 1 && days <= MAX_USAGE_WINDOW_DAYS) return { kind: "window", window: rollingWindow(days, now) };
+		}
+	}
+	return {
+		kind: "invalid",
+		message: `Unknown argument "${tokens.join(" ")}". ${USAGE_LINE}`,
+	};
+}
+
+// ── Formatting helpers ────────────────────────────────────────────────────
+
+export function formatTokens(n: number): string {
 	if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
 	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
 	if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
 	return String(n);
 }
 
+/** Locale-independent thousands separator (request counts). */
+export function formatCount(n: number): string {
+	return String(Math.trunc(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
 function progressBar(percentage: number, width = 20): string {
-	const filled = Math.round((percentage / 100) * width);
+	const clamped = Math.min(Math.max(percentage, 0), 100);
+	const filled = Math.round((clamped / 100) * width);
 	const empty = width - filled;
 	return `[${"█".repeat(filled)}${"░".repeat(empty)}]`;
 }
 
-// ── Dashboard client ──────────────────────────────────────────────────────
-
-const DASHBOARD_QUOTA_URL = "https://cloud-api.nan.builders/api/usage/quota";
-const FETCH_TIMEOUT_MS = 10_000;
-
-async function fetchDashboardQuota(token: string): Promise<DashboardQuotaResponse | null> {
-	try {
-		const controller = new AbortController();
-		const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-		try {
-			const response = await fetch(DASHBOARD_QUOTA_URL, {
-				method: "GET",
-				headers: { cookie: `nan_session=${token}` },
-				redirect: "manual",
-				cache: "no-store",
-				signal: controller.signal,
-			});
-			if (!response.ok) return null;
-			return (await response.json()) as DashboardQuotaResponse;
-		} finally {
-			clearTimeout(timeout);
-		}
-	} catch {
-		return null;
-	}
-}
-
-function parseDashboardQuota(data: DashboardQuotaResponse): {
-	capped: DashboardModelQuota[];
-	uncapped: DashboardUncappedModelQuota[];
-} {
-	const capped: DashboardModelQuota[] = [];
-	const uncapped: DashboardUncappedModelQuota[] = [];
-	const seen = new Set<string>();
-
-	for (const entry of data.models) {
-		if (seen.has(entry.model)) continue;
-		seen.add(entry.model);
-
-		if (entry.cap === 0) {
-			uncapped.push({
-				model: entry.model,
-				tokensUsed: entry.tokensUsed,
-				resetAt: entry.periodEnd ?? null,
-				windowHours: entry.windowHours ?? null,
-			});
-		} else {
-			capped.push({
-				model: entry.model,
-				tokensUsed: entry.tokensUsed,
-				cap: entry.cap,
-				percentage: (entry.tokensUsed / entry.cap) * 100,
-				resetAt: entry.periodEnd ?? null,
-				windowHours: entry.windowHours ?? null,
-			});
-		}
-	}
-
-	return { capped, uncapped };
+/**
+ * `api_requests` comes back as 0 for some models that do have usage (live
+ * probe 2026-09-27: qwen3.8-flash 796M tokens / 0 requests, while the window
+ * total still sums the other models exactly). Reporting a bare "0 requests"
+ * next to real consumption would read as a bug in this command, so say what
+ * the endpoint actually reported.
+ */
+function requestsSuffix(tokens: number, requests: number): string {
+	if (tokens > 0 && requests === 0) return "requests not reported";
+	return `${formatCount(requests)} requests`;
 }
 
 // ── Message builders ──────────────────────────────────────────────────────
 
-function buildStaticMessage(): string {
-	const resetDate = getNextBillingReset();
-	const timeUntilReset = resetDate.getTime() - Date.now();
-
+/** Static quota table — shown when no API key resolves. */
+export function buildStaticMessage(now = new Date()): string {
 	const lines: string[] = [
 		"📊 NaN Quota Status (static limits)",
 		"",
-		`⏱️  Next billing reset: ${resetDate.toISOString().split("T")[0]} UTC (${formatDuration(timeUntilReset)})`,
+		resetLine(now),
 		"",
 		"Model                        Monthly Cap",
 		"─".repeat(45),
@@ -219,89 +255,225 @@ function buildStaticMessage(): string {
 		lines.push(`${quota.label.padEnd(28)} ${capStr}${premiumStr}${rollingStr}`);
 	}
 
-	lines.push("");
-	lines.push("💡 Run `nan auth login` to see real usage data.");
-
+	lines.push("", `💡 Set ${NAN_API_KEY_ENV} or run \`/login nan\` to see real usage (GET /v1/usage).`);
 	return lines.join("\n");
 }
 
-function buildDashboardMessage(
-	capped: DashboardModelQuota[],
-	uncapped: DashboardUncappedModelQuota[],
-): string {
-	const resetDate = getNextBillingReset();
-	const timeUntilReset = resetDate.getTime() - Date.now();
+/** Usage report merged with the documented caps. */
+export function buildUsageMessage(report: UsageReport, now = new Date()): string {
+	const start = report.start_date;
+	const end = report.end_date;
+	const days = daysBetween(start, end);
+	const totals = report.totals;
+	const byModel = totals?.by_model ?? [];
+	const totalTokens = totals?.total_tokens ?? 0;
+	const totalRequests = totals?.api_requests ?? 0;
 
 	const lines: string[] = [
-		"📊 NaN Quota Status",
+		"📊 NaN Usage",
 		"",
-		`⏱️  Next billing reset: ${resetDate.toISOString().split("T")[0]} UTC (${formatDuration(timeUntilReset)})`,
+		`🗓️  Window: ${start} → ${end} UTC (${days} day${days === 1 ? "" : "s"})`,
+		"",
+		resetLine(now),
 		"",
 	];
 
-	if (capped.length > 0) {
-		lines.push("Models with monthly caps:");
-		lines.push("");
-		for (const m of capped) {
-			const quota = MODEL_QUOTAS.find((q) => q.model === m.model);
-			const label = quota?.label ?? m.model;
-			const pct = m.percentage.toFixed(1);
-			const remaining = m.cap - m.tokensUsed;
-			lines.push(`${label}:`);
-			lines.push(`  ${progressBar(m.percentage)} ${pct}%`);
-			lines.push(`  Used: ${formatTokens(m.tokensUsed)} / ${formatTokens(m.cap)} (${formatTokens(remaining)} remaining)`);
-			if (m.windowHours) {
-				lines.push(`  Rolling window: ${m.windowHours}h`);
+	const usageOf = (model: string): UsageModelTotals | undefined => byModel.find((m) => m.model === model);
+
+	if (totalTokens === 0 && totalRequests === 0 && byModel.length === 0) {
+		lines.push("No usage in this window.");
+	} else {
+		const capped = MODEL_QUOTAS.filter((q) => q.monthlyCap > 0);
+		const uncapped = MODEL_QUOTAS.filter((q) => q.monthlyCap === 0);
+		const known = new Set(MODEL_QUOTAS.map((q) => q.model));
+		const others = byModel.filter((m) => !known.has(m.model)).sort((a, b) => b.total_tokens - a.total_tokens);
+
+		lines.push("Models with monthly caps:", "");
+		for (const quota of capped) {
+			const usage = usageOf(quota.model);
+			const used = usage?.total_tokens ?? 0;
+			const requests = usage?.api_requests ?? 0;
+			const percentage = (used / quota.monthlyCap) * 100;
+			const remaining = Math.max(quota.monthlyCap - used, 0);
+
+			lines.push(`${quota.label}${quota.premium ? " 👑" : ""}:`);
+			lines.push(`  ${progressBar(percentage)} ${percentage.toFixed(1)}% of monthly cap`);
+			lines.push(
+				`  Used: ${formatTokens(used)} / ${formatTokens(quota.monthlyCap)} (${formatTokens(remaining)} remaining) · ${requestsSuffix(used, requests)}`,
+			);
+			if (quota.rollingWindowCap > 0) {
+				lines.push(
+					`  ↳ rolling window: ${formatTokens(quota.rollingWindowCap)} / ${quota.rollingWindowHours}h ` +
+						"(daily granularity — /usage cannot break it down)",
+				);
+			}
+			lines.push("");
+		}
+
+		const usedUncapped = uncapped.filter((q) => (usageOf(q.model)?.total_tokens ?? 0) > 0);
+		if (usedUncapped.length > 0) {
+			lines.push("Uncapped models:", "");
+			for (const quota of usedUncapped) {
+				const usage = usageOf(quota.model)!;
+				lines.push(`${quota.label}: ${formatTokens(usage.total_tokens)} used · ${requestsSuffix(usage.total_tokens, usage.api_requests)}`);
+			}
+			lines.push("");
+		}
+
+		if (others.length > 0) {
+			lines.push("Other models (no documented cap):", "");
+			for (const usage of others) {
+				lines.push(`${usage.model}: ${formatTokens(usage.total_tokens)} used · ${requestsSuffix(usage.total_tokens, usage.api_requests)}`);
 			}
 			lines.push("");
 		}
 	}
 
-	if (uncapped.length > 0) {
-		lines.push("Uncapped models:");
-		lines.push("");
-		for (const m of uncapped) {
-			const quota = MODEL_QUOTAS.find((q) => q.model === m.model);
-			const label = quota?.label ?? m.model;
-			lines.push(`${label}: ${formatTokens(m.tokensUsed)} used`);
-		}
-		lines.push("");
+	lines.push(
+		`Window totals: ${formatTokens(totalTokens)} tokens ` +
+			`(${formatTokens(totals?.prompt_tokens ?? 0)} prompt / ${formatTokens(totals?.completion_tokens ?? 0)} completion) · ` +
+			`${formatCount(totalRequests)} requests`,
+	);
+	const allTime = report.all_time;
+	if (allTime) {
+		const cached = allTime.cached_at ? ` (cached ${allTime.cached_at.slice(0, 10)})` : "";
+		lines.push(`All time: ${formatTokens(allTime.total_tokens)} tokens · ${formatCount(allTime.api_requests)} requests${cached}`);
 	}
-
-	if (capped.length === 0 && uncapped.length === 0) {
-		lines.push("No usage data. Session may have expired.");
-		lines.push("Run `nan auth login` to refresh.");
-	}
-
+	lines.push("💡 Source: GET /v1/usage · caps from https://nan.builders/docs/models");
 	return lines.join("\n");
+}
+
+/** Map an endpoint/transport failure to an actionable message. */
+export function formatUsageError(error: UsageFetchError): string {
+	const { status, retryAfterSeconds, detail } = error;
+	const suffix = detail ? ` (${detail})` : "";
+	if (status === 401) return `NaN rejected the API key (401). Run /login nan or set ${NAN_API_KEY_ENV} to a valid key${suffix}.`;
+	if (status === 404) return `NaN has no usage identity for this account (404): nothing to report${suffix}.`;
+	if (status === 429) {
+		const wait = retryAfterSeconds === undefined ? "a few" : String(retryAfterSeconds);
+		return `Rate limited by /usage (429): retry in ${wait}s — 30 requests/min, separate from the model endpoints${suffix}.`;
+	}
+	if (status === 409) return `The API key alias is reserved for a service key (409); usage is not reported for it${suffix}.`;
+	if (status === 400) return `NaN rejected the /usage parameters (400)${suffix}.`;
+	if (status !== undefined && status >= 500) return `NaN /usage is failing (HTTP ${status})${suffix}. Try again shortly.`;
+	return `Could not fetch NaN usage${suffix}.`;
+}
+
+// ── Endpoint client ───────────────────────────────────────────────────────
+
+export interface FetchUsageOptions {
+	apiKey: string;
+	window: UsageWindow;
+	fetchImpl?: typeof fetch;
+	timeoutMs?: number;
+}
+
+/**
+ * `GET /v1/usage?start_date&end_date&limit=1` with Bearer auth.
+ * `limit=1` keeps the payload small: `totals` always spans the whole window,
+ * so the daily rows are never needed. Never throws — failures come back as
+ * `{ ok: false, error }`.
+ */
+export async function fetchUsageReport(options: FetchUsageOptions): Promise<FetchUsageResult> {
+	const { apiKey, window, fetchImpl = fetch, timeoutMs = USAGE_TIMEOUT_MS } = options;
+	const url = `${NAN_USAGE_URL}?start_date=${window.start}&end_date=${window.end}&limit=1`;
+
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), timeoutMs);
+	try {
+		const response = await fetchImpl(url, {
+			method: "GET",
+			headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+			cache: "no-store",
+			signal: controller.signal,
+		});
+		if (!response.ok) {
+			const retryAfter = Number(response.headers.get("retry-after"));
+			let detail: string | undefined;
+			try {
+				const body = (await response.json()) as { error?: { message?: string } };
+				detail = body?.error?.message;
+			} catch {
+				// Non-JSON error body (proxy/CDN page) — status alone is enough.
+			}
+			return {
+				ok: false,
+				error: {
+					status: response.status,
+					...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfterSeconds: retryAfter } : {}),
+					...(detail ? { detail } : {}),
+				},
+			};
+		}
+		const report = (await response.json()) as UsageReport;
+		if (!report || typeof report !== "object" || !report.totals) {
+			return { ok: false, error: { detail: "unexpected payload from /v1/usage (no totals)" } };
+		}
+		return { ok: true, report };
+	} catch (error) {
+		return { ok: false, error: { detail: error instanceof Error ? error.message : String(error) } };
+	} finally {
+		clearTimeout(timeout);
+	}
 }
 
 // ── Command registration ──────────────────────────────────────────────────
 
-export function registerNanUsageCommand(pi: import("@earendil-works/pi-coding-agent").ExtensionAPI): void {
+export interface NanUsageCommandOptions {
+	/** Injected transport (tests); defaults to the global fetch. */
+	fetchImpl?: typeof fetch;
+	/** Injected API-key resolution (tests); defaults to pi's registry + env. */
+	resolveApiKey?: (ctx: ExtensionCommandContext) => Promise<string | undefined>;
+}
+
+export function registerNanUsageCommand(pi: ExtensionAPI, options: NanUsageCommandOptions = {}): void {
 	if (typeof pi.registerCommand !== "function") return;
 
-	pi.registerCommand("nan-usage", {
-		description: "Show NaN quota status: token limits, usage, and time until billing reset",
-		handler: async (_args: string, ctx: ExtensionCommandContext) => {
-			const token = readNanCliSessionToken();
+	const resolveApiKey = options.resolveApiKey ?? ((ctx: ExtensionCommandContext) => resolveNanApiKey(ctx));
 
-			if (token) {
-				ctx.ui.notify("Fetching usage from NaN dashboard...", "info");
-				const data = await fetchDashboardQuota(token);
-				if (data) {
-					const { capped, uncapped } = parseDashboardQuota(data);
-					ctx.ui.notify(buildDashboardMessage(capped, uncapped), "info");
-				} else {
-					ctx.ui.notify(
-						"Failed to fetch dashboard data. Session may have expired.\n" +
-						"Run `nan auth login` to refresh.",
-						"warning",
-					);
-				}
-			} else {
-				ctx.ui.notify(buildStaticMessage(), "info");
+	pi.registerCommand("nan-usage", {
+		description: "Show NaN token usage vs monthly caps, window/all-time totals, and time until billing reset",
+		getArgumentCompletions: (argumentPrefix: string) => {
+			const prefix = argumentPrefix.trim().toLowerCase();
+			const items = [
+				{ value: "", label: "(current month)", description: "Usage for the current UTC month" },
+				{ value: "7", label: "7", description: "Rolling 7-day window" },
+				{ value: "30", label: "30", description: "Rolling 30-day window" },
+				{ value: "90", label: "90", description: "Rolling 90-day window (API maximum)" },
+				{ value: "help", label: "help", description: "Show the usage line" },
+			];
+			const filtered = items.filter((item) => item.value.startsWith(prefix));
+			return filtered.length > 0 ? filtered : null;
+		},
+		handler: async (args: string, ctx: ExtensionCommandContext) => {
+			const tokens = args.trim().split(/\s+/).filter(Boolean);
+			const parsed = parseUsageArgs(tokens);
+
+			if (parsed.kind === "help") {
+				ctx.ui.notify(USAGE_LINE, "info");
+				return;
 			}
+			if (parsed.kind === "invalid") {
+				ctx.ui.notify(parsed.message, "warning");
+				return;
+			}
+
+			const apiKey = await resolveApiKey(ctx);
+			if (!apiKey) {
+				ctx.ui.notify(buildStaticMessage(), "info");
+				return;
+			}
+
+			ctx.ui.notify("Fetching usage from GET /v1/usage ...", "info");
+			const result = await fetchUsageReport({
+				apiKey,
+				window: parsed.window,
+				...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+			});
+			ctx.ui.notify(
+				result.ok ? buildUsageMessage(result.report) : formatUsageError(result.error),
+				result.ok ? "info" : "warning",
+			);
 		},
 	});
 }
