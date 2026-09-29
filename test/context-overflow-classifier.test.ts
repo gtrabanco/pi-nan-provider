@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isContextOverflow } from "@earendil-works/pi-ai";
+import { isContextOverflow, normalizeContext } from "@earendil-works/pi-ai";
 import {
 	classifyContextOverflowError,
 	classifyStreamContextOverflow,
@@ -38,6 +38,25 @@ function errorMessage(overrides: Partial<AssistantMessage> = {}): AssistantMessa
 const WINDOW = 262_144;
 
 describe("estimateRequestTokens", () => {
+	test("normalized (TranscriptContext) estimate never under-counts compared to raw Context", () => {
+		// Runtime: pi now hands the provider a TranscriptContext (systemPrompt & tools
+		// folded into messages[0] as toolsAdded).  estimateRequestTokens must not
+		// under-count when the prompt is expressed via normalizeContext vs the legacy
+		// raw Context shape.
+		const systemPrompt = "s".repeat(3_470);
+		const messages = [{ role: "user", content: "m".repeat(3_470) }];
+		const tools = [{ name: "bash", description: "t".repeat(3_470) }];
+
+		const raw = estimateRequestTokens({ systemPrompt, messages, tools } as never);
+		const normalized = estimateRequestTokens(
+			normalizeContext({ systemPrompt, messages, tools } as never),
+		);
+
+		// Must be > 0 (not empty) and must never under-count.
+		expect(normalized).toBeGreaterThan(0);
+		expect(normalized).toBeGreaterThanOrEqual(raw);
+	});
+
 	test("counts system prompt, tool schemas and message bodies at the documented ratio", () => {
 		const systemPrompt = "s".repeat(3_470);
 		const messages = [{ role: "user", content: "m".repeat(3_470) }];

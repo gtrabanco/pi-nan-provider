@@ -77,7 +77,7 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
 
 ## Verified API facts (do not re-derive from stale docs)
 
-- **Extension-side pi-ai imports + streaming-API instance binding (v0.6.10; verified on pi-ai 0.83.0–0.84.4 and pi 0.87.0):**
+- **Extension-side pi-ai imports + streaming-API instance binding (v0.6.10; verified on pi-ai 0.83.0–0.87.1 and pi 0.87.1):**
   statically import ONLY the bare `@earendil-works/pi-ai` root from `src/`. pi's
   extension loader maps that specifier to the compat entrypoint on the bundled
   CLI, Node-mode jiti aliases and compiled-binary virtualModules, and compat
@@ -107,7 +107,7 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
   `openAICompletionsApi`; `createProvider` and `envApiKeyAuth(name, envVars)` are
   on the root. `envApiKeyAuth` implements exactly: stored credential key wins →
   first set env var → unconfigured; `login()` prompts with `{ type: "secret" }`.
-- pi awaits extension factories (`await factory(api)`) on 0.83.0 and 0.84.4
+- pi awaits extension factories (`await factory(api)`) on 0.83.0 through 0.87.1
   alike, so the extension entrypoint may be async (v0.5.0: streaming-API
   resolution needs it).
 - pi-ai 0.83.0 runtime surface verified identical for this package's needs:
@@ -116,6 +116,26 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
   `fetchModels(context)`, `filterModels(models, credential)`, `api`) and
   `RefreshModelsContext.credential` match 0.84.4; `registerProvider` has both
   the full-`Provider` and `(name, config)` overloads in 0.83's ExtensionAPI.
+  (pi-ai 0.86 changed provider stream entry points to a branded `TranscriptContext`
+  — see next bullet — but this package's runtime is untouched.)
+- **pi-ai 0.86.0 `TranscriptContext` migration (verified 2026-09-29):** provider
+  stream entry points (`Provider.stream`, `ProviderStreams.stream/streamSimple`,
+  `StreamFunction`) now take a branded `TranscriptContext = { messages: Message[] }`
+  instead of the public `Context = { systemPrompt?: string; messages; tools? }`.
+  `normalizeContext(context: Context): TranscriptContext` (exported from the pi-ai
+  root) folds prompt + tools into a leading system message
+  `{ role: "system", content: <prompt>, toolsAdded: <tools>, timestamp: 0 }`.
+  `Context` itself still exists and is what the public entry points accept, so raw
+  `Context` literals only fail where a *provider-level* stream is called directly
+  (the 6 test call sites). Tests now build contexts with `normalizeContext(...)`.
+  This package's `src/` files never hand-build a provider context, so no `src/`
+  code changed: `wrapApiForStrictSanitization` forwards `context` untouched, and
+  `withContextOverflowClassification` only *reads* it for the estimate, which still
+  counts prompt + tools because they ride inside `messages[0]`.
+- pi 0.87 rejects extension tools that declare no parameter schema at registration;
+  all this package's MCP tools declare TypeBox `parameters`, so they register fine.
+  pi 0.87 also changed `pi.on()` to return an unsubscribe function (unused by
+  this package).
 - `pi.registerProvider(provider)` accepts a complete pi-ai `Provider`; pi's Models
   runtime then drives `fetchModels` refreshes (network refresh at interactive
   startup and periodically, cache-only at registration) and persists the overlay.
@@ -178,6 +198,9 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
   `test/context-overflow-classifier.test.ts`; issue #3.
 - Relative imports inside this package use `.ts` extensions (pi's official
   extension examples do the same; pi transpiles extension sources).
+- pi 0.87 breaking changes NOT used by this package: `ContextEditEntry` added to
+  the `SessionEntry` union, expanded `TurnEndEvent`, removed `shouldStopAfterTurn`,
+  `SessionManager` canonical for provider context. The package touches none of them.
 - pi intentionally has NO built-in MCP client (docs/usage.md). MCP integration
   happens by bridging servers into pi custom tools via `pi.registerTool()`:
   - NaN's official remote MCP server: `https://api.nan.builders/mcp` (host

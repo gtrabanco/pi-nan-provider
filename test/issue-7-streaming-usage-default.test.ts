@@ -31,7 +31,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import type { Model } from "@earendil-works/pi-ai";
+import { normalizeContext, type Model } from "@earendil-works/pi-ai";
 import { GENERATED_CATALOG_META, NAN_GENERATED_MODELS } from "../scripts/models.generated.ts";
 import { baselineModels, mergeLiveWithGenerated } from "../src/fetch-models.ts";
 import { createNanCompatibleProvider } from "../src/provider-factory.ts";
@@ -105,7 +105,7 @@ async function runTurn(model: Model<"openai-completions">, gateway: UsageGateway
 	const provider = await createNanCompatibleProvider(NAN_PROVIDER);
 	const stream = provider.stream(
 		model,
-		{ systemPrompt: "You are a helper", messages: [{ role: "user", content: "hi" }] as never, tools: [] },
+		normalizeContext({ systemPrompt: "You are a helper", messages: [{ role: "user", content: "hi" }] as never, tools: [] }),
 		{ apiKey: "sk-test", fetch: gateway.fetchImpl },
 	);
 	for await (const _event of stream) {

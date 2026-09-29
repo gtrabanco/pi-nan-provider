@@ -1,7 +1,7 @@
 /**
  * NaN-aware context-overflow classification.
  *
- * Root cause (pi-ai, still present on 0.85.1 / main): when history is replayed
+ * Root cause (pi-ai, verified on 0.87.1): when history is replayed
  * into a DIFFERENT model, `transformMessages` downgrades every non-redacted
  * `thinking` block to plain `text` verbatim, with no size bound — and nothing
  * bounds the SUM across messages. Switching from a 1M-context model

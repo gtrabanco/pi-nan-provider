@@ -30,7 +30,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { isRetryableAssistantError } from "@earendil-works/pi-ai";
+import { isRetryableAssistantError, normalizeContext } from "@earendil-works/pi-ai";
 import { NAN_GENERATED_MODELS } from "../scripts/models.generated.ts";
 import { baselineModels, mergeLiveWithGenerated } from "../src/fetch-models.ts";
 import { createNanCompatibleProvider } from "../src/provider-factory.ts";
@@ -80,7 +80,7 @@ async function runTruncatedStream(model: Parameters<Awaited<ReturnType<typeof cr
 	const provider = await createNanCompatibleProvider(NAN_PROVIDER);
 	const stream = provider.stream(
 		model,
-		{ systemPrompt: "You are a helper", messages: [{ role: "user", content: "hi" }] as never, tools: [] },
+		normalizeContext({ systemPrompt: "You are a helper", messages: [{ role: "user", content: "hi" }] as never, tools: [] }),
 		{ apiKey: "sk-test", fetch: fetchTruncated },
 	);
 	const events: TerminalEvent[] = [];
@@ -149,7 +149,7 @@ describe("issue #2 — the streaming-usage declaration matches the sanitizer", (
 		const model = baselineModels(SOURCE).find((candidate) => candidate.id === "glm5.3-flash")!;
 		const stream = provider.stream(
 			model,
-			{ systemPrompt: "You are a helper", messages: [{ role: "user", content: "hi" }] as never, tools: [] },
+			normalizeContext({ systemPrompt: "You are a helper", messages: [{ role: "user", content: "hi" }] as never, tools: [] }),
 			{ apiKey: "sk-test", fetch: capturingFetch },
 		);
 		for await (const _event of stream) {

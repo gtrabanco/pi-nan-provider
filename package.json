@@ -1,6 +1,6 @@
 {
 	"name": "@gtrabanco/pi-nan-provider",
-	"version": "0.8.0",
+	"version": "0.8.1",
 	"description": "NaN Builders (api.nan.builders) model provider for pi - OpenAI-compatible registration with a models.dev-generated fallback, tier-aware live catalog, and MCP bridges (official web search + optional community media server)",
 	"keywords": [
 		"pi",
@@ -46,8 +46,8 @@
 		"@earendil-works/pi-coding-agent": ">=0.83.0 <1"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-ai": "0.84.4",
-		"@earendil-works/pi-coding-agent": "0.84.4",
+		"@earendil-works/pi-ai": "0.87.1",
+		"@earendil-works/pi-coding-agent": "0.87.1",
 		"@types/bun": "1.4",
 		"typescript": "7"
 	},

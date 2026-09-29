@@ -34,7 +34,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { isContextOverflow } from "@earendil-works/pi-ai";
+import { isContextOverflow, normalizeContext } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { NAN_THINKING_GUARD_ENV } from "../src/cross-model-thinking-guard.ts";
 import { baselineModels } from "../src/fetch-models.ts";
@@ -216,7 +216,7 @@ async function runTurn(
 	const provider = await createNanCompatibleProvider(NAN_PROVIDER);
 	const stream = provider.stream(
 		model,
-		{ systemPrompt: SYSTEM_PROMPT, messages: messages as never, tools: [] },
+		normalizeContext({ systemPrompt: SYSTEM_PROMPT, messages: messages as never, tools: [] }),
 		{ apiKey: "sk-test", fetch: gateway.fetchImpl },
 	);
 	const events: Array<Record<string, unknown>> = [];

@@ -14,8 +14,8 @@
  * statically import ONLY the bare `@earendil-works/pi-ai` root. pi's
  * extension loader maps that specifier to the compat entrypoint on every
  * supported runtime (bundled CLI, Node-mode aliases, compiled-binary
- * virtualModules; pi 0.83 and 0.84 alike), and compat re-exports every lazy
- * API factory. Subpath specifiers (`@earendil-works/pi-ai/api/...`) get the
+ * virtualModules; pi 0.83 through 0.87.1 alike), and compat re-exports every
+ * lazy API factory. Subpath specifiers (`@earendil-works/pi-ai/api/...`) get the
  * alias applied as a prefix and resolve to `<compat.js>/api/...`, which does
  * not exist — the extension then fails to load entirely.
  *
@@ -79,6 +79,11 @@ export interface NanCompatibleProviderOptions {
  * Any caller-supplied `onPayload` (e.g. pi's own debug/passthrough hook) is
  * preserved and chained AFTER sanitization, so the final payload is always
  * schema-valid.
+ *
+ * Note (pi-ai ≥ 0.86): this wrapper forwards the `TranscriptContext` parameter
+ * unchanged and only rewrites `options.onPayload` — the `TranscriptContext`
+ * migration (branded `TranscriptContext = { messages: Message[] }` replacing
+ * `Context`) does not affect this function's behavior.
  */
 function isObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;

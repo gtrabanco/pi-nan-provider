@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { normalizeContext } from "@earendil-works/pi-ai";
 import { sanitizeOpenAICompatPayload } from "../src/openai-compat-sanitizer.ts";
 import { createNanCompatibleProvider, wrapApiForStrictSanitization } from "../src/provider-factory.ts";
 import { NAN_PROVIDER } from "../src/providers.ts";
@@ -318,7 +319,7 @@ describe("createNanCompatibleProvider real request is NaN-schema-valid (replay s
 		}) as typeof fetch;
 
 		// The stream is lazy: the request fires only when we consume it.
-		for await (const _ of provider.stream(model, { systemPrompt: "You are a helper", messages: messages as never, tools: [] }, { apiKey: "sk-test", fetch: fetchImpl, ...overrides })) {
+		for await (const _ of provider.stream(model, normalizeContext({ systemPrompt: "You are a helper", messages: messages as never, tools: [] }), { apiKey: "sk-test", fetch: fetchImpl, ...overrides })) {
 			// noop — consume until done
 		}
 

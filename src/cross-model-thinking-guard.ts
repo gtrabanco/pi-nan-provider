@@ -1,7 +1,7 @@
 /**
  * Cross-model thinking guard.
  *
- * Root cause this guards against (pi-ai, still present on 0.85.1 / main): when
+ * Root cause this guards against (pi-ai, verified on 0.87.1): when
  * history is replayed into a DIFFERENT model, `transformMessages` downgrades
  * every non-redacted `thinking` block to a plain `text` block verbatim
  * (`packages/ai/src/api/transform-messages.ts`), and `openai-completions`

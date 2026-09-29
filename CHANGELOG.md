@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] — 2026-09-29
+
+### Changed
+
+- **devDependencies `@earendil-works/pi-ai` / `@earendil-works/pi-coding-agent` 0.84.4 → 0.87.1** ([#13](https://github.com/gtrabanco/pi-nan-provider/issues/13)).
+  The `peerDependencies >=0.83.0 <1` constraint is untouched and `node scripts/check-pi-sdk-versions.mjs --report` exits 0.
+  The pi-ai 0.86 breaking change (provider stream entry points `Provider.stream`, `ProviderStreams.stream/streamSimple`,
+  `StreamFunction` now take a branded `TranscriptContext = { messages: Message[] }` instead of the public
+  `Context = { systemPrompt?: string; messages; tools? }`; `normalizeContext(context)` produces it)
+  required every test's context-literal sites to switch to `normalizeContext()` (6 test call sites). No
+  `src/` file needed a behavioral change: `wrapApiForStrictSanitization` only rewrites `options.onPayload`
+  and forwards `context` untouched, and `withContextOverflowClassification` forwards `context` untouched
+  and only *reads* it for the estimate — `estimateRequestTokens` still counts prompt + tools under
+  `TranscriptContext` because they ride inside `messages[0]` (`toolsAdded`), so the JSON of `messages`
+  carries them. Runtime behavior of the extension is unchanged.
+
 ## [0.8.0] — 2026-09-27
 
 ### Changed

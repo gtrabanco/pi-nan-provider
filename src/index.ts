@@ -118,7 +118,7 @@ function registerMcpToolsCompat(pi: ExtensionAPI): void {
  * Drop the reasoning pi-ai replays across a model switch.
  *
  * pi-ai's `transformMessages` downgrades a previous model's `thinking` blocks
- * to plain text with no size bound (still true on 0.85.1 / main), and nothing
+ * to plain text with no size bound (verified on 0.87.1), and nothing
  * bounds the sum across messages — measured at 30–60% of the whole context on
  * real sessions. Switching from a 1M-context model to a 262K one (`qwen3.6`)
  * then overflows the window, and NaN's gateway answers a generic
