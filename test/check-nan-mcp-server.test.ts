@@ -14,9 +14,16 @@ import {
 } from "../scripts/check-nan-mcp-server.ts";
 import {
 	DEFAULT_NAN_MEDIA_MCP_VERSION,
-	NAN_MEDIA_MCP_SERVER_TOOLS,
-	NAN_MEDIA_TOOLS,
-} from "../src/mcp/nan-media.ts";
+} from "../src/mcp/media-server.ts";
+
+/** The audio/image/transcription scope we bridge from the community server. */
+const expectedBridgedTools = [
+	"generate_image",
+	"edit_image",
+	"text_to_speech",
+	"list_voices",
+	"speech_to_text",
+] as const;
 
 function jsonResponse(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -59,29 +66,29 @@ describe("extractServerTools", () => {
 	});
 });
 
-describe("NAN_MEDIA_MCP_SERVER_TOOLS contract", () => {
+describe("bridged tools contract", () => {
 	test("is exactly the audio/image/transcription scope, one per bridged pi tool", () => {
-		expect(NAN_MEDIA_MCP_SERVER_TOOLS).toEqual([
+		expect(expectedBridgedTools).toEqual([
 			"generate_image",
 			"edit_image",
 			"text_to_speech",
 			"list_voices",
 			"speech_to_text",
 		]);
-		expect(NAN_MEDIA_MCP_SERVER_TOOLS.length).toBe(NAN_MEDIA_TOOLS.length);
+		expect(expectedBridgedTools.length).toBe(5);
 	});
 });
 
 describe("assessUpdate", () => {
 	test("safe (non-breaking) when every bridged tool is still present", () => {
-		const verdict = assessUpdate([...NAN_MEDIA_MCP_SERVER_TOOLS]);
+		const verdict = assessUpdate([...expectedBridgedTools]);
 		expect(verdict.breaking).toBe(false);
 		expect(verdict.removedTools).toEqual([]);
 		expect(verdict.reason).toContain("non-breaking");
 	});
 
 	test("breaking when a bridged tool is dropped", () => {
-		const latest = [...NAN_MEDIA_MCP_SERVER_TOOLS].filter((t) => t !== "speech_to_text");
+		const latest = [...expectedBridgedTools].filter((t) => t !== "speech_to_text");
 		const verdict = assessUpdate(latest);
 		expect(verdict.breaking).toBe(true);
 		expect(verdict.removedTools).toEqual(["speech_to_text"]);
@@ -89,7 +96,7 @@ describe("assessUpdate", () => {
 	});
 
 	test("informational when the latest adds new tools we do not bridge", () => {
-		const latest = [...NAN_MEDIA_MCP_SERVER_TOOLS, "embed", "rerank"];
+		const latest = [...expectedBridgedTools, "embed", "rerank"];
 		const verdict = assessUpdate(latest);
 		expect(verdict.breaking).toBe(false);
 		expect(verdict.addedTools).toEqual(["embed", "rerank"]);
@@ -107,7 +114,7 @@ describe("buildReport", () => {
 	});
 
 	test("update-available when latest is strictly newer", () => {
-		const report = buildReport({ pinnedVersion: "1.0.7", latestVersion: "1.0.8", latestTools: [...NAN_MEDIA_MCP_SERVER_TOOLS], changelog: ["chore: bump to 1.0.8"] });
+		const report = buildReport({ pinnedVersion: "1.0.7", latestVersion: "1.0.8", latestTools: [...expectedBridgedTools], changelog: ["chore: bump to 1.0.8"] });
 		expect(report.status).toBe("update-available");
 		expect(report.updateAvailable).toBe(true);
 		expect(report.breaking).toBe(false);

@@ -1,220 +1,179 @@
-import { describe, expect, test } from "bun:test";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import {
-	callNanMcpTool,
-	createNanWebSearchTool,
-	mcpToolsDisabled,
-	NAN_MCP_URL,
-	resolveNanApiKey,
-} from "../src/mcp/nan-search.ts";
+/**
+ * Native MCP registration tests — web-search server config.
+ *
+ * Retargeted from ToolDefinition-wrapper tests (callNanMcpTool, createNanWebSearchTool):
+ * now asserts native MCP registration config instead of HTTP behavior.
+ */
 
-function jsonFetch(body: unknown, status = 200): typeof fetch {
-	return (async () =>
-		new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import extension, { NAN_API_KEY_ENV } from "../src/index.ts";
+import { NAN_STATE_FILE, writeState } from "../src/mcp/state.ts";
+
+interface RecordedServer {
+	name: string;
+	config: Record<string, unknown>;
 }
 
-function mcpPayload(overrides: Record<string, unknown> = {}) {
+interface CapturedNotify {
+	message: string;
+	type: string;
+}
+
+function mockPi(
+	options: {
+		withoutRegisterMcpServer?: boolean;
+		withRegistryKey?: string;
+	} = {},
+) {
+	const servers: RecordedServer[] = [];
+	const notifications: CapturedNotify[] = [];
+
+	const pi: ExtensionAPI = {
+		registerProvider: () => {},
+		registerTool: () => {},
+		registerCommand: () => {},
+		on: () => () => {},
+		...(!options.withoutRegisterMcpServer
+			? {
+					registerMcpServer: (name: string, config: Record<string, unknown>) => {
+						servers.push({ name, config: { ...config } });
+					},
+					unregisterMcpServer: () => {},
+					getMcpServers: () => servers,
+				}
+			: {}),
+		ui: {
+			notify: (message: string, type: string) => notifications.push({ message, type }),
+		},
+		modelRegistry: options.withRegistryKey
+			? { getApiKeyForProvider: async () => options.withRegistryKey }
+			: undefined,
+	} as unknown as ExtensionAPI;
+
+	return { pi, servers, notifications };
+}
+
+function cleanEnv(keys: string[]) {
+	const saved = new Map(keys.map((key) => [key, process.env[key]]));
 	return {
-		jsonrpc: "2.0",
-		id: 1,
-		result: {
-			content: [{ type: "text", text: "result one" }, { type: "text", text: "result two" }],
-			...overrides,
+		set(key: string, value: string) { process.env[key] = value; },
+		delete(key: string) { delete process.env[key]; },
+		restore() {
+			for (const [key, value] of saved) {
+				if (value === undefined) delete process.env[key];
+				else process.env[key] = value;
+			}
 		},
 	};
 }
 
-/** Fetch stub capturing the JSON-RPC request for assertions. */
-function capturingJsonFetch(body: unknown, status = 200): { fetch: typeof fetch; bodies: string[]; headers: Record<string, string>[] } {
-	const bodies: string[] = [];
-	const headers: Record<string, string>[] = [];
-	const stub = (async (input: unknown, init?: RequestInit) => {
-		bodies.push(String(init?.body));
-		headers.push(init?.headers as Record<string, string>);
-		return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
-	}) as unknown as typeof fetch;
-	return { fetch: stub, bodies, headers };
-}
+const agentDir = mkdtempSync(join(tmpdir(), "mcp-search-test-"));
+const cleanAgent = cleanEnv(["PI_CODING_AGENT_DIR"]);
 
-function hangingFetch(): typeof fetch {
-	return ((_input: unknown, init?: RequestInit) =>
-		new Promise<Response>((_resolve, reject) => {
-			init?.signal?.addEventListener("abort", () => reject(new Error("Aborted")));
-		})) as unknown as typeof fetch;
-}
-
-describe("resolveNanApiKey", () => {
-	test("stored credential (registry) wins over env var", async () => {
-		process.env.NAN_API_KEY = "env-key";
-		try {
-			const key = await resolveNanApiKey({
-				modelRegistry: { getApiKeyForProvider: async () => "stored-key" },
-			});
-			expect(key).toBe("stored-key");
-		} finally {
-			delete process.env.NAN_API_KEY;
-		}
-	});
-
-	test("env var is used when the registry yields nothing", async () => {
-		process.env.NAN_API_KEY = "env-key";
-		try {
-			const key = await resolveNanApiKey({});
-			expect(key).toBe("env-key");
-		} finally {
-			delete process.env.NAN_API_KEY;
-		}
-	});
-
-	test("registry errors degrade to the env fallback", async () => {
-		process.env.NAN_API_KEY = "env-key";
-		try {
-			const key = await resolveNanApiKey({
-				modelRegistry: {
-					getApiKeyForProvider: async () => {
-						throw new Error("boom");
-					},
-				},
-			});
-			expect(key).toBe("env-key");
-		} finally {
-			delete process.env.NAN_API_KEY;
-		}
-	});
-
-	test("undefined when nothing is configured", async () => {
-		delete process.env.NAN_API_KEY;
-		const key = await resolveNanApiKey({});
-		expect(key).toBeUndefined();
-	});
+afterEach(() => {
+	for (const key of ["NAN_MCP_TOOLS", "NAN_MEDIA_MCP", "NAN_API_KEY"]) {
+		delete process.env[key];
+	}
+	cleanAgent.delete("PI_CODING_AGENT_DIR");
+	rmSync(join(agentDir, NAN_STATE_FILE), { force: true });
 });
 
-describe("callNanMcpTool (official remote MCP bridge)", () => {
-	test("posts a JSON-RPC tools/call with bearer auth to the MCP endpoint", async () => {
-		const { fetch: stub, bodies, headers } = capturingJsonFetch(mcpPayload());
-		const result = await callNanMcpTool("web_search", { query: "kubernetes" }, { apiKey: "sk-test", fetchImpl: stub });
-		expect(result.ok).toBe(true);
-		expect(result.text).toBe("result one\n\nresult two");
-		const body = JSON.parse(bodies[0]!) as { method: string; params: { name: string; arguments: Record<string, unknown> } };
-		expect(body.method).toBe("tools/call");
-		expect(body.params.name).toBe("web_search");
-		expect(body.params.arguments).toEqual({ query: "kubernetes" });
-		expect(headers[0]!.Authorization).toBe("Bearer sk-test");
-	});
-
-	test("missing api key short-circuits without a network call", async () => {
-		let called = false;
-		const result = await callNanMcpTool("web_search", {}, {
-			fetchImpl: (async () => {
-				throw new Error("should not be called");
-			}) as unknown as typeof fetch,
-		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toContain("NAN_API_KEY");
-		expect(result.error).toContain("/login nan");
-	});
-
-	test("HTTP 401 reports the auth problem", async () => {
-		const result = await callNanMcpTool("web_search", { query: "x" }, {
-			apiKey: "sk-bad",
-			fetchImpl: jsonFetch({ error: {} }, 401),
-		});
-		expect(result.ok).toBe(false);
-		expect(result.error ?? "").toContain("401");
-		expect(result.error ?? "").toContain("NaN API key");
-	});
-
-	test("JSON-RPC protocol errors are surfaced", async () => {
-		const result = await callNanMcpTool("web_search", { query: "x" }, {
-			apiKey: "sk-test",
-			fetchImpl: jsonFetch({ jsonrpc: "2.0", id: 1, error: { code: -32000, message: "quota exceeded" } }),
-		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toContain("quota exceeded");
-	});
-
-	test("tool-level errors (result.isError) are surfaced with the tool text", async () => {
-		const result = await callNanMcpTool("web_search", { query: "x" }, {
-			apiKey: "sk-test",
-			fetchImpl: jsonFetch(mcpPayload({ isError: true })),
-		});
-		expect(result.ok).toBe(false);
-		expect(result.text).toContain("result one");
-	});
-
-	test("timeout aborts the call and reports the timeout", async () => {
-		const result = await callNanMcpTool("web_search", { query: "x" }, {
-			apiKey: "sk-test",
-			timeoutMs: 25,
-			fetchImpl: hangingFetch(),
-		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toContain("timed out");
-	});
-});
-
-describe("nan_web_search tool definition", () => {
-	test("execute throws a helpful error when no key is configured", async () => {
-		delete process.env.NAN_API_KEY;
-		const tool = createNanWebSearchTool();
-		expect(tool.name).toBe("nan_web_search");
-		const ctx = {} as ExtensionContext;
-		await expect(
-			tool.execute("id", { query: "x" }, undefined, undefined, ctx),
-		).rejects.toThrow("NAN_API_KEY");
-	});
-
-	test("execute returns the flattened MCP text on success", async () => {
-		process.env.NAN_API_KEY = "sk-test";
-		const originalFetch = globalThis.fetch;
-		globalThis.fetch = (async () =>
-			new Response(JSON.stringify(mcpPayload()), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+describe("native web-search MCP registration", () => {
+	test("registers with exact config when gate on and key resolves", async () => {
+		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
+		cleanAgent.set("NAN_API_KEY", "sk-test-key");
 		try {
-			const tool = createNanWebSearchTool();
-			const result = await tool.execute(
-				"id",
-				{ query: "kubernetes", count: 5 },
-				undefined,
-				undefined,
-				{} as ExtensionContext,
-			);
-			expect(result.content[0]).toEqual({ type: "text", text: "result one\n\nresult two" });
+			const { pi, servers, notifications } = mockPi();
+			await extension(pi);
+
+			const nanSearch = servers.find((s) => s.name === "nan-search");
+			expect(nanSearch).toBeDefined();
+			expect(nanSearch!.config.type).toBe("http");
+			expect(nanSearch!.config.url).toBe("https://api.nan.builders/mcp");
+			expect(nanSearch!.config.headers).toEqual({ Authorization: "Bearer sk-test-key" });
+			expect(nanSearch!.config.exposure).toBe("direct");
 		} finally {
-			globalThis.fetch = originalFetch;
-			delete process.env.NAN_API_KEY;
+			cleanAgent.restore();
 		}
 	});
 
-	test("execute uses the stored credential when env is unset", async () => {
-		delete process.env.NAN_API_KEY;
-		const tool = createNanWebSearchTool();
-		const ctx = {
-			modelRegistry: { getApiKeyForProvider: async () => "stored-key" },
-		} as unknown as ExtensionContext;
-		const originalFetch = globalThis.fetch;
-		let usedKey = "";
-		globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
-			usedKey = (init?.headers as Record<string, string | undefined>).Authorization ?? "";
-			return new Response(JSON.stringify(mcpPayload()), { status: 200 });
-		}) as unknown as typeof fetch;
+	test("uses env var when registry is empty", async () => {
+		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
+		cleanAgent.set("NAN_API_KEY", "sk-env-key");
 		try {
-			const result = await tool.execute("id", { query: "x" }, undefined, undefined, ctx);
-			expect(usedKey).toBe("Bearer stored-key");
-			expect(result.content[0]).toMatchObject({ type: "text" });
+			const { pi, servers } = mockPi();
+			await extension(pi);
+
+			const nanSearch = servers.find((s) => s.name === "nan-search");
+			expect(nanSearch).toBeDefined();
+			expect((nanSearch!.config.headers as Record<string, string>)?.Authorization).toBe("Bearer sk-env-key");
 		} finally {
-			globalThis.fetch = originalFetch;
-			delete process.env.NAN_API_KEY;
+			cleanAgent.restore();
+		}
+	});
+
+	test("does NOT register when NAN_MCP_TOOLS=0 (gate off)", async () => {
+		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
+		cleanAgent.set("NAN_MCP_TOOLS", "0");
+		cleanAgent.set("NAN_API_KEY", "sk-test");
+		try {
+			const { pi, servers, notifications } = mockPi();
+			await extension(pi);
+
+			const nanSearch = servers.find((s) => s.name === "nan-search");
+			expect(nanSearch).toBeUndefined();
+			expect(notifications.every((n) => !n.message.includes("NAN_API_KEY"))).toBe(true);
+		} finally {
+			cleanAgent.restore();
+		}
+	});
+
+	test("does NOT register when key missing but gate is on", async () => {
+		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
+		try {
+			const { pi, servers } = mockPi();
+			await extension(pi);
+
+			const nanSearch = servers.find((s) => s.name === "nan-search");
+			expect(nanSearch).toBeUndefined();
+			// Key missing → no registration (new design: key resolved at load time)
+		} finally {
+			cleanAgent.restore();
+		}
+	});
+
+	test("persisted disable keeps server out", async () => {
+		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
+		cleanAgent.set("NAN_API_KEY", "sk-test");
+		writeState({ webSearch: false, mediaMcp: true });
+		try {
+			const { pi, servers } = mockPi();
+			await extension(pi);
+
+			const nanSearch = servers.find((s) => s.name === "nan-search");
+			expect(nanSearch).toBeUndefined();
+		} finally {
+			cleanAgent.restore();
 		}
 	});
 });
 
-describe("NAN_MCP_TOOLS env toggle", () => {
-	test("disabled for 0/false/off", () => {
-		for (const value of ["0", "false", "off", "OFF"]) {
-			process.env.NAN_MCP_TOOLS = value;
-			expect(mcpToolsDisabled()).toBe(true);
+describe("native MCP guard when registerMcpServer is absent", () => {
+	test("pi <0.99: loud skip, no bridge created", async () => {
+		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
+		cleanAgent.set("NAN_API_KEY", "sk-test");
+		try {
+			const { pi, servers } = mockPi({ withoutRegisterMcpServer: true });
+			await extension(pi);
+
+			const nanSearch = servers.find((s) => s.name === "nan-search");
+			expect(nanSearch).toBeUndefined();
+		} finally {
+			cleanAgent.restore();
 		}
-		delete process.env.NAN_MCP_TOOLS;
-		expect(mcpToolsDisabled()).toBe(false);
 	});
 });

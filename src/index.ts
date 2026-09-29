@@ -1,5 +1,5 @@
 /**
- * @gtrabanco/pi-nan-provider — NaN Builders provider + MCP bridges for pi.
+ * @gtrabanco/pi-nan-provider — NaN Builders provider + native MCP servers for pi.
  *
  * What this extension registers:
  *
@@ -15,14 +15,17 @@
  *     0.84 alike), and the openai-completions streaming implementation is
  *     resolved dynamically — see provider-factory.ts for why.
  *
- *  2. MCP tools over pi's registerTool (pi intentionally has no MCP client):
- *     - `nan_web_search` via NaN's official remote MCP server
- *       (https://api.nan.builders/mcp) — on by default, NAN_MCP_TOOLS=0 to
- *       disable.
- *     - Media tools bridging the optional community `nan-mcp-server`
- *       (stdio, spawned per call) — on by default, NAN_MEDIA_MCP=0 to
- *       disable. The server spawns per tool call, so nothing runs unless
- *       audio/image/transcription is actually invoked.
+ *  2. MCP servers via pi's native registerMcpServer (pi >=0.99):
+ *     - `nan-search` — the official NaN remote MCP server
+ *       (https://api.nan.builders/mcp), exposing `mcp__nan-search__web_search`.
+ *       Default: enabled. NAN_MCP_TOOLS=0 to disable.
+ *     - `nan-media` — the community stdio media server
+ *       (flux-2-klein / kokoro / whisper), exposing
+ *       `mcp__nan-media__generate_image` etc. Default: enabled,
+ *       NAN_MEDIA_MCP=0 to disable.
+ *
+ *     Both are session-scoped (visible in /mcp with source "extension").
+ *     Exposure: `direct` — tools are declared to the model like built-ins.
  */
 
 import type { ContextEvent, ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
@@ -34,10 +37,10 @@ import {
 	stripCrossModelThinking,
 } from "./cross-model-thinking-guard.ts";
 import { baselineModels } from "./fetch-models.ts";
-import { createNanWebSearchTool, webSearchBridgeEnabled, NAN_API_KEY_ENV } from "./mcp/nan-search.ts";
-import { createNanMediaTools, mediaMcpEnabled } from "./mcp/nan-media.ts";
 import { createNanCompatibleProvider, type OpenAICompatibleProviderConfig } from "./provider-factory.ts";
 import { PROVIDERS } from "./providers.ts";
+import { NAN_API_KEY_ENV, mcpToolsDisabled, mcpToolsEnvExplicit, resolveNanApiKey, tryResolveNanApiKeyViaRegistry, NAN_MCP_TOOLS_ENV, webSearchBridgeEnabled } from "./mcp/api-key.ts";
+import { mediaMcpCommand, mediaMcpEnabled, mediaMcpEnvExplicit, mediaMcpEnvTruthy, mediaMcpTimeoutSec } from "./mcp/media-server.ts";
 
 /**
  * Register a provider on any pi version: the native full-Provider overload
@@ -80,39 +83,72 @@ async function registerProviderCompat(
 	pi.registerProvider(config.id, legacy);
 }
 
-/**
- * Register MCP-bridged tools when the runtime supports them. Both bridges
- * are enabled by default and lazy (nothing runs until a tool is invoked);
- * `/nan-mcp` (and the NAN_MCP_TOOLS / NAN_MEDIA_MCP env vars) toggle them.
- * Old pi versions without registerTool/registerCommand skip gracefully.
- *
- * Registration is tracked in `registeredToolNames` so `/nan-mcp enable` can
- * add tools mid-session without double-registering.
- */
-function registerMcpToolsCompat(pi: ExtensionAPI): void {
-	if (typeof pi.registerTool !== "function") return;
-	const registeredToolNames = new Set<string>();
-	const registerSearchTool = () => {
-		const search = createNanWebSearchTool();
-		if (registeredToolNames.has(search.name)) return;
-		registeredToolNames.add(search.name);
-		pi.registerTool(search);
-	};
-	const registerMediaTools = () => {
-		for (const tool of createNanMediaTools()) {
-			if (registeredToolNames.has(tool.name)) continue;
-			registeredToolNames.add(tool.name);
-			pi.registerTool(tool);
-		}
-	};
+// ── Native MCP registration ──────────────────────────────────────────────
 
-	if (webSearchBridgeEnabled()) registerSearchTool();
-	if (mediaMcpEnabled()) registerMediaTools();
-	if (typeof pi.registerCommand === "function") {
-		registerNanMcpCommand(pi, { registerWebSearchTools: registerSearchTool, registerMediaTools });
-		registerNanUsageCommand(pi);
+/**
+ * Guard message shown when pi lacks native MCP support (pi <0.99 despite peers).
+ * Matches the loud-skip style of existing guards (pi-ai, registerTool).
+ */
+const NO_NATIVE_MCP_GUARD_MSG =
+	"pi-nan-provider 0.10+ requires pi >= 0.99 for MCP tools (native MCP); upgrade pi or stay on package 0.9.x";
+
+/** Register the official NaN web-search MCP server (session-scoped). */
+async function registerWebSearchMcpServer(pi: ExtensionAPI): Promise<boolean> {
+	if (!webSearchBridgeEnabled()) return false;
+	const apiKey = process.env[NAN_API_KEY_ENV];
+	if (!apiKey) {
+		return false;
 	}
+	pi.registerMcpServer("nan-search", {
+		type: "http",
+		url: "https://api.nan.builders/mcp",
+		headers: { Authorization: `Bearer ${apiKey}` },
+		exposure: "direct",
+	});
+	return true;
 }
+
+/** Register the community media stdio MCP server (session-scoped). */
+function registerMediaMcpServer(pi: ExtensionAPI): boolean {
+	if (!mediaMcpEnabled()) return false;
+	const mediaArgs = mediaMcpCommand();
+	pi.registerMcpServer("nan-media", {
+		type: "stdio",
+		command: mediaArgs[0]!,
+		args: mediaArgs.slice(1),
+		env: { [NAN_API_KEY_ENV]: process.env[NAN_API_KEY_ENV] ?? "" },
+		exposure: "direct",
+		timeout: mediaMcpTimeoutSec(),
+	});
+	return true;
+}
+
+/**
+ * Register MCP servers via pi's native registerMcpServer.
+ *
+ * Session-scoped: servers appear in /mcp with source "extension", are
+ * visible to the model (exposure: "direct"), and user mcp.json entries
+ * with the same name take precedence.
+ *
+ * On pi <0.99 (registerMcpServer absent) this does NOT bridge — it
+ * notifies once and skips (same loud-skip style as existing guards).
+ * Hard cutover: users on older pi stay on package 0.9.x.
+ */
+async function registerMcpServersNative(pi: ExtensionAPI): Promise<void> {
+	// Guard: pi >= 0.99 required for native MCP.
+	if (typeof pi.registerMcpServer !== "function") {
+		console.warn(NO_NATIVE_MCP_GUARD_MSG);
+		return;
+	}
+
+
+	const didWebSearch = await registerWebSearchMcpServer(pi);
+	registerMediaMcpServer(pi);
+
+
+}
+
+// ── Extension entrypoint ─────────────────────────────────────────────────
 
 /**
  * Drop the reasoning pi-ai replays across a model switch.
@@ -146,7 +182,11 @@ export default async function nanProviderExtension(pi: ExtensionAPI): Promise<vo
 	for (const config of PROVIDERS) {
 		await registerProviderCompat(pi, config);
 	}
-	registerMcpToolsCompat(pi);
+	await registerMcpServersNative(pi);
+	if (typeof pi.registerCommand === "function") {
+		registerNanMcpCommand(pi);
+		registerNanUsageCommand(pi);
+	}
 }
 
 /** Exposed for tests: the env var this package uses for every NaN surface. */

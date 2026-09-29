@@ -1,11 +1,11 @@
 # @gtrabanco/pi-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.8.0-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-0.10.0-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 
-[NaN Builders](https://nan.builders) model provider + MCP bridges para [pi](https://github.com/earendil-works/pi). 
+[NaN Builders](https://nan.builders) model provider + MCP nativo para [pi](https://github.com/earendil-works/pi). 
 
-Registra el proveedor `nan` vía `pi.registerProvider()` usando la API OpenAI-compatible de NaN (`https://api.nan.builders/v1`), y conecta las herramientas MCP de NaN en pi con `pi.registerTool()`.
+Registra el proveedor `nan` vía `pi.registerProvider()` usando la API OpenAI-compatible de NaN (`https://api.nan.builders/v1`), y registra servidores MCP nativos con `pi.registerMcpServer()`.
 
 ---
 
@@ -97,11 +97,11 @@ Puedes sobrescribir el `compat` de cualquier modelo en `~/.pi/agent/models.json`
 
 Consigue una clave en la [plataforma NaN](https://cloud.nan.builders/r/7GK06FX8) (ajustes de usuario → API Keys; enlace de referidos).
 
-## 🔌 Puentes MCP
+## 🔌 MCP nativo
 
-Dado que [pi no incluye un cliente MCP integrado](https://github.com/earendil-works/pi/blob/main/docs/usage.md), este paquete conecta los servidores MCP como **herramientas nativas de pi**.
+Dado que [pi 0.99.0 incluye un cliente MCP integrado](https://github.com/earendil-works/pi/blob/main/docs/usage.md), este paquete migra sus puentes a MCP nativo (requiere `pi >=0.99` — cambio rotundo).
 
-Ambos puentes están **activados y son perezosos (lazy) por defecto**. Usa `/nan-mcp` para gestionarlos.
+Ambos puentes están **activados por defecto** (por sesión, visibles en `/mcp`). Usa `/nan-mcp` para gestionarlos.
 
 ### 🛠️ Comando de Gestión: `/nan-mcp`
 
@@ -116,21 +116,21 @@ Ambos puentes están **activados y son perezosos (lazy) por defecto**. Usa `/nan
 ### 1. Servidor MCP oficial de NaN
 *Puente oficial para herramientas remotas vía [https://api.nan.builders/mcp](https://nan.builders/docs/api).*
 
-- **`nan_web_search(query, ...)`**: Realiza búsquedas web a través del gateway de NaN.
+- **`mcp__nan-search__web_search(query, ...)`**: Realiza búsquedas web a través del gateway de NaN.
 
 ### 2. Servidor MCP de Media (Comunidad)
 *Conecta [`nan-mcp-server`](https://github.com/luciferfran/nan-mcp-server) mediante un cliente stdio local mínimo.*
 
-- **Carga Perezosa (Lazy)**: El proceso del servidor se lanza **solo** cuando se invoca una herramienta y se cierra inmediatamente después.
+- **Por sesión**: El servidor se conecta al registrarse (eager). Aparece en `/mcp` con fuente "extension".
 - **Configuración**: Los archivos se guardan en `~/nan-mcp-output/`.
 
 | Herramienta | Propósito |
 | :--- | :--- |
-| `nan_generate_image` | Generación de imágenes (flux-2-klein) |
-| `nan_edit_image` | Edición imagen→imagen (flux-2-klein) |
-| `nan_text_to_speech` | Síntesis de audio (kokoro) |
-| `nan_list_voices` | Listar voces disponibles |
-| `nan_speech_to_text` | Transcripción de audio (whisper) |
+| `mcp__nan-media__generate_image` | Generación de imágenes (flux-2-klein) |
+| `mcp__nan-media__edit_image` | Edición imagen→imagen (flux-2-klein) |
+| `mcp__nan-media__text_to_speech` | Síntesis de audio (kokoro) |
+| `mcp__nan-media__list_voices` | Listar voces disponibles |
+| `mcp__nan-media__speech_to_text` | Transcripción de audio (whisper) |
 
 #### 🔧 Configuración del Puente de Media
 

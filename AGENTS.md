@@ -218,19 +218,26 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
 - pi 0.87 breaking changes NOT used by this package: `ContextEditEntry` added to
   the `SessionEntry` union, expanded `TurnEndEvent`, removed `shouldStopAfterTurn`,
   `SessionManager` canonical for provider context. The package touches none of them.
-- pi intentionally has NO built-in MCP client (docs/usage.md). MCP integration
-  happens by bridging servers into pi custom tools via `pi.registerTool()`:
+- Since 0.10.0, this package uses native MCP via `pi.registerMcpServer()`.
+  Both servers are session-scoped, visible in `/mcp` with source "extension".
+  Server names and tool IDs:
+  - `nan-search` → tools: `mcp__nan-search__web_search`
+    (official remote, HTTP, `Authorization: Bearer <key>` header)
+  - `nan-media` → tools: `mcp__nan-media__generate_image/edit_image/text_to_speech/list_voices/speech_to_text`
+    (community stdio, `npx -y nan-mcp-server@1.1.2`, 120s timeout)
+  - `exposure: "direct"` on both — tools are declared to the model.
+  - User `mcp.json` entries with the same name take precedence.
+  - `/nan-mcp enable/disable` calls `pi.registerMcpServer()` / `pi.unregisterMcpServer()` directly.
+  - Missing `NAN_API_KEY` at load: web-search server NOT registered (console.warn).
+  NaN integration facts remain:
   - NaN's official remote MCP server: `https://api.nan.builders/mcp` (host
     root, NOT /v1; JSON-RPC 2.0 over streamable HTTP, stateless; same `sk-`
     key, shared rate limit/quota). Spec: https://nan.builders/openapi.json
-    (tag "MCP"). Currently exposes `web_search` (same args as POST /v1/search);
-    "growing registry" — use tools/list to discover.
+    (tag "MCP"). Currently exposes `web_search`.
   - Community `nan-mcp-server` (https://github.com/luciferfran/nan-mcp-server):
-    stdio MCP server, spawned per tool call (lazy), opt-in NAN_MEDIA_MCP=1,
-    version-pinned via NAN_MEDIA_MCP_VERSION (default 1.0.8) or a full command
-    override via NAN_MEDIA_MCP_COMMAND. Tools: generate_image, edit_image,
-    text_to_speech, list_voices, speech_to_text, embed, rerank, list_models
-    (we bridge the audio/image/transcription scope). An automated check
-    (scripts/check-nan-mcp-server.ts + .github/workflows/check-nan-mcp-server-update.yml)
-    compares the npm registry against the pin weekly and files a `dependencies` issue
-    with a breaking/safe verdict from the live server tool surface (unpkg).
+    stdio MCP server, version-pinned via NAN_MEDIA_MCP_VERSION (default 1.1.2)
+    or full command override via NAN_MEDIA_MCP_COMMAND. Tools: generate_image,
+    edit_image, text_to_speech, list_voices, speech_to_text.
+  - Automated check (scripts/check-nan-mcp-server.ts) compares the npm registry
+    against the pin weekly and files a `dependencies` issue when a newer release
+    exists, with a breaking/safe verdict from the live server tool surface.

@@ -1,11 +1,11 @@
 # @gtrabanco/pi-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.8.0-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-0.10.0-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 
-[NaN Builders](https://nan.builders) model provider + MCP bridges for [pi](https://github.com/earendil-works/pi). 
+[NaN Builders](https://nan.builders) model provider + native MCP servers for [pi](https://github.com/earendil-works/pi). 
 
-Registers the `nan` provider via `pi.registerProvider()` using NaN's OpenAI-compatible API (`https://api.nan.builders/v1`), and bridges NaN's MCP tools into pi with `pi.registerTool()`.
+Registers the `nan` provider via `pi.registerProvider()` using NaN's OpenAI-compatible API (`https://api.nan.builders/v1`), and registers MCP servers via pi's native `pi.registerMcpServer()`.
 
 ---
 
@@ -97,11 +97,11 @@ You can override any model's `compat` per-model in `~/.pi/agent/models.json` (pi
 
 Get a key from the [NaN platform](https://cloud.nan.builders/r/7GK06FX8) (user settings → API Keys; referral link).
 
-## 🔌 MCP Bridges
+## 🔌 Native MCP Servers
 
-Since [pi does not include a built-in MCP client](https://github.com/earendil-works/pi/blob/main/docs/usage.md), this package bridges MCP servers as **native pi tools**.
+Since [pi 0.99.0 ships a built-in MCP client](https://github.com/earendil-works/pi/blob/main/docs/usage.md), this package migrates its bridges to native MCP (requires `pi >=0.99` — breaking).
 
-Both bridges are **enabled and lazy by default**. Use `/nan-mcp` to manage them.
+Both bridges are **enabled by default** (session-scoped, visible in `/mcp`). Use `/nan-mcp` to manage them.
 
 ### 🛠️ Management Command: `/nan-mcp`
 
@@ -114,23 +114,23 @@ Both bridges are **enabled and lazy by default**. Use `/nan-mcp` to manage them.
 ---
 
 ### 1. Official NaN MCP Server
-*Official bridge for remote tools via [https://api.nan.builders/mcp](https://nan.builders/docs/api).*
+*Official remote MCP server registered natively via `pi.registerMcpServer()`.*
 
-- **`nan_web_search(query, ...)`**: Performs web searches through NaN's gateway.
+- **`mcp__nan-search__web_search(query, ...)`**: Performs web searches through NaN's gateway.
 
 ### 2. Community Media MCP Server
 *Bridges [`nan-mcp-server`](https://github.com/luciferfran/nan-mcp-server) via a minimal local stdio client.*
 
-- **Lazy Loading**: The server process is spawned **only** when a tool is invoked and terminated immediately after.
+- **Session-scoped**: The server connects at registration time (eager). Appears in `/mcp` with source "extension".
 - **Config**: Files land in `~/nan-mcp-output/`.
 
 | Tool | Purpose |
 | :--- | :--- |
-| `nan_generate_image` | Image generation (flux-2-klein) |
-| `nan_edit_image` | Image-to-image editing (flux-2-klein) |
-| `nan_text_to_speech` | Audio synthesis (kokoro) |
-| `nan_list_voices` | List available voices |
-| `nan_speech_to_text` | Audio transcription (whisper) |
+| `mcp__nan-media__generate_image` | Image generation (flux-2-klein) |
+| `mcp__nan-media__edit_image` | Image-to-image editing (flux-2-klein) |
+| `mcp__nan-media__text_to_speech` | Audio synthesis (kokoro) |
+| `mcp__nan-media__list_voices` | List available voices |
+| `mcp__nan-media__speech_to_text` | Audio transcription (whisper) |
 
 #### 🔧 Media Bridge Configuration
 

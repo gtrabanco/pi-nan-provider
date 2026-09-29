@@ -1,186 +1,183 @@
-import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+/**
+ * Native MCP registration tests — media stdio server config.
+ *
+ * Retargeted from ToolDefinition-wrapper tests (callStdioMcpTool, defineMediaTool):
+ * now asserts native MCP registration config instead of stdio client behavior.
+ * The stdio client is deleted; tests now verify the server config.
+ */
+
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import {
-	createNanMediaTools,
-	DEFAULT_NAN_MEDIA_MCP_VERSION,
-	mediaMcpCommand,
-	mediaMcpEnabled,
-	mediaMcpSource,
-	NAN_MEDIA_TOOLS,
-} from "../src/mcp/nan-media.ts";
-import { callStdioMcpTool } from "../src/mcp/stdio-client.ts";
-import { NAN_MCP_TOOLS_ENV } from "../src/mcp/nan-search.ts";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import extension from "../src/index.ts";
+import { NAN_STATE_FILE, writeState } from "../src/mcp/state.ts";
 
-const FIXTURE = new URL("./fixtures/mock-nan-media-mcp.mjs", import.meta.url).pathname;
-/** Spawn the fixture with the current runtime (bun under bun test). */
-const fixtureCommand = [process.execPath, FIXTURE];
-
-/** Isolate from the real agent dir: state.ts reads/writes a temp dir, so the
- * "default" source assertion is not affected by a persisted toggle on this
- * machine (mirrors the pattern used in nan-mcp-command.test.ts). */
-process.env.PI_CODING_AGENT_DIR = mkdtempSync(join(tmpdir(), "nan-media-test-"));
-
-function ctxWithKey(key: string | undefined): ExtensionContext {
-	return {
-		modelRegistry: { getApiKeyForProvider: async () => key },
-	} as unknown as ExtensionContext;
+interface RecordedServer {
+	name: string;
+	config: Record<string, unknown>;
 }
 
-describe("NAN_MEDIA_MCP env configuration", () => {
-	test("enabled by default; explicit env (including 0) overrides", () => {
-		delete process.env.NAN_MEDIA_MCP;
-		expect(mediaMcpEnabled()).toBe(true);
-		expect(mediaMcpSource()).toBe("default");
-		for (const value of ["1", "true", "on", "TRUE"]) {
-			process.env.NAN_MEDIA_MCP = value;
-			expect(mediaMcpEnabled()).toBe(true);
-		}
-		for (const value of ["0", "false", "off"]) {
-			process.env.NAN_MEDIA_MCP = value;
-			expect(mediaMcpEnabled()).toBe(false);
-			expect(mediaMcpSource()).toBe("env");
-		}
-		delete process.env.NAN_MEDIA_MCP;
-	});
+function mockPi() {
+	const servers: RecordedServer[] = [];
+	const pi: ExtensionAPI = {
+		registerProvider: () => {},
+		registerTool: () => {},
+		registerCommand: () => {},
+		on: () => () => {},
+		registerMcpServer: (name: string, config: Record<string, unknown>) => {
+			servers.push({ name, config: { ...config } });
+		},
+		unregisterMcpServer: () => {},
+		getMcpServers: () => servers,
+		ui: { notify: () => {} },
+	} as unknown as ExtensionAPI;
 
-	test("default command pins the upstream-recommended version", () => {
-		delete process.env.NAN_MEDIA_MCP_COMMAND;
-		delete process.env.NAN_MEDIA_MCP_VERSION;
-		expect(mediaMcpCommand()).toEqual(["npx", "-y", `nan-mcp-server@${DEFAULT_NAN_MEDIA_MCP_VERSION}`]);
-	});
+	return { pi, servers };
+}
 
-	test("version override via env", () => {
-		delete process.env.NAN_MEDIA_MCP_COMMAND;
-		process.env.NAN_MEDIA_MCP_VERSION = "9.9.9";
-		try {
-			expect(mediaMcpCommand()).toEqual(["npx", "-y", "nan-mcp-server@9.9.9"]);
-		} finally {
-			delete process.env.NAN_MEDIA_MCP_VERSION;
-		}
-	});
+function cleanEnv(keys: string[]) {
+	const saved = new Map(keys.map((key) => [key, process.env[key]]));
+	return {
+		set(key: string, value: string) { process.env[key] = value; },
+		delete(key: string) { delete process.env[key]; },
+		restore() {
+			for (const [key, value] of saved) {
+				if (value === undefined) delete process.env[key];
+				else process.env[key] = value;
+			}
+		},
+	};
+}
 
-	test("full command override via env", () => {
-		process.env.NAN_MEDIA_MCP_COMMAND = "bunx nan-mcp-server@1.0.7";
-		try {
-			expect(mediaMcpCommand()).toEqual(["bunx", "nan-mcp-server@1.0.7"]);
-		} finally {
-			delete process.env.NAN_MEDIA_MCP_COMMAND;
-		}
-	});
+const agentDir = mkdtempSync(join(tmpdir(), "mcp-media-test-"));
+const cleanAgent = cleanEnv(["PI_CODING_AGENT_DIR"]);
+
+afterEach(() => {
+	for (const key of ["NAN_MCP_TOOLS", "NAN_MEDIA_MCP", "NAN_API_KEY", "NAN_MEDIA_MCP_VERSION", "NAN_MEDIA_MCP_COMMAND", "NAN_MEDIA_MCP_TIMEOUT_MS"]) {
+		delete process.env[key];
+	}
+	cleanAgent.delete("PI_CODING_AGENT_DIR");
+	rmSync(join(agentDir, NAN_STATE_FILE), { force: true });
 });
 
-describe("callStdioMcpTool (minimal MCP stdio client)", () => {
-	test("happy path: handshake, tools/call, rendered text", async () => {
-		const result = await callStdioMcpTool("generate_image", { prompt: "a cat" }, {
-			command: fixtureCommand,
-			timeoutMs: 15_000,
-		});
-		expect(result.ok).toBe(true);
-		expect(result.text).toBe('mock result: {"prompt":"a cat"}');
-	});
-
-	test("tool-level errors (isError) are surfaced", async () => {
-		const result = await callStdioMcpTool("generate_image", {}, {
-			command: fixtureCommand,
-			env: { NAN_MOCK_MCP_BEHAVIOR: "tool_error" },
-			timeoutMs: 15_000,
-		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toContain("mock tool error text");
-	});
-
-	test("JSON-RPC protocol errors are surfaced", async () => {
-		const result = await callStdioMcpTool("generate_image", {}, {
-			command: fixtureCommand,
-			env: { NAN_MOCK_MCP_BEHAVIOR: "rpc_error" },
-			timeoutMs: 15_000,
-		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toContain("mock rpc failure");
-	});
-
-	test("server crash (early exit) is reported", async () => {
-		const result = await callStdioMcpTool("generate_image", {}, {
-			command: fixtureCommand,
-			env: { NAN_MOCK_MCP_BEHAVIOR: "exit" },
-			timeoutMs: 15_000,
-		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toContain("exited early");
-	});
-
-	test("unresponsive server times out", async () => {
-		// A command that starts but never speaks MCP.
-		const result = await callStdioMcpTool("generate_image", {}, {
-			command: [process.execPath, "-e", "setInterval(() => {}, 1000)"],
-			timeoutMs: 300,
-		});
-		expect(result.ok).toBe(false);
-		expect(result.error).toContain("did not answer within");
-	});
-
-	test("empty command fails fast", async () => {
-		const result = await callStdioMcpTool("generate_image", {}, { command: [] });
-		expect(result.ok).toBe(false);
-		expect(result.error).toContain("No MCP server command configured");
-	});
-});
-
-describe("nan media tool definitions (opt-in stdio bridge)", () => {
-	test("registers exactly the audio/image/transcription scope", () => {
-		const tools = createNanMediaTools();
-		expect(tools.map((tool) => tool.name)).toEqual([...NAN_MEDIA_TOOLS]);
-		expect(NAN_MEDIA_TOOLS).toEqual([
-			"nan_generate_image",
-			"nan_edit_image",
-			"nan_text_to_speech",
-			"nan_list_voices",
-			"nan_speech_to_text",
-		]);
-	});
-
-	test("execute throws a helpful error when no key is configured", async () => {
-		delete process.env.NAN_API_KEY;
-		const tool = createNanMediaTools()[0]!;
-		await expect(
-			tool.execute("id", { prompt: "x" }, undefined, undefined, {} as ExtensionContext),
-		).rejects.toThrow("NAN_API_KEY");
-	});
-
-	test("execute bridges to the spawned MCP server end-to-end", async () => {
-		process.env.NAN_API_KEY = "sk-media";
-		process.env.NAN_MEDIA_MCP_COMMAND = fixtureCommand.join(" ");
+describe("native media MCP registration", () => {
+	test("registers with correct stdio config on default", async () => {
+		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
+		cleanAgent.set("NAN_API_KEY", "sk-media");
 		try {
-			const tool = createNanMediaTools().find((t) => t.name === "nan_generate_image")!;
-			const result = await tool.execute(
-				"id",
-				{ prompt: "a cat", size: "1024x1024" },
-				undefined,
-				undefined,
-				{} as ExtensionContext,
-			);
-			expect(result.content[0]).toMatchObject({ type: "text" });
-			expect((result.content[0] as { text: string }).text).toContain("a cat");
+			const { pi, servers } = mockPi();
+			await extension(pi);
+
+			const nanMedia = servers.find((s) => s.name === "nan-media");
+			expect(nanMedia).toBeDefined();
+			expect(nanMedia!.config.type).toBe("stdio");
+			expect(nanMedia!.config.command).toBe("npx");
+			expect(nanMedia!.config.args).toEqual(["-y", "nan-mcp-server@1.1.2"]);
+			expect(nanMedia!.config.exposure).toBe("direct");
+			// Timeout: 120000ms → 120 seconds (ceil)
+			expect(nanMedia!.config.timeout).toBe(120);
+			const env = nanMedia!.config.env as Record<string, string>;
+			expect(env["NAN_API_KEY"]).toBe("sk-media");
 		} finally {
-			delete process.env.NAN_API_KEY;
-			delete process.env.NAN_MEDIA_MCP_COMMAND;
+			cleanAgent.restore();
 		}
 	});
 
-	test("media tool registration is independent of the search toggle", () => {
-		// NAN_MEDIA_MCP=1 + NAN_MCP_TOOLS=0 must still yield media tools; the
-		// extension entrypoint composes them, this only checks the toggles.
-		process.env.NAN_MEDIA_MCP = "1";
-		process.env.NAN_MCP_TOOLS = "0";
+	test("NAN_MEDIA_MCP=0 does NOT register", async () => {
+		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
+		cleanAgent.set("NAN_MEDIA_MCP", "0");
+		cleanAgent.set("NAN_API_KEY", "sk-media");
 		try {
-			expect(mediaMcpEnabled()).toBe(true);
-			expect(createNanMediaTools().length).toBe(NAN_MEDIA_TOOLS.length);
+			const { pi, servers } = mockPi();
+			await extension(pi);
+
+			const nanMedia = servers.find((s) => s.name === "nan-media");
+			expect(nanMedia).toBeUndefined();
 		} finally {
-			delete process.env.NAN_MEDIA_MCP;
-			delete process.env.NAN_MCP_TOOLS;
+			cleanAgent.restore();
+		}
+	});
+
+	test("version override via NAN_MEDIA_MCP_VERSION", async () => {
+		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
+		cleanAgent.set("NAN_MEDIA_MCP_VERSION", "9.9.9");
+		cleanAgent.set("NAN_API_KEY", "sk-media");
+		try {
+			const { pi, servers } = mockPi();
+			await extension(pi);
+
+			const nanMedia = servers.find((s) => s.name === "nan-media");
+			expect(nanMedia).toBeDefined();
+			expect(nanMedia!.config.args).toEqual(["-y", "nan-mcp-server@9.9.9"]);
+		} finally {
+			cleanAgent.restore();
+		}
+	});
+
+	test("custom command via NAN_MEDIA_MCP_COMMAND", async () => {
+		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
+		cleanAgent.set("NAN_MEDIA_MCP_COMMAND", "bunx nan-mcp-server@1.0.7");
+		cleanAgent.set("NAN_API_KEY", "sk-media");
+		try {
+			const { pi, servers } = mockPi();
+			await extension(pi);
+
+			const nanMedia = servers.find((s) => s.name === "nan-media");
+			expect(nanMedia).toBeDefined();
+			expect(nanMedia!.config.command).toBe("bunx");
+			expect(nanMedia!.config.args).toEqual(["nan-mcp-server@1.0.7"]);
+		} finally {
+			cleanAgent.restore();
+		}
+	});
+
+	test("custom timeout via NAN_MEDIA_MCP_TIMEOUT_MS", async () => {
+		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
+		cleanAgent.set("NAN_MEDIA_MCP_TIMEOUT_MS", "30000");
+		cleanAgent.set("NAN_API_KEY", "sk-media");
+		try {
+			const { pi, servers } = mockPi();
+			await extension(pi);
+
+			const nanMedia = servers.find((s) => s.name === "nan-media");
+			expect(nanMedia).toBeDefined();
+			expect(nanMedia!.config.timeout).toBe(30); // 30000ms → 30s
+		} finally {
+			cleanAgent.restore();
+		}
+	});
+
+	test("persisted disable keeps server out", async () => {
+		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
+		cleanAgent.set("NAN_API_KEY", "sk-media");
+		writeState({ webSearch: true, mediaMcp: false });
+		try {
+			const { pi, servers } = mockPi();
+			await extension(pi);
+
+			const nanMedia = servers.find((s) => s.name === "nan-media");
+			expect(nanMedia).toBeUndefined();
+		} finally {
+			cleanAgent.restore();
+		}
+	});
+
+	test("media registration is independent of web-search gate", async () => {
+		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
+		cleanAgent.set("NAN_MCP_TOOLS", "0");
+		cleanAgent.set("NAN_API_KEY", "sk-media");
+		try {
+			const { pi, servers } = mockPi();
+			await extension(pi);
+
+			const nanMedia = servers.find((s) => s.name === "nan-media");
+			expect(nanMedia).toBeDefined();
+			const nanSearch = servers.find((s) => s.name === "nan-search");
+			expect(nanSearch).toBeUndefined();
+		} finally {
+			cleanAgent.restore();
 		}
 	});
 });

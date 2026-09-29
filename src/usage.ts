@@ -25,7 +25,7 @@
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { NAN_API_KEY_ENV, resolveNanApiKey } from "./mcp/nan-search.ts";
+import { NAN_API_KEY_ENV, resolveNanApiKey, tryResolveNanApiKeyViaRegistry } from "./mcp/api-key.ts";
 
 // ── Known quota limits per model (from NaN docs) ──────────────────────────
 
@@ -431,7 +431,10 @@ export interface NanUsageCommandOptions {
 export function registerNanUsageCommand(pi: ExtensionAPI, options: NanUsageCommandOptions = {}): void {
 	if (typeof pi.registerCommand !== "function") return;
 
-	const resolveApiKey = options.resolveApiKey ?? ((ctx: ExtensionCommandContext) => resolveNanApiKey(ctx));
+	const resolveApiKey = options.resolveApiKey ?? (async (ctx: ExtensionCommandContext): Promise<string | undefined> => {
+				const registryKey = await tryResolveNanApiKeyViaRegistry(ctx.modelRegistry);
+				return resolveNanApiKey(registryKey);
+			});
 
 	pi.registerCommand("nan-usage", {
 		description: "Show NaN token usage vs monthly caps, window/all-time totals, and time until billing reset",

@@ -5,6 +5,58 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] — 2026-09-29
+
+### Breaking
+
+- **peerDependencies require `pi >= 0.99.0`**: bumped from `>=0.83.0 <1` to
+  `>=0.99.0 <1` for both `@earendil-works/pi-ai` and
+  `@earendil-works/pi-coding-agent`. Older pi versions should stay on package
+  0.9.x; no registerTool bridge fallback for pi <0.99.
+- **Tool names changed from `nan_*` to `mcp__<server>__<tool>`**:
+  `nan_web_search` → `mcp__nan-search__web_search`;
+  `nan_generate_image` / `nan_edit_image` / `nan_text_to_speech` /
+  `nan_list_voices` / `nan_speech_to_text` → `mcp__nan-media__*`.
+  MCP now uses native `pi.registerMcpServer()` (session-scoped, visible in
+  `/mcp` with source "extension").
+- **MCP bridges registered natively via `pi.registerMcpServer()`**: servers are
+  session-scoped, appear in `/mcp` with source "extension", and `mcp.json`
+  entries with the same name take precedence. `exposure: "direct"` on both
+  servers — tools are declared to the model like built-ins.
+- **`/nan-mcp` now registers/unregisters live**: `enable` calls
+  `pi.registerMcpServer()` (immediate); `disable` calls
+  `pi.unregisterMcpServer()` (immediate — tools hidden right away).
+- **Missing API key at registration**: if `NAN_API_KEY` is not set at
+  extension load, the web-search server is NOT registered (previously it
+  registered and errored at call time). Guidance is written to the console.
+- **Media server now connects eagerly** (at registration time), not spawned per
+  call. The stdio client (`src/mcp/stdio-client.ts`) is deleted; the media MCP
+  server is registered natively with `exposure: "direct"`, command, args, and
+  timeout (seconds) in the server config. Timeout: 120 seconds (converted from
+  120,000 ms); per-request progress notifications reset the timeout.
+
+### Changed
+
+- **Upgraded `@earendil-works/pi-ai` and `@earendil-works/pi-coding-agent` from 0.87.1 to 0.99.1.**
+  Zero source-code changes required — all 0.99.x diffs are backward-compatible
+  at the import boundary: `ProviderModel<TApi>` union type is assignable where
+  `Model<TApi>[]` was used; `ExtensionToolContext` supersedes `ExtensionContext`;
+  the factory `await factory(api)` pattern persists. Gate green: 207 tests,
+  687 expects, typecheck clean.
+- **Native MCP migration** (see Breaking above): deleted `src/mcp/stdio-client.ts`,
+  `src/mcp/nan-search.ts`, `src/mcp/nan-media.ts`; extracted gate resolution,
+  API key resolution, media command/version/timeout helpers into new modules
+  (`src/mcp/api-key.ts`, `src/mcp/media-server.ts`). Rewired `/nan-mcp` command
+  to call `pi.registerMcpServer()` / `pi.unregisterMcpServer()` directly.
+  All tests retargeted to the new contract.
+
+- **Test rewrites**: `test/mcp-search.test.ts` and `test/mcp-media.test.ts`
+  replaced ToolDefinition-wrapper tests with native MCP registration config
+  tests. `test/compat.test.ts` updated to verify registerMcpServer calls
+  instead of registerTool. `test/nan-mcp-command.test.ts` rewritten for
+  native register/unregister.
+  Justifications recorded in `docs/fix/native-mcp-migration/decisions.md`.
+
 ## [0.9.0] — 2026-09-29
 
 ### Changed

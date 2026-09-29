@@ -42,8 +42,16 @@
 
 import {
 	DEFAULT_NAN_MEDIA_MCP_VERSION,
-	NAN_MEDIA_MCP_SERVER_TOOLS,
-} from "../src/mcp/nan-media.ts";
+} from "../src/mcp/media-server.ts";
+
+/** The audio/image/transcription scope we bridge from the community server. */
+const bridgedtools = [
+	"generate_image",
+	"edit_image",
+	"text_to_speech",
+	"list_voices",
+	"speech_to_text",
+] as const;
 
 /** npm package name of the community stdio MCP server we bridge. */
 export const NAN_MCP_SERVER_PACKAGE = "nan-mcp-server";
@@ -143,7 +151,7 @@ export function assessUpdate(latestTools: string[]): {
 	removedTools: string[];
 	reason: string;
 } {
-	const bridged: readonly string[] = [...NAN_MEDIA_MCP_SERVER_TOOLS];
+	const bridged: readonly string[] = [...bridgedtools];
 	const latest = new Set(latestTools.map((t) => t.trim()));
 
 	const removedTools = bridged.filter((tool) => !latest.has(tool));
