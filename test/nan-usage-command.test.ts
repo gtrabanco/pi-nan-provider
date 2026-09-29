@@ -141,18 +141,22 @@ describe("/nan-usage command", () => {
 	test("model quotas contain all expected models", () => {
 		const models = MODEL_QUOTAS.map((q) => q.model);
 		expect(models).toContain("deepseek-v4-flash");
-		expect(models).toContain("mimo-v2.5");
 		expect(models).toContain("mimo-v2.6-flash");
 		expect(models).toContain("qwen3.6");
 		expect(models).toContain("gemma4");
 		expect(models).toContain("qwen3.8-flash");
 		expect(models).toContain("glm5.3-flash");
 		expect(models).toContain("glm5.3");
+		// mimo-v2.5 is no longer documented by NaN (https://nan.builders/docs/models,
+		// checked 2026-09-29), so its quota row would claim a cap with no source.
+		// Its historical consumption still surfaces from GET /v1/usage under the
+		// "models missing from the documented table" section.
+		expect(models).not.toContain("mimo-v2.5");
 	});
 
 	test("mimo-v2.6-flash has the documented 1.0B monthly quota", () => {
-		// https://nan.builders/docs/models#mimo-v2-6-flash (checked 2026-09-25):
-		// "Same limits as mimo-v2.5: 1.0B token monthly quota per member."
+		// https://nan.builders/docs/models#mimo-v2-6-flash (checked 2026-09-29):
+		// "1.0B token monthly quota per member."
 		const quota = MODEL_QUOTAS.find((q) => q.model === "mimo-v2.6-flash");
 		expect(quota).toBeDefined();
 		expect(quota!.monthlyCap).toBe(1_000_000_000);

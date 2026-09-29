@@ -182,13 +182,18 @@ describe("baselineModels", () => {
 		}
 	});
 
-	test("covers the four founding models with models.dev-sourced limits", () => {
+	test("covers the founding community models with models.dev-sourced limits", () => {
 		const byId = new Map(baselineModels(SOURCE).map((model) => [model.id, model]));
-		// Values pinned from models.dev provider "nan" (api.json), 2026-09-04.
+		// Values pinned from models.dev provider "nan" (api.json): 2026-09-04 for
+		// qwen3.6 / gemma4 / deepseek-v4-flash; mimo-v2.6-flash joined models.dev
+		// on 2026-09-29 with exactly the limits the docs state.
 		expect(byId.get("qwen3.6")).toMatchObject({ contextWindow: 262_144, maxTokens: 65_536, reasoning: true, input: ["text", "image"] });
 		expect(byId.get("gemma4")).toMatchObject({ contextWindow: 262_144, maxTokens: 32_768, reasoning: true, input: ["text", "image"] });
 		expect(byId.get("deepseek-v4-flash")).toMatchObject({ contextWindow: 1_000_000, maxTokens: 384_000, reasoning: true, input: ["text", "image"] });
-		expect(byId.get("mimo-v2.5")).toMatchObject({ contextWindow: 1_048_576, maxTokens: 131_072, reasoning: true, input: ["text", "image"] });
+		expect(byId.get("mimo-v2.6-flash")).toMatchObject({ contextWindow: 1_048_576, maxTokens: 131_072, reasoning: true, input: ["text", "image"] });
+		// mimo-v2.5 was removed by NaN (absent from the docs and openapi model
+		// list, checked 2026-09-29) — the baseline must not advertise it anymore.
+		expect(byId.has("mimo-v2.5")).toBe(false);
 	});
 
 	test("deepseek-v4-flash image input carries its provenance note", () => {

@@ -260,13 +260,14 @@ Baseline catalog (verified against [NaN docs](https://nan.builders/docs/models) 
 | `qwen3.6` | 262,144 | 65,536 | text, image | ✅ |
 | `gemma4` | 262,144 | 32,768 | text, image | ✅ |
 | `deepseek-v4-flash` | 1,000,000 | 384,000 | text, image | ✅ |
-| `mimo-v2.5` | 1,048,576 | 131,072 | text, image | ✅ |
 | `mimo-v2.6-flash` | 1,048,576 | 131,072 | text, image | ✅ |
 | `glm5.3-flash` | 1,000,000 | 131,072 | text, image | ✅ |
 | `qwen3.8-flash` | 262,144 | 131,072 | text, image | ✅ |
 
 > [!NOTE]  
-> `mimo-v2.6-flash` is served by NaN but not yet listed on models.dev provider `nan`; it enters the catalog through a manual-only entry with the same limits as `mimo-v2.5`. The model will be auto-detected from models.dev once added there.
+> `mimo-v2.6-flash` is served by NaN and has been listed by models.dev provider `nan` since 2026-09-29. Before that it entered the catalog through a manual-only entry; that entry is kept as a fallback (re-emitted automatically if models.dev drops the model again) and its provenance note stays attached to the generated entry.
+>
+> `mimo-v2.5` was removed by NaN: it no longer appears in the [NaN docs](https://nan.builders/docs/models) nor in the [OpenAPI model list](https://nan.builders/openapi.json) (checked 2026-09-29), so it is out of the catalog — `mimo-v2.6-flash` replaces it (same 1,048,576 / 131,072 limits, 1.0B monthly quota). Historical `/nan-usage` consumption for `mimo-v2.5` still shows under the undocumented-models section.
 
 ---
 
@@ -278,7 +279,7 @@ NaN's `reasoning_effort` parameter controls how much the model thinks before ans
 | :--- | :--- | :--- |
 | `glm5.3`, `glm5.3-flash` | `low` · `medium` · `high` · `max` | Fully controllable — higher values let the model reason longer |
 | `qwen3.6`, `gemma4` | `none` · `minimal` · `low` · `medium` · `high` · `max` | `none`/`minimal` skip reasoning entirely; others cap at 2K / 8K / 16K / 32K tokens |
-| `deepseek-v4-flash`, `qwen3.8-flash`, `mimo-v2.5`, `mimo-v2.6-flash` | *(accepted but not adjustable)* | The parameter is accepted and never rejected, but the model manages its own reasoning depth — it is never an error to send a value these models don't adjust |
+| `deepseek-v4-flash`, `qwen3.8-flash`, `mimo-v2.6-flash` | *(accepted but not adjustable)* | The parameter is accepted and never rejected, but the model manages its own reasoning depth — it is never an error to send a value these models don't adjust |
 
 ---
 

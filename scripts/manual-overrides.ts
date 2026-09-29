@@ -43,7 +43,7 @@ export interface ManualModelOverride {
 
 /**
  * Reasoning effort values sourced from the NaN docs (https://nan.builders/docs/models
- * #controlling-reasoning, checked 2026-09-25).
+ * #controlling-reasoning, checked 2026-09-29).
  *
  * models.dev has NO `reasoning_effort_values` field — only `reasoning_options`
  * (which is [{type:"toggle"}] or []), so this mapping must be hand-maintained
@@ -55,7 +55,10 @@ export interface ManualModelOverride {
  * - glm5.3, glm5.3-flash: fully controllable (low/medium/high/max)
  * - qwen3.6, gemma4: none/minimal skip reasoning, others cap depth
  * - deepseek-v4-flash: any value accepted but model decides per-request
- * - qwen3.8-flash, mimo-v2.5, mimo-v2.6-flash: accepted, depth not adjustable
+ * - qwen3.8-flash, mimo-v2.6-flash: accepted, depth not adjustable
+ *
+ * (mimo-v2.5, which used to share that last row, was removed by NaN — absent
+ * from the docs and from openapi.json, checked 2026-09-29.)
  *
  * A model with reasoning_effort_values=[] means the parameter is accepted but
  * the model manages its own reasoning depth — it is never an error.
@@ -68,13 +71,22 @@ export const REASONING_EFFORT_VALUES: Record<string, string[]> = {
 };
 
 /**
- * Models that NaN serves but models.dev provider nan hasn't listed yet.
- * Mirrors the generator's MANUAL_ONLY_MODEL_IDS — kept in sync so the
- * generator and the tests share the same source.
+ * Provenance for the manual-only mimo-v2.6-flash entry, shared by
+ * MANUAL_ONLY_MODEL_IDS (generator) and MANUAL_ONLY_MODELS (tests) so both
+ * sides assert the exact same string.
+ */
+const MANUAL_ONLY_NOTE =
+	"omnimodal model (text, image, audio input) served by NaN; limits and modalities from https://nan.builders/docs/models#mimo-v2-6-flash (checked 2026-09-25, quotas re-checked 2026-09-29): 1,048,576 context / 131,072 max output / 1.0B monthly quota per member. Reasoning: accepted, depth not adjustable (docs table, checked 2026-09-29). Tool calling: yes. Streaming: yes. Input modalities (pi-representable): text, image (audio not representable in pi's Model type). Fallback entry: emitted only while models.dev provider nan does not list the model — models.dev started listing it on 2026-09-29, so the generator then keeps the models.dev values and attaches this note to that entry instead of emitting a second one.";
+
+/**
+ * Models NaN serves that models.dev provider nan may not list. Mirrors the
+ * generator's MANUAL_ONLY_MODEL_IDS — kept in sync so the generator and the
+ * tests share the same source. An entry stops being emitted as soon as
+ * models.dev lists the model; the note above then rides on the models.dev
+ * entry, so the manual data never vanishes silently.
  */
 export const MANUAL_ONLY_MODEL_IDS: Record<string, string> = {
-	"mimo-v2.6-flash":
-		"omnimodal model (text, image, audio input) served by NaN, not yet listed on models.dev provider nan (checked 2026-09-25); included so the live /models refresh does not hand it UNKNOWN_MODEL_LIMITS. Same limits as mimo-v2.5: 1,048,576 / 131,072 / 1.0B monthly quota per member. Reasoning: accepted, depth not adjustable. Tool calling: yes. Streaming: yes. Input modalities (pi-representable): text, image (audio not representable in pi's Model type).",
+	"mimo-v2.6-flash": MANUAL_ONLY_NOTE,
 };
 
 /**
@@ -89,7 +101,7 @@ export const MANUAL_ONLY_MODELS: Record<string, ManualModelOverride> = {
 		reasoningEffortValues: [],
 		contextWindow: 1_048_576,
 		maxTokens: 131_072,
-		note: "omnimodal model (text, image, audio input) served by NaN, not yet listed on models.dev provider nan (checked 2026-09-25); included so the live /models refresh does not hand it UNKNOWN_MODEL_LIMITS. Same limits as mimo-v2.5: 1,048,576 / 131,072 / 1.0B monthly quota per member. Reasoning: accepted, depth not adjustable. Tool calling: yes. Streaming: yes. Input modalities (pi-representable): text, image (audio not representable in pi's Model type).",
+		note: MANUAL_ONLY_NOTE,
 	},
 };
 

@@ -4,10 +4,11 @@
  *
  * models.dev lags behind gateway capability changes; MANUAL_OVERRIDES exists
  * so a divergence can be recorded with provenance instead of hand-editing
- * the generated file. As of 2026-09-07 https://nan.builders/docs/models and
- * https://nan.builders/openapi.json are treated as the most reliable source
- * of truth (maintainer instruction); models.dev divergences from them are
- * recorded as overrides or exclusions with provenance.
+ * the generated file. https://nan.builders/docs/models is the source of truth
+ * for WHICH models exist and what they document (maintainer instruction,
+ * reaffirmed 2026-09-29); models.dev supplies the numeric limits and any
+ * divergence from the docs is recorded as an override or exclusion with
+ * provenance.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -18,18 +19,18 @@ const byId = new Map(NAN_GENERATED_MODELS.map((entry) => [entry.id, entry]));
 
 describe("manual overrides in the generated catalog", () => {
 	test("catalog matches the served community chat models (official model list minus premium glm5.3)", () => {
-		// Official chat models per https://nan.builders/openapi.json (model param
-		// description) and https://nan.builders/docs/models (checked 2026-09-25):
-		// deepseek-v4-flash, mimo-v2.5, mimo-v2.6-flash, qwen3.8-flash,
-		// glm5.3-flash, qwen3.6, gemma4, glm5.3. glm5.3 is premium-tier and
-		// unemittable (no documented max output anywhere), so the static fallback
-		// holds the other seven.
+		// Official chat models per https://nan.builders/docs/models and the model
+		// param description in https://nan.builders/openapi.json (checked
+		// 2026-09-29): deepseek-v4-flash, mimo-v2.6-flash, qwen3.8-flash,
+		// glm5.3-flash, qwen3.6, gemma4, glm5.3. mimo-v2.5 is gone from both
+		// sources (removed by NaN, replaced by mimo-v2.6-flash). glm5.3 is
+		// premium-tier and unemittable (no documented max output anywhere), so
+		// the static fallback holds the other six.
 		expect([...byId.keys()].sort()).toEqual(
 			[
 				"deepseek-v4-flash",
 				"gemma4",
 				"glm5.3-flash",
-				"mimo-v2.5",
 				"mimo-v2.6-flash",
 				"qwen3.6",
 				"qwen3.8-flash",
@@ -37,11 +38,27 @@ describe("manual overrides in the generated catalog", () => {
 		);
 	});
 
+	test("mimo-v2.5 stays excluded after NaN removed it from the docs", () => {
+		// Removed by the provider: zero mentions in https://nan.builders/docs/models
+		// and in the openapi.json model param description (checked 2026-09-29), and
+		// models.dev provider nan dropped it as well. The generation must record the
+		// reason instead of silently losing the model (mirrors the glm5.2 record).
+		expect(byId.get("mimo-v2.5")).toBeUndefined();
+		expect(
+			GENERATED_CATALOG_META.notes.some(
+				(note) => note.includes("mimo-v2.5") && note.includes("provider-removed"),
+			),
+		).toBe(true);
+	});
+
 	test("mimo-v2.6-flash ships real limits instead of the 128K unknown-model placeholder", () => {
-		// models.dev provider nan does not list it (checked 2026-09-25), so it is
-		// emitted from MANUAL_ONLY_MODELS. Without it, the live /models merge hands
-		// it UNKNOWN_MODEL_LIMITS (128,000 / 4,096, reasoning off, text-only input)
-		// and pi would compact around 100K tokens instead of 1M.
+		// It entered the catalog through MANUAL_ONLY_MODELS when models.dev did
+		// not list it (2026-09-25); models.dev started listing it on 2026-09-29
+		// with the same limits, so the entry now comes from models.dev and the
+		// manual note rides on it. Either way the live /models merge must resolve
+		// it to real capabilities: otherwise it hands it UNKNOWN_MODEL_LIMITS
+		// (128,000 / 4,096, reasoning off, text-only input) and pi would compact
+		// around 100K tokens instead of 1M.
 		const entry = byId.get("mimo-v2.6-flash");
 		expect(entry).toBeDefined();
 		expect(entry!.contextWindow).toBe(1_048_576);

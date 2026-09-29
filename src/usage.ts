@@ -13,8 +13,11 @@
  * (NaN docs, checked 2026-09-27).
  *
  * The endpoint reports consumption, never caps: quotas below come from
- * https://nan.builders/docs/models (checked 2026-09-21) and are merged with
- * the returned per-model totals. `/usage` returns daily rows (paginated) plus
+ * https://nan.builders/docs/models (checked 2026-09-29) and are merged with
+ * the returned per-model totals. mimo-v2.5 has no row: NaN removed it from
+ * the docs (checked 2026-09-29), so a cap for it would have no source —
+ * historical consumption still appears under the undocumented-models section.
+ * `/usage` returns daily rows (paginated) plus
  * `totals` covering the whole requested window — max 90 inclusive days, wider
  * windows are rejected with 400 — so the command reads `totals.by_model` and
  * asks for a single-row page. Rate limit: 30 requests/min, separate from the
@@ -43,7 +46,6 @@ export interface ModelQuota {
 
 export const MODEL_QUOTAS: readonly ModelQuota[] = [
 	{ model: "deepseek-v4-flash", label: "DeepSeek V4 Flash", monthlyCap: 3_000_000_000, rollingWindowCap: 0, rollingWindowHours: 0, premium: false },
-	{ model: "mimo-v2.5", label: "MiMo V2.5", monthlyCap: 1_000_000_000, rollingWindowCap: 0, rollingWindowHours: 0, premium: false },
 	{ model: "mimo-v2.6-flash", label: "MiMo V2.6 Flash", monthlyCap: 1_000_000_000, rollingWindowCap: 0, rollingWindowHours: 0, premium: false },
 	{ model: "qwen3.6", label: "Qwen 3.6", monthlyCap: 0, rollingWindowCap: 0, rollingWindowHours: 0, premium: false },
 	{ model: "gemma4", label: "Gemma 4", monthlyCap: 0, rollingWindowCap: 0, rollingWindowHours: 0, premium: false },

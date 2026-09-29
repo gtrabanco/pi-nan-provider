@@ -51,7 +51,7 @@ maintainer's quota, so they are **permission-gated**:
   gate covers ad-hoc diagnosis only, never `bun test`.
 - **Default to `qwen3.6` — it is unlimited.**
 - **For massive/bulk probes prefer a model the maintainer uses less with a large
-  token budget, e.g. `mimo-v2.5`** (1M context).
+  token budget, e.g. `mimo-v2.6-flash`** (1M context, 1.0B monthly quota).
 - **When the model under investigation is the point** (e.g. reproducing a
   model-specific 400), use it, but minimize tokens: smallest viable prompt,
   lowest `max_tokens`, stop at the first decisive response.
@@ -152,20 +152,37 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
   override (maintainer-confirmed 2026-09-05) was withdrawn 2026-09-07 — the
   updated NaN docs still say 262K "the model's native window" and models.dev
   agrees at 262,144.
-- NaN's official chat model list (https://nan.builders/openapi.json `model`
-  param description + https://nan.builders/docs/models, checked 2026-09-07):
-  community `deepseek-v4-flash`, `mimo-v2.5`, `qwen3.8-flash`, `glm5.3-flash`,
-  `qwen3.6`, `gemma4` (all text+image vision) + premium-tier `glm5.3`
+- **Which models exist**: https://nan.builders/docs/models is the source of
+  truth (maintainer instruction, reaffirmed 2026-09-29), cross-checked against
+  the `model` param description in https://nan.builders/openapi.json; models.dev
+  (provider `nan`) supplies the numeric limits for the ids it documents, and
+  every divergence or exclusion is recorded with provenance.
+  Official chat models (checked 2026-09-29): community `deepseek-v4-flash`,
+  `mimo-v2.6-flash`, `qwen3.8-flash`, `glm5.3-flash`, `qwen3.6`, `gemma4`
+  (all text+image vision) + premium-tier `glm5.3`
   (~753B MoE, text-only input, 1M context, 400M tokens/rolling 4h window).
   glm5.3 is now documented by models.dev too (1M context / 131,072 max output,
   checked 2026-09-13) but stays out of the static catalog via
   `LIVE_ONLY_MODEL_IDS` (premium tier) so a non-premium key never sees a
   model it cannot call when the live `/models` fetch is unavailable; premium
   keys still receive it live with conservative placeholder limits.
-  `glm5.2` was removed by the provider (2026-09-05); models.dev may still list
-  it — the generator excludes it via `PROVIDER_REMOVED_MODEL_IDS`. Non-chat
-  endpoints: qwen3-embedding, rerank, kokoro (TTS), whisper (STT),
-  flux-2-klein (images) — MCP-bridge territory, not chat catalog models.
+  Removed by the provider: `glm5.2` (2026-09-05) and `mimo-v2.5` (checked
+  2026-09-29 — zero mentions in the docs and in openapi.json, and models.dev
+  dropped it too; superseded by `mimo-v2.6-flash`). models.dev may re-list a
+  removed id, so the generator excludes them via `PROVIDER_REMOVED_MODEL_IDS`,
+  and the four community ids the docs require (`qwen3.6`, `gemma4`,
+  `deepseek-v4-flash`, `mimo-v2.6-flash`) are `REQUIRED_MODEL_IDS` — if one
+  never reaches the catalog (from models.dev or from a manual-only entry),
+  generation exits non-zero instead of inventing data.
+  `mimo-v2.6-flash` entered through `MANUAL_ONLY_MODEL_IDS` while models.dev
+  lacked it; models.dev started listing it on 2026-09-29, and the generator
+  then skips the manual entry (attaching its note to the models.dev-derived
+  entry) so the id is never emitted twice.
+  Non-chat endpoints: qwen3-embedding, rerank, kokoro (TTS), whisper (STT),
+  flux-2-klein and qwen-image-2.1 (images) — MCP-bridge territory, not chat
+  catalog models; `qwen-image-2.1` also sits on models.dev with
+  `limit.output: 0`, so generation excludes it via `NON_CHAT_MODEL_IDS`
+  instead of flagging it "needs manual verification" forever.
 - NaN can close an SSE stream **before** `finish_reason`. The catalog sets
   `supportsFinishReason: true` so pi-ai raises the retryable
   `Stream ended without finish_reason` (pi-ai's `RETRYABLE_PROVIDER_ERROR_PATTERN`

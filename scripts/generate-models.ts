@@ -8,16 +8,28 @@
  * package. Run before publishing (`bun run generate-models`, wired into
  * `prepublishOnly`).
  *
+ * Sources of truth (maintainer instruction, reaffirmed 2026-09-29):
+ * - https://nan.builders/docs/models decides WHICH models exist — which ids
+ *   belong in the chat catalog, which are premium/live-only, which were
+ *   removed by the provider, which are not chat models at all. Every
+ *   exclusion cites it.
+ * - models.dev (provider "nan") supplies the numeric limits for the ids it
+ *   documents; a divergence from the docs is recorded in MANUAL_OVERRIDES
+ *   with a source note.
+ *
  * Provenance rules (enforced, not decorative):
  * - Every emitted number must come from models.dev or an explicit
  *   MANUAL_OVERRIDES note recording where it was confirmed. Nothing invented.
- * - The founding models (qwen3.6, gemma4, deepseek-v4-flash, mimo-v2.5) MUST
- *   exist on models.dev with complete limits, or this script exits non-zero.
+ * - The official community chat models (qwen3.6, gemma4, deepseek-v4-flash,
+ *   mimo-v2.6-flash) MUST reach the catalog — from models.dev or from a
+ *   MANUAL_ONLY entry — or this script exits non-zero.
  * - Any other models.dev entry missing `limit.context`/`limit.output` is
- *   skipped and flagged "needs manual verification" — never guessed.
+ *   skipped and flagged "needs manual verification" — never guessed. Entries
+ *   that are not chat models are excluded via NON_CHAT_MODEL_IDS instead.
  * - models.dev modalities are intersected with pi's supported input set
- *   ("text" | "image"); e.g. mimo-v2.5's audio input is not representable in
- *   pi's Model type and is dropped from `input` (noted on the entry).
+ *   ("text" | "image"); e.g. mimo-v2.6-flash's audio input is not
+ *   representable in pi's Model type and is dropped from `input` (noted on
+ *   the entry).
  */
 
 import type { GeneratedModelEntry } from "../src/fetch-models.ts";
@@ -39,17 +51,23 @@ const REASONING_EFFORT_VALUES_FROM_DOCS: Record<string, string[]> = {
 	...REASONING_EFFORT_VALUES,
 	// deepseek-v4-flash: any value (no effect) — model decides per request
 	"deepseek-v4-flash": [],
-	// qwen3.8-flash, mimo-v2.5: accepted, depth not adjustable
+	// qwen3.8-flash, mimo-v2.6-flash: accepted, depth not adjustable
 	"qwen3.8-flash": [],
-	"mimo-v2.5": [],
+	"mimo-v2.6-flash": [],
 };
 
 const MODELS_DEV_API_URL = "https://models.dev/api.json";
 const SOURCE_PROVIDER_ID = "nan";
 const FETCH_TIMEOUT_MS = 15_000;
 
-/** Models the founding prompt requires in the catalog; absence is fatal. */
-const REQUIRED_MODEL_IDS = ["qwen3.6", "gemma4", "deepseek-v4-flash", "mimo-v2.5"] as const;
+/**
+ * Official community chat models per https://nan.builders/docs/models
+ * (checked 2026-09-29; glm5.3 is premium-tier and deliberately live-only).
+ * Each MUST reach the catalog — from models.dev or from a MANUAL_ONLY entry —
+ * or generation fails. The docs decide this set, not models.dev: models.dev
+ * dropped mimo-v2.5 together with the docs in 2026-09.
+ */
+const REQUIRED_MODEL_IDS = ["qwen3.6", "gemma4", "deepseek-v4-flash", "mimo-v2.6-flash"] as const;
 
 /** pi's Model.input only supports these values. */
 const PI_SUPPORTED_INPUT = new Set(["text", "image"]);
@@ -75,6 +93,20 @@ const MANUAL_NOTES: Record<string, string> = {
 const PROVIDER_REMOVED_MODEL_IDS: Record<string, string> = {
 	"glm5.2":
 		"removed by NaN (2026-09-05); absent from the official chat model list in https://nan.builders/openapi.json and https://nan.builders/docs/models (checked 2026-09-07) while models.dev provider nan still listed it — excluded so regeneration does not resurrect it",
+	"mimo-v2.5":
+		"removed by NaN (checked 2026-09-29): zero mentions in https://nan.builders/docs/models and in the model param description of https://nan.builders/openapi.json, and models.dev provider nan dropped it as well — superseded by mimo-v2.6-flash; excluded so regeneration does not resurrect it",
+};
+
+/**
+ * models.dev entries that are not chat models. They can never join a chat
+ * catalog (their output is an image, and models.dev reports limit.output 0),
+ * so they are excluded with the docs as the reason instead of being flagged
+ * "needs manual verification" forever — that flag would suggest limits worth
+ * confirming for a model this package must not serve as chat.
+ */
+const NON_CHAT_MODEL_IDS: Record<string, string> = {
+	"qwen-image-2.1":
+		"image-generation model (text→image; output modality image) documented in https://nan.builders/docs/models and https://nan.builders/openapi.json (checked 2026-09-29) — not a chat model, out of the static chat catalog (models.dev reports limit.output 0)",
 };
 
 /**
@@ -221,6 +253,10 @@ function convertModel(modelId: string, m: ModelsDevModel): GeneratedModel | { sk
 	if (removedReason) {
 		return { skip: `provider-removed: "${modelId}" excluded from the catalog (${removedReason})` };
 	}
+	const nonChatReason = NON_CHAT_MODEL_IDS[modelId];
+	if (nonChatReason) {
+		return { skip: `non-chat: "${modelId}" excluded from the chat catalog (${nonChatReason})` };
+	}
 	const liveOnlyReason = LIVE_ONLY_MODEL_IDS[modelId];
 	if (liveOnlyReason) {
 		return { skip: `live-only: "${modelId}" kept out of the static catalog (${liveOnlyReason})` };
@@ -301,8 +337,20 @@ async function main(): Promise<void> {
 		}
 	}
 
-	// Add manual-only models (not yet on models.dev).
+	// Add manual-only models (models.dev provider "nan" does not list them).
+	// When models.dev starts listing one, the manual entry is NOT emitted —
+	// otherwise the id would reach the catalog twice — and the reason plus the
+	// original manual provenance are attached to the models.dev-derived entry,
+	// so the manual data never disappears silently.
+	const entryById = new Map(entries.map((entry) => [entry.id, entry]));
 	for (const [modelId, detail] of Object.entries(MANUAL_ONLY_MODEL_IDS)) {
+		const existing = entryById.get(modelId);
+		if (existing) {
+			const note = `manual-only: "${modelId}" skipped: models.dev provider "${SOURCE_PROVIDER_ID}" now lists it, so the manual-only entry is not emitted and the models.dev values are used (${detail})`;
+			existing.notes = [...(existing.notes ?? []), note];
+			console.warn(`generate-models: skipped ${note}`);
+			continue;
+		}
 		const override = MANUAL_OVERRIDES[modelId];
 		if (override) {
 			console.log(`generate-models: manual override for "${modelId}" (${Object.keys(override).filter((k) => k !== "note").join(", ")})`);
@@ -318,8 +366,9 @@ async function main(): Promise<void> {
 	const missingRequired = REQUIRED_MODEL_IDS.filter((id) => !entryIds.has(id));
 	if (missingRequired.length > 0) {
 		fail(
-			`required models missing from models.dev provider "${SOURCE_PROVIDER_ID}": ${missingRequired.join(", ")} — ` +
-				"do NOT invent their data; confirm and add them via MANUAL_OVERRIDES with a source note.",
+			`required models missing from the catalog: ${missingRequired.join(", ")} (official community chat models per ` +
+				"https://nan.builders/docs/models) — do NOT invent their data; confirm them in the docs and add them " +
+				"via MANUAL_OVERRIDES (models.dev lists them) or MANUAL_ONLY_MODEL_IDS (models.dev does not), with a source note.",
 		);
 	}
 
@@ -332,6 +381,9 @@ async function main(): Promise<void> {
 			// model is absent from the catalog.
 			...Object.entries(PROVIDER_REMOVED_MODEL_IDS).map(
 				([id, reason]) => `provider-removed: "${id}" excluded from the catalog (${reason})`,
+			),
+			...Object.entries(NON_CHAT_MODEL_IDS).map(
+				([id, reason]) => `non-chat: "${id}" excluded from the chat catalog (${reason})`,
 			),
 			...Object.entries(LIVE_ONLY_MODEL_IDS).map(
 				([id, reason]) => `live-only: "${id}" kept out of the static catalog (${reason})`,

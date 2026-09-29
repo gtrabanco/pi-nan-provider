@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] — 2026-09-29
+
+### Changed
+
+- **The catalog now takes *which models exist* from
+  [https://nan.builders/docs/models](https://nan.builders/docs/models)**
+  (maintainer instruction, reaffirmed 2026-09-29); models.dev keeps supplying
+  the numeric limits for the ids it documents. The publish workflow failed on
+  `bun run generate-models` because models.dev had dropped `mimo-v2.5`, and the
+  docs and the OpenAPI `model` list no longer mention it either (zero mentions
+  in both, checked 2026-09-29) — `mimo-v2.6-flash` supersedes it.
+  - The required-model guard now checks the docs' community chat set
+    (`qwen3.6`, `gemma4`, `deepseek-v4-flash`, `mimo-v2.6-flash`) against what
+    actually reaches the catalog — from models.dev **or** from a manual-only
+    entry — and its failure message no longer calls models.dev the authority.
+  - **`mimo-v2.6-flash` is now listed by models.dev** (2026-09-29): the
+    generator stops emitting a second manual-only entry for it, keeps the
+    models.dev values and attaches the manual provenance note to that entry, so
+    the id can never land in the catalog twice. The manual-only entry remains
+    as the fallback for the next time models.dev drops a model.
+  - `qwen-image-2.1` (new on models.dev) is excluded as a non-chat model
+    (`NON_CHAT_MODEL_IDS`) instead of being flagged `needs manual
+    verification` on every regeneration.
+  - `/nan-usage` drops the `mimo-v2.5` quota row: its only source was the docs,
+    and the docs no longer document the model. Historical consumption for
+    `mimo-v2.5` still appears under the "models missing from the documented
+    table" section.
+
+### Removed
+
+- **Breaking: `mimo-v2.5` leaves the static fallback catalog.** Removed by NaN
+  (absent from the docs and the OpenAPI model list, checked 2026-09-29;
+  superseded by `mimo-v2.6-flash`, same 1,048,576 context / 131,072 max output).
+  It is recorded in `PROVIDER_REMOVED_MODEL_IDS` with its provenance, so a
+  regeneration can never resurrect it, and `test/generated-catalog.test.ts`
+  pins the exclusion the same way `glm5.2` is pinned. Sessions whose
+  `models.json` names `mimo-v2.5` resolve it through the live `/models`
+  refresh if the gateway still serves it (with placeholder limits), otherwise
+  as an unknown id — use `mimo-v2.6-flash`.
+
 ## [0.8.1] — 2026-09-29
 
 ### Changed

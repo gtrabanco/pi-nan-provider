@@ -260,9 +260,14 @@ Catálogo base (verificado contra [docs de NaN](https://nan.builders/docs/models
 | `qwen3.6` | 262,144 | 65,536 | texto, imagen | ✅ |
 | `gemma4` | 262,144 | 32,768 | texto, imagen | ✅ |
 | `deepseek-v4-flash` | 1,000,000 | 384,000 | texto, imagen | ✅ |
-| `mimo-v2.5` | 1,048,576 | 131,072 | texto, imagen | ✅ |
+| `mimo-v2.6-flash` | 1,048,576 | 131,072 | texto, imagen | ✅ |
 | `glm5.3-flash` | 1,000,000 | 131,072 | texto, imagen | ✅ |
 | `qwen3.8-flash` | 262,144 | 131,072 | texto, imagen | ✅ |
+
+> [!NOTE]  
+> `mimo-v2.6-flash` está servido por NaN y desde el 2026-09-29 aparece también en models.dev (proveedor `nan`); la entrada manual que lo sostenía se conserva como fallback y su nota de procedencia sigue unida a la entrada generada.
+>
+> `mimo-v2.5` fue eliminado por NaN: ya no aparece ni en [los docs de NaN](https://nan.builders/docs/models) ni en la [lista de modelos del OpenAPI](https://nan.builders/openapi.json) (comprobado 2026-09-29), así que sale del catálogo — lo sustituye `mimo-v2.6-flash` (mismos límites 1,048,576 / 131,072 y cuota mensual de 1.0B). El consumo histórico de `mimo-v2.5` en `/nan-usage` sigue apareciendo en la sección de modelos no documentados.
 
 ---
 
