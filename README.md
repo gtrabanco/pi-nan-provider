@@ -1,7 +1,7 @@
 # @gtrabanco/pi-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.10.0-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-0.11.0-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 
 [NaN Builders](https://nan.builders) model provider + native MCP servers for [pi](https://github.com/earendil-works/pi). 
 
@@ -101,7 +101,7 @@ Get a key from the [NaN platform](https://cloud.nan.builders/r/7GK06FX8) (user s
 
 ## 🔌 Native MCP Servers
 
-Since [pi 0.99.0 ships a built-in MCP client](https://github.com/earendil-works/pi/blob/main/docs/usage.md), this package migrates its bridges to native MCP (requires `pi >=0.99` — breaking).
+Since [pi 0.99.0 ships a built-in MCP client](https://github.com/earendil-works/pi/blob/main/docs/usage.md), this package migrates its bridges to native MCP (requires `pi >=0.99, <2` — pi 0.99 through 1.0 are supported; the peer range was widened to `<2` in 0.11.0).
 
 Both bridges are **enabled by default** (session-scoped, visible in `/mcp`). Use `/nan-mcp` to manage them.
 
@@ -131,7 +131,7 @@ per session, keeps the registrations idle, and lets `/nan-mcp enable` persist th
 registering a server that can never connect. To get MCP in the CLI, enable the connector with
 `pi config` → Built-in extensions → `mcp`.
 
-### pi 0.99 features and NaN models
+### pi 0.99-1.0 features and NaN models
 
 - **Virtual models** — register a router under `nan` (`pi.registerVirtualModel({ provider: "nan", ... })`);
   it routes to the physical NaN models with no provider-side configuration. The cross-model thinking
@@ -142,12 +142,36 @@ registering a server that can never connect. To get MCP in the CLI, enable the c
 - **Classifier models** — not applicable: NaN exposes no classifier API (chat plus
   embedding/rerank/audio/image endpoints only), so this provider registers no `type: "classifier"` models.
 
+- **Native NaN image models** — flux-2-klein (text-to-image + image-to-image) and
+  qwen-image-2.1 (text-to-image) are registered as pi image models (`type: "image"`,
+  api `"nan-images"`). They do not appear in `/model`; they are reached through codemode
+  with `models.generateImages(model, { input })` or from extensions with
+  `ctx.modelRegistry.generateImages()`:
+
+  ```
+  const painter = await models.getModelOfType("image", "nan", "flux-2-klein")
+  const result = await models.generateImages(painter, { input: [{ type: "text", text: "A red fox in the snow, watercolor" }] })
+  if (result.stopReason !== "stop") return result.errorMessage
+  for (const block of result.output) if (block.type === "image") image(block)
+  ```
+
+  Both models need the "inference" membership tier (403 otherwise); the image endpoints
+  are rate-limited separately from chat (20 requests/min, 100 requests/month shared
+  between the two models) and do not consume the chat token budget.
+  [NaN docs](https://nan.builders/docs/models) and [OpenAPI](https://nan.builders/openapi.json)
+  (checked 2026-10-01). The community nan-media MCP server already offers the same
+  generation and editing as MCP tools, while the native image models let codemode and
+  extensions call them directly.
+
 ---
 
 ### 1. Official NaN MCP Server
 *Official remote MCP server registered natively via `pi.registerMcpServer()`.*
 
-- **`mcp__nan-search__web_search(query, ...)`**: Performs web searches through NaN's gateway.
+- **`mcp__nan_search__web_search(query, ...)`**: Performs web searches through NaN's gateway.
+  > pi 0.99.0–0.99.1 used the hyphenated form (`mcp__nan-search__web_search`); pi 0.99.2+ sanitizes
+  > tool names to `[A-Za-z0-9_]` only, so hyphens became underscores. The underscore form applies
+  > from 0.99.2 onward through pi 1.0.
 
 ### 2. Community Media MCP Server
 *Bridges [`nan-mcp-server`](https://github.com/luciferfran/nan-mcp-server) via a minimal local stdio client.*
@@ -157,11 +181,19 @@ registering a server that can never connect. To get MCP in the CLI, enable the c
 
 | Tool | Purpose |
 | :--- | :--- |
-| `mcp__nan-media__generate_image` | Image generation (flux-2-klein) |
-| `mcp__nan-media__edit_image` | Image-to-image editing (flux-2-klein) |
-| `mcp__nan-media__text_to_speech` | Audio synthesis (kokoro) |
-| `mcp__nan-media__list_voices` | List available voices |
-| `mcp__nan-media__speech_to_text` | Audio transcription (whisper) |
+| `mcp__nan_media__generate_image` | Image generation (flux-2-klein) |
+| `mcp__nan_media__edit_image` | Image-to-image editing (flux-2-klein) |
+| `mcp__nan_media__text_to_speech` | Audio synthesis (kokoro) |
+| `mcp__nan_media__list_voices` | List available voices |
+| `mcp__nan_media__speech_to_text` | Audio transcription (whisper) |
+| `mcp__nan_media__list_models` | List the NaN model ids the key can reach |
+| `mcp__nan_media__embed_text` | Text embeddings (qwen3-embedding) |
+| `mcp__nan_media__rerank_documents` | Document reranking (Qwen3-Reranker) |
+
+> pi 0.99.0–0.99.1 used the hyphenated forms (`mcp__nan-search__web_search`,
+> `mcp__nan-media__*`); pi 0.99.2+ sanitizes tool names to `[A-Za-z0-9_]` only,
+> so hyphens became underscores. The underscore form applies from 0.99.2 onward
+> through pi 1.0.
 
 #### 🔧 Media Bridge Configuration
 
@@ -286,6 +318,8 @@ Failures stay actionable: `401` → run `/login nan` or fix `NAN_API_KEY`, `404`
 
 Baseline catalog (verified against [NaN docs](https://nan.builders/docs/models) and [OpenAPI](https://nan.builders/openapi.json)).
 
+Chat models:
+
 | Model | Context | Max Output | Input | Reasoning |
 | :--- | :--- | :--- | :--- | :---: |
 | `qwen3.6` | 262,144 | 65,536 | text, image | ✅ |
@@ -294,6 +328,14 @@ Baseline catalog (verified against [NaN docs](https://nan.builders/docs/models) 
 | `mimo-v2.6-flash` | 1,048,576 | 131,072 | text, image | ✅ |
 | `glm5.3-flash` | 1,000,000 | 131,072 | text, image | ✅ |
 | `qwen3.8-flash` | 262,144 | 131,072 | text, image | ✅ |
+
+Non-chat image models (available through `models.generateImages()` /
+`getModelOfType("image", …)`, not through `/model`):
+
+| Model | Input | Purpose |
+| :--- | :--- | :--- |
+| `flux-2-klein` | text, image | Text-to-image + image-to-image |
+| `qwen-image-2.1` | text | Text-to-image |
 
 > [!NOTE]  
 > `mimo-v2.6-flash` is served by NaN and has been listed by models.dev provider `nan` since 2026-09-29. Before that it entered the catalog through a manual-only entry; that entry is kept as a fallback (re-emitted automatically if models.dev drops the model again) and its provenance note stays attached to the generated entry.

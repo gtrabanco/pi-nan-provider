@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.4] — 2026-10-01
+
+### Documentation
+
+- **Media bridge tool list updated to `nan-mcp-server@1.1.2`'s real surface**
+  (8 tools: the 5 previously documented plus `list_models`, `embed_text`,
+  `rerank_documents`). AGENTS.md and both READMEs now match the pinned
+  server; no code change. Also records the issue #17 triage verdict
+  (`docs/fix/issue-17-gateway-cache/decisions.md`): payload provably clean,
+  NaN gateway response cache identified as the anomaly.
+
 ## [0.10.3] — 2026-10-01
 
 ### Fixed

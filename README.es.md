@@ -1,7 +1,7 @@
 # @gtrabanco/pi-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.10.0-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-0.11.0-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 
 [NaN Builders](https://nan.builders) model provider + MCP nativo para [pi](https://github.com/earendil-works/pi). 
 
@@ -101,7 +101,7 @@ Consigue una clave en la [plataforma NaN](https://cloud.nan.builders/r/7GK06FX8)
 
 ## 🔌 MCP nativo
 
-Dado que [pi 0.99.0 incluye un cliente MCP integrado](https://github.com/earendil-works/pi/blob/main/docs/usage.md), este paquete migra sus puentes a MCP nativo (requiere `pi >=0.99` — cambio rotundo).
+Dado que [pi 0.99.0 incluye un cliente MCP integrado](https://github.com/earendil-works/pi/blob/main/docs/usage.md), este paquete migra sus puentes a MCP nativo (requiere `pi >=0.99, <2` — pi 0.99 hasta 1.0 son compatibles; el rango peer se amplió a `<2` en 0.11.0).
 
 Ambos puentes están **activados por defecto** (por sesión, visibles en `/mcp`). Usa `/nan-mcp` para gestionarlos.
 
@@ -132,7 +132,7 @@ con un único aviso por sesión, mantiene los registros inactivos y deja que `/n
 el toggle sin registrar un servidor que nunca podrá conectarse. Para tener MCP en la CLI, activa el
 conector con `pi config` → Built-in extensions → `mcp`.
 
-### Funciones de pi 0.99 y modelos NaN
+### Funciones de pi 0.99-1.0 y modelos NaN
 
 - **Modelos virtuales** — registra un router bajo `nan` (`pi.registerVirtualModel({ provider: "nan", ... })`);
   enruta a los modelos físicos de NaN sin configuración por parte del proveedor. El guard de
@@ -145,12 +145,36 @@ conector con `pi config` → Built-in extensions → `mcp`.
   endpoints de embedding/rerank/audio/imagen), así que este proveedor no registra modelos
   `type: "classifier"`.
 
+- **Modelos de imagen nativos de NaN** — flux-2-klein (text-to-image + image-to-image) y
+  qwen-image-2.1 (text-to-image) se registran como modelos de imagen de pi (`type: "image"`,
+  api `"nan-images"`). No aparecen en `/model`; se acceden desde codemode
+  con `models.generateImages(model, { input })` o desde extensiones con
+  `ctx.modelRegistry.generateImages()`:
+
+  ```
+  const painter = await models.getModelOfType("image", "nan", "flux-2-klein")
+  const result = await models.generateImages(painter, { input: [{ type: "text", text: "A red fox in the snow, watercolor" }] })
+  if (result.stopReason !== "stop") return result.errorMessage
+  for (const block of result.output) if (block.type === "image") image(block)
+  ```
+
+  Ambos modelos necesitan el tier de membresía "inference" (403 de lo contrario); los endpoints
+  de imagen tienen su propio límite de tasa separado del chat (20 peticiones/min, 100
+  peticiones/mes compartido entre los dos modelos) y no consumen el presupuesto de tokens del
+  chat. [docs de NaN](https://nan.builders/docs/models) y [OpenAPI](https://nan.builders/openapi.json)
+  (comprobado 2026-10-01). El servidor MCP nan-media de la comunidad ya ofrece la misma
+  generación y edición como herramientas MCP, mientras que los modelos de imagen nativos permiten
+  que codemode y las extensiones los llamen directamente.
+
 ---
 
 ### 1. Servidor MCP oficial de NaN
 *Puente oficial para herramientas remotas vía [https://api.nan.builders/mcp](https://nan.builders/docs/api).*
 
-- **`mcp__nan-search__web_search(query, ...)`**: Realiza búsquedas web a través del gateway de NaN.
+- **`mcp__nan_search__web_search(query, ...)`**: Realiza búsquedas web a través del gateway de NaN.
+  > pi 0.99.0–0.99.1 usaba la forma con guiones (`mcp__nan-search__web_search`); pi 0.99.2+ sanitiza
+  > los nombres de herramientas a solo `[A-Za-z0-9_]`, así que los guiones se convirtieron en
+  > guiones bajos. La forma con guiones bajos aplica desde 0.99.2 hasta pi 1.0.
 
 ### 2. Servidor MCP de Media (Comunidad)
 *Conecta [`nan-mcp-server`](https://github.com/luciferfran/nan-mcp-server) mediante un cliente stdio local mínimo.*
@@ -160,11 +184,19 @@ conector con `pi config` → Built-in extensions → `mcp`.
 
 | Herramienta | Propósito |
 | :--- | :--- |
-| `mcp__nan-media__generate_image` | Generación de imágenes (flux-2-klein) |
-| `mcp__nan-media__edit_image` | Edición imagen→imagen (flux-2-klein) |
-| `mcp__nan-media__text_to_speech` | Síntesis de audio (kokoro) |
-| `mcp__nan-media__list_voices` | Listar voces disponibles |
-| `mcp__nan-media__speech_to_text` | Transcripción de audio (whisper) |
+| `mcp__nan_media__generate_image` | Generación de imágenes (flux-2-klein) |
+| `mcp__nan_media__edit_image` | Edición imagen→imagen (flux-2-klein) |
+| `mcp__nan_media__text_to_speech` | Síntesis de audio (kokoro) |
+| `mcp__nan_media__list_voices` | Listar voces disponibles |
+| `mcp__nan_media__speech_to_text` | Transcripción de audio (whisper) |
+| `mcp__nan_media__list_models` | Listar los ids de modelos que alcanza la key |
+| `mcp__nan_media__embed_text` | Embeddings de texto (qwen3-embedding) |
+| `mcp__nan_media__rerank_documents` | Reordenación de documentos (Qwen3-Reranker) |
+
+> pi 0.99.0–0.99.1 usaba las formas con guiones (`mcp__nan-search__web_search`,
+> `mcp__nan-media__*`); pi 0.99.2+ sanitiza los nombres de herramientas a solo
+> `[A-Za-z0-9_]`, así que los guiones se convirtieron en guiones bajos. La forma
+> con guiones bajos aplica desde 0.99.2 hasta pi 1.0.
 
 #### 🔧 Configuración del Puente de Media
 
@@ -289,6 +321,8 @@ Los errores siguen siendo accionables: `401` → ejecuta `/login nan` o corrige 
 
 Catálogo base (verificado contra [docs de NaN](https://nan.builders/docs/models) y [OpenAPI](https://nan.builders/openapi.json)).
 
+Modelos de chat:
+
 | Modelo | Contexto | Máx. Salida | Entrada | Razonamiento |
 | :--- | :--- | :--- | :--- | :---: |
 | `qwen3.6` | 262,144 | 65,536 | texto, imagen | ✅ |
@@ -297,6 +331,14 @@ Catálogo base (verificado contra [docs de NaN](https://nan.builders/docs/models
 | `mimo-v2.6-flash` | 1,048,576 | 131,072 | texto, imagen | ✅ |
 | `glm5.3-flash` | 1,000,000 | 131,072 | texto, imagen | ✅ |
 | `qwen3.8-flash` | 262,144 | 131,072 | texto, imagen | ✅ |
+
+Modelos de imagen no-chat (disponibles vía `models.generateImages()` /
+`getModelOfType("image", …)`, no a través de `/model`):
+
+| Modelo | Entrada | Propósito |
+| :--- | :--- | :--- |
+| `flux-2-klein` | texto, imagen | Text-to-image + image-to-image |
+| `qwen-image-2.1` | texto | Text-to-image |
 
 > [!NOTE]  
 > `mimo-v2.6-flash` está servido por NaN y desde el 2026-09-29 aparece también en models.dev (proveedor `nan`); la entrada manual que lo sostenía se conserva como fallback y su nota de procedencia sigue unida a la entrada generada.

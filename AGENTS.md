@@ -247,23 +247,32 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
 - Since 0.10.0, this package uses native MCP via `pi.registerMcpServer()`.
   Both servers are session-scoped, visible in `/mcp` with source "extension".
   Server names and tool IDs:
-  - `nan-search` → tools: `mcp__nan-search__web_search`
+  - `nan-search` → tools: `mcp__nan_search__web_search`
     (official remote, HTTP, `Authorization: Bearer <key>` header)
-  - `nan-media` → tools: `mcp__nan-media__generate_image/edit_image/text_to_speech/list_voices/speech_to_text`
-    (community stdio, `npx -y nan-mcp-server@1.1.2`, 120s timeout)
+  - `nan-media` → tools: `mcp__nan_media__generate_image/edit_image/text_to_speech/list_voices/speech_to_text/list_models/embed_text/rerank_documents`
+    (community stdio, `npx -y nan-mcp-server@1.1.2`, 120s timeout; 8 tools as of 1.1.2)
   - `exposure: "direct"` on both — tools are declared to the model.
   - User `mcp.json` entries with the same name take precedence.
   - `/nan-mcp enable/disable` calls `pi.registerMcpServer()` / `pi.unregisterMcpServer()` directly.
   - Missing `NAN_API_KEY` at load: web-search server NOT registered (console.warn).
   NaN integration facts remain:
+  - pi >=0.99.2 sanitizes MCP tool/namespace names by replacing every character except
+    `[A-Za-z0-9_]` with `"_"` (0.99.0–0.99.1 kept `-`). So `mcp__nan-search__web_search`
+    became `mcp__nan_search__web_search` and `mcp__nan-media__*` became
+    `mcp__nan_media__*`. Server names differing only in `-`/`_` now collide
+    (`nan-search` and `nan-media` do not collide, they differ in more than one character).
+  - pi 0.99.2+/1.0 accept `McpServerConfig.description` (system-prompt listing plus
+    tool-search ranking); `validateMcpServerConfig` in 0.99.0–0.99.1 ignores unknown
+    keys, so passing `description` stays compatible.
   - NaN's official remote MCP server: `https://api.nan.builders/mcp` (host
     root, NOT /v1; JSON-RPC 2.0 over streamable HTTP, stateless; same `sk-`
     key, shared rate limit/quota). Spec: https://nan.builders/openapi.json
     (tag "MCP"). Currently exposes `web_search`.
   - Community `nan-mcp-server` (https://github.com/luciferfran/nan-mcp-server):
     stdio MCP server, version-pinned via NAN_MEDIA_MCP_VERSION (default 1.1.2)
-    or full command override via NAN_MEDIA_MCP_COMMAND. Tools: generate_image,
-    edit_image, text_to_speech, list_voices, speech_to_text.
+    or full command override via NAN_MEDIA_MCP_COMMAND. Tools (1.1.2): generate_image,
+    edit_image, text_to_speech, list_voices, speech_to_text, list_models, embed_text,
+    rerank_documents.
   - Automated check (scripts/check-nan-mcp-server.ts) compares the npm registry
     against the pin weekly and files a `dependencies` issue when a newer release
     exists, with a breaking/safe verdict from the live server tool surface.
@@ -282,3 +291,16 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
   `mcp_servers_change` so pi's report stays silent, and warns once per session;
   `/nan-mcp enable` persists the toggle without registering. Regression tests:
   `test/mcp-host-connector.test.ts`.
+- **pi 1.0.0 / pi-ai 1.0.0 compat** (verified 2026-10-01): the peer range is now
+  `">=0.99.0 <2"` (widened from `">=0.99.0 <1"`); the pi-ai 1.0.0 index/compat/types
+  type surfaces are identical to 0.99.1 (the release only adds a `./models` subpath,
+  Anthropic federation env consts, and a z.ai CN overflow pattern); the package's
+  tests and typecheck pass against 1.0.0 unchanged.
+- **Native image models** (verified 2026-10-01): pi 1.0 lets a provider register
+  `ImageModel` entries (`type: "image"`) plus a `Provider.images` implementation map
+  keyed by a custom `ImageApi` id (`"nan-images"`); codemode reaches them with
+  `models.generateImages()` / `getModelOfType("image", provider, id)`, extensions with
+  `ctx.modelRegistry.generateImages()`. pi-ai never applies `filterModels` to
+  non-chat models, so image availability is not tier-filtered by the live `/models`
+  list — the 403 at call time is the tier signal. NaN endpoints and quotas are
+  documented in the package's image-model notes.
