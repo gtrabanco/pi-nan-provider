@@ -17,11 +17,12 @@
  *
  *  2. MCP servers via pi's native registerMcpServer (pi >=0.99):
  *     - `nan-search` — the official NaN remote MCP server
- *       (https://api.nan.builders/mcp), exposing `mcp__nan-search__web_search`.
+ *       (https://api.nan.builders/mcp), exposing `mcp__nan_search__web_search`
+ *       (pi >=0.99.2; 0.99.0-0.99.1 kept the hyphen: `mcp__nan-search__web_search`).
  *       Default: enabled. NAN_MCP_TOOLS=0 to disable.
  *     - `nan-media` — the community stdio media server
  *       (flux-2-klein / kokoro / whisper), exposing
- *       `mcp__nan-media__generate_image` etc. Default: enabled,
+ *       `mcp__nan_media__generate_image` etc. Default: enabled,
  *       NAN_MEDIA_MCP=0 to disable.
  *
  *     Both are session-scoped (visible in /mcp with source "extension").
@@ -109,6 +110,7 @@ async function registerWebSearchMcpServer(pi: ExtensionAPI, apiKey: string | und
 		url: "https://api.nan.builders/mcp",
 		headers: { Authorization: `Bearer ${apiKey}` },
 		exposure: "direct",
+		description: "Web search through NaN's gateway (official NaN MCP server)",
 	});
 	return true;
 }
@@ -130,6 +132,7 @@ function registerMediaMcpServer(pi: ExtensionAPI, apiKey: string | undefined): b
 		args: mediaArgs.slice(1),
 		env: { [NAN_API_KEY_ENV]: apiKey },
 		exposure: "direct",
+		description: "NaN media tools: image generation/editing, text-to-speech and speech-to-text via the community nan-mcp-server",
 		timeout: mediaMcpTimeoutSec(),
 	});
 	return true;

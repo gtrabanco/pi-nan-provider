@@ -5,16 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.10.4] — 2026-10-01
+## [0.11.0] - 2026-10-01
+
+### Added
+- **Native NaN image models for pi 1.0** (flux-2-klein, qwen-image-2.1). Registered as pi image models (type "image", api "nan-images"), reachable from codemode with models.generateImages() and from extensions with ctx.modelRegistry.generateImages(). flux-2-klein supports text-to-image and image-to-image (POST /v1/images/edits, up to 4 references); qwen-image-2.1 supports text-to-image. Both require the inference tier, are rate-limited separately from chat (20 req/min, 100 req/month shared) and do not consume the chat token budget. Requests ask for b64_json; the MIME type is sniffed from the decoded bytes because NaN returns no MIME type. Sources: https://nan.builders/docs/models and https://nan.builders/openapi.json (checked 2026-10-01).
+- MCP server description for nan-search and nan-media (shown in pi's system prompt and used to rank MCP tools in tool search).
+
+### Changed
+- **pi 1.0.0 support**: peer range widened from "`>=0.99.0 <1`" to
+  "`>=0.99.0 <2`"; devDependencies moved to pi/pi-ai 1.0.0. The package code is
+  unchanged for this — pi-ai 1.0.0's public type surface is identical to 0.99.1.
+- **MCP tool ids documented for pi >=0.99.2**: pi now sanitizes every character
+  except `[A-Za-z0-9_]`, so the tools are `mcp__nan_search__web_search` and
+  `mcp__nan_media__*` (hyphens on pi 0.99.0-0.99.1).
 
 ### Documentation
-
-- **Media bridge tool list updated to `nan-mcp-server@1.1.2`'s real surface**
+- Media bridge tool list updated to `nan-mcp-server@1.1.2`'s real surface
   (8 tools: the 5 previously documented plus `list_models`, `embed_text`,
-  `rerank_documents`). AGENTS.md and both READMEs now match the pinned
-  server; no code change. Also records the issue #17 triage verdict
-  (`docs/fix/issue-17-gateway-cache/decisions.md`): payload provably clean,
-  NaN gateway response cache identified as the anomaly.
+  `rerank_documents`). `AGENTS.md` and both READMEs now match the pinned server;
+  no code change. Also records the issue #17 triage verdict
+  (`docs/fix/issue-17-gateway-cache/decisions.md`): payload provably clean, NaN
+  gateway response cache identified as the anomaly.
 
 ## [0.10.3] — 2026-10-01
 

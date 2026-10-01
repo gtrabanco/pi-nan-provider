@@ -3,9 +3,11 @@
  * package registers:
  *
  * - `nan-search` — the official NaN remote MCP server (api.nan.builders/mcp),
- *   exposing `mcp__nan-search__web_search`. Default: enabled.
+ *   exposing `mcp__nan_search__web_search` (pi >=0.99.2). Default: enabled.
+ *   (pi 0.99.0–0.99.1 used the hyphenated form `mcp__nan-search__web_search`.)
  * - `nan-media` — the community stdio media server (flux-2-klein / kokoro /
- *   whisper), exposing `mcp__nan-media__generate_image` etc. Default: enabled.
+ *   whisper), exposing `mcp__nan_media__generate_image` etc. Default: enabled.
+ *   (pi 0.99.0–0.99.1 used the hyphenated form `mcp__nan-media__*`.)
  *
  * Both are session-scoped native servers (visible in /mcp, source "extension").
  * /nan-mcp enables/disables them via pi.registerMcpServer / pi.unregisterMcpServer,
@@ -74,8 +76,8 @@ function serverName(bridge: BridgeKey): string {
 /** Describe the bridge in the status message. */
 function bridgeDescription(bridge: BridgeKey): string {
 	return bridge === "webSearch"
-		? "web-search bridge (official NaN MCP → mcp__nan-search__web_search)"
-		: "nan-mcp-server bridge (community media MCP → mcp__nan-media__generate_image/edit_image/text_to_speech/list_voices/speech_to_text)";
+		? "web-search bridge (official NaN MCP → mcp__nan_search__web_search)"
+		: "nan-mcp-server bridge (community media MCP → mcp__nan_media__generate_image/edit_image/text_to_speech/list_voices/speech_to_text)";
 }
 
 /** Check if a native server of this name is currently registered. */

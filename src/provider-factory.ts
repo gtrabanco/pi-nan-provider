@@ -22,6 +22,12 @@
  * Streaming API resolution: bare root under pi's compat alias is the instance
  * anchor; otherwise a file URL from import.meta.resolve; never a bare subpath
  * (loud failure — issue #8). Full logic in src/pi-ai-loader.ts.
+ *
+ * The provider also exposes NaN image models (flux-2-klein, qwen-image-2.1)
+ * through an image API ("nan-images"): `baselineImageModels` are added to the
+ * model set and a `ProviderImages` implementation is wired via
+ * `createNanImagesApi`, so pi's model registry can route
+ * `generateImages()` calls through it.
  */
 
 import * as piAi from "@earendil-works/pi-ai";
@@ -31,6 +37,7 @@ import type {
 	RefreshModelsContext,
 } from "@earendil-works/pi-ai";
 import { withContextOverflowClassification } from "./context-overflow-classifier.ts";
+import { NAN_IMAGE_API, baselineImageModels, createNanImagesApi } from "./images.ts";
 import {
 	baselineModels,
 	DEFAULT_MODELS_TIMEOUT_MS,
@@ -133,11 +140,15 @@ export function wrapApiForStrictSanitization(api: ProviderStreams): ProviderStre
  *   `/login <id>` prompts for the key (pi's `envApiKeyAuth` semantics — the
  *   same precedence the built-in providers use). No prompt is needed when the
  *   env var is set.
- * - models: the generated fallback catalog as static baseline, so models are
+ * - models: the generated chat-model fallback catalog plus NaN image models
+ *   (flux-2-klein, qwen-image-2.1) as static baseline, so all models are
  *   available with zero network.
  * - fetchModels: live `/models` IDs × generated capability data; falls back
  *   to the baseline when the endpoint is unreachable. pi's Models runtime
  *   drives refreshes (startup/periodic) and persists the overlay.
+ * - images: a `ProviderImages` implementation for NaN's OpenAI-compatible
+ *   image endpoints, so `generateImages()` calls are routed through pi's
+ *   model registry.
  * - api: the openai-completions streaming implementation resolved via
  *   `resolveOpenAICompletionsApi` (bare root under pi's compat alias as
  *   the instance anchor; otherwise a file URL from import.meta.resolve;
@@ -162,7 +173,8 @@ export async function createNanCompatibleProvider(
 		name: config.name,
 		baseUrl: config.baseUrl,
 		auth: { apiKey: piAi.envApiKeyAuth(`${config.name} API key`, config.envVars) },
-		models: baselineModels(source),
+		models: [...baselineModels(source), ...baselineImageModels(source)],
+		images: { [NAN_IMAGE_API]: createNanImagesApi({ fetchImpl: options.fetchImpl, timeoutMs: options.timeoutMs }) },
 		fetchModels: async (context: RefreshModelsContext) => {
 			const credential = context.credential;
 			const resolved = await resolveCatalog(source, {

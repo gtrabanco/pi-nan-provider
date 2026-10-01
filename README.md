@@ -105,6 +105,9 @@ Since [pi 0.99.0 ships a built-in MCP client](https://github.com/earendil-works/
 
 Both bridges are **enabled by default** (session-scoped, visible in `/mcp`). Use `/nan-mcp` to manage them.
 
+> [!TIP]
+> Prefer to configure NaN's MCP servers yourself? Since pi 0.99.2/1.0 an HTTP MCP server in the global `mcp.json` can authenticate with your `/login nan` token instead of a copied key: `{ "auth": { "provider": "nan" } }` (global `mcp.json` only; `https` required). The bundled `nan-search` registration keeps using `NAN_API_KEY`/the stored credential.
+
 ### 🛠️ Management Command: `/nan-mcp`
 
 | Command | Effect |
