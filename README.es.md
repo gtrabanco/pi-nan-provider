@@ -335,6 +335,9 @@ Modelos de chat:
 | `glm5.3-flash` | 1,000,000 | 131,072 | texto, imagen | ✅ |
 | `qwen3.8-flash` | 262,144 | 131,072 | texto, imagen | ✅ |
 
+> [!NOTE]
+> **Techo práctico con caché de prompt fría (issue #18).** Las ventanas de contexto de la tabla son las ventanas reales de los modelos, pero el borde de api.nan.builders (Cloudflare) aborta las respuestas que superan su Proxy Read Timeout de 120 s. Medido con peticiones frías directas (relleno único, sin caché de prompt; 2026-10-01): 208.036 tokens (~960 KB de cuerpo) respondió en 12,9 s mientras que ~220k y ~286k tokens devolvieron **HTTP 524 `origin_response_timeout`** a los ~126 s; los mismos tamaños con caché cálida responden en ~10 s. El techo práctico para peticiones frías queda por tanto muy por debajo de las ventanas declaradas. Desde 1.0.0 el provider reclasifica un 524 en una petición estimada por encima de 200.000 tokens (`NAN_COLD_CACHE_CEILING_TOKENS`) como desbordamiento de contexto para que pi compacte y reintente en vez de quedarse colgado; un 524 en una petición menor se deja intacto (timeout transitorio genuino).
+
 Modelos de imagen no-chat (disponibles vía `models.generateImages()` /
 `getModelOfType("image", …)`, no a través de `/model`):
 

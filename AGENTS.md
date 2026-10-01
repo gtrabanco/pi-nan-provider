@@ -65,13 +65,15 @@ factory in `src/provider-factory.ts`. A second provider-specific file is a smell
 refactor back to the factory and add a config entry in `src/providers.ts` instead.
 The `factory is shared` test in `test/provider-factory.test.ts` guards this contract.
 
-## Version policy (strict semver)
+## Version policy (strict semver, pi-aligned scheme)
 
 Every PR that changes code MUST bump `package.json` version in the same PR; CI publishes only when the version differs from npm.
 
-- **PATCH** (`0.1.z`): bug fixes, docs, comment-only changes, catalog regeneration with identical values.
-- **MINOR** (`0.x.0`): new features — new provider entries, new MCP tools, new env vars/config options, and (while `0.x`) breaking changes, each breaking change called out explicitly in the PR/changelog.
-- **MAJOR** (`x.0.0`): breaking changes once `1.0.0` is reached.
+Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release line the release is verified against** (pi 1.0.0 → package `1.0.x`; when pi ships 1.1.0, the next package release takes `1.1.0` even if it only carries fixes). The version marks the verified baseline, not the full support range — the npm `peerDependencies` range stays independent and usually wider.
+
+- **PATCH** (`1.0.z`): bug fixes, docs, comment-only changes, catalog regeneration with identical values — the usual release cadence between pi minor releases.
+- **MINOR** (`1.x.0`): reserved for tracking pi's minor releases (and may carry new features — new provider entries, new MCP tools, new env vars/config options).
+- **MAJOR** (`x.0.0`): breaking changes, and re-alignment if pi ever ships a new major.
 - Never reuse a published version; never publish with failing tests (CI gates publish on tests + typecheck).
 - The npm registry is the source of truth for "published"; `.github/workflows/publish.yml` compares `package.json` against `npm view` and publishes only on difference.
 
@@ -304,3 +306,38 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
   non-chat models, so image availability is not tier-filtered by the live `/models`
   list — the 403 at call time is the tier signal. NaN endpoints and quotas are
   documented in the package's image-model notes.
+- **Cold-cache 524 wedge: measured practical ceiling + two-threshold classifier**
+  (issue #18, measured 2026-10-01 with direct cold curl probes, no pi in the
+  loop): api.nan.builders sits behind Cloudflare with a 120 s Proxy Read
+  Timeout. A COLD prompt of 208,036 tokens (~960 KB body) answered in 12.9 s;
+  ~220k and ~286k tokens returned HTTP 524 `origin_response_timeout` at ~126 s
+  (JSON body or Cloudflare HTML page). Warm (cached) requests of the same size
+  answer in ~10 s. pi-ai (0.99.x–1.0.0) lists "524" in
+  `RETRYABLE_PROVIDER_ERROR_PATTERN` (retrying an identical cold payload always
+  fails) and `isContextOverflow()` matches nothing → the session wedges.
+  `src/context-overflow-classifier.ts` therefore has TWO independent
+  thresholds: the 400 branch (issue #3) keys on the model's `contextWindow`;
+  the 524 branch keys on `NAN_COLD_CACHE_CEILING_TOKENS` = 200,000 ONLY
+  (conservative midpoint below the last-working 208k measurement) — the
+  declared catalog windows are NOT reduced. A 524 below the ceiling stays a
+  transient retryable error. Compaction is a single pass with no hard-truncation
+  fallback in pi, so the rewrite rescues sessions that one compaction can bring
+  under the ceiling; far-over sessions still wedge (same limit as the #3 path).
+- **Stale persisted catalog shadowing (issue #19, verified on pi-ai/pi 1.0.0):**
+  pi-ai's `createProvider`-built `refreshModels` restores
+  `context.stored.models` VERBATIM in the cache-only phase
+  (`dynamicModels = restored`, a closure variable unreachable from outside) and
+  `currentModels()` lets a dynamic entry REPLACE the static baseline entry with
+  the same id+type — so a `models-store.json` entry written by an older package
+  version (e.g. without `thinkingLevelMap`) shadows the newer generated
+  capability data whenever its `checkedAt` is fresh; `ModelsStoreEntry` has no
+  version/staleness signal. pi's `ModelsImpl` resolves models exclusively via
+  the provider object's `getModels()`/`getAllModels()`. Fix: `src/provider-factory.ts`
+  wraps both accessors (`withStaleCatalogOverlay`) to apply generated-catalog
+  capability data at READ time (chat ids from the generated catalog, image ids
+  from `baselineImageModels`) — the store decides which ids exist, the
+  generated catalog decides capability data; uncatalogued ids (live-only
+  `glm5.3`, ghosts) pass through untouched. `refreshModels` is NOT overridden:
+  the network phase already persists correct merged data. Option (a) of the
+  reporter (version-stamping persisted entries) is NOT implementable
+  provider-side: the store write path belongs to pi-ai.

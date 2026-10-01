@@ -23,9 +23,11 @@
  * back to the generated catalog so startup is never blocked.
  */
 
-import type { Model, OpenAICompletionsCompat } from "@earendil-works/pi-ai";
-import type { ThinkingLevelMap } from "@earendil-works/pi-ai";
+import type { ImageModel, Model } from "@earendil-works/pi-ai";
+import type { ThinkingLevelMap, OpenAICompletionsCompat } from "@earendil-works/pi-ai";
 import { GENERATED_CATALOG_META, NAN_GENERATED_MODELS } from "../scripts/models.generated.ts";
+
+export { NAN_GENERATED_MODELS };
 
 export type { Model };
 
@@ -340,4 +342,147 @@ export async function fetchNanCompatibleModels(
 /** Metadata of the generated fallback catalog, for diagnostics and docs. */
 export function generatedCatalogMeta() {
 	return GENERATED_CATALOG_META;
+}
+
+// ── Stale catalog overlay (issue #19) ───────────────────────────────────────
+
+/**
+ * Build a lookup map from model id to generated catalog entry. Used by
+ * `overlayGeneratedCapabilities` so the overlay is a single Map lookup.
+ */
+export function buildGeneratedCatalogMap(
+	generated: readonly GeneratedModelEntry[] = NAN_GENERATED_MODELS,
+): Map<string, GeneratedModelEntry> {
+	return new Map(generated.map((entry) => [entry.id, entry]));
+}
+
+/**
+ * Pre-built lookup map for generated chat-catalog entries.
+ * Built once at module evaluation time so every read is a true O(1) Map.get.
+ * (The doc on `overlayGeneratedCapabilities` previously claimed O(1)
+ *  `buildGeneratedCatalogMap` was called on every call — this fixes that.)
+ */
+const _generatedCatalogMap: Map<string, GeneratedModelEntry> = buildGeneratedCatalogMap();
+
+/**
+ * Overlay generated-catalog capability data onto a stored/restored model when
+ * the model id exists in the generated catalog (and the model type matches).
+ *
+ * Returns the generated catalog entry converted to a pi-ai Model via `toModel`
+ * when there is an exact id match with the same api (openai-completions).
+ * Image models, classifier models, or ids not in the catalog pass through
+ * unchanged — the persisted store decides which ids exist, but only the
+ * generated catalog decides capability data (issue #19).
+ *
+ * When `prebuilt` is provided it must be a Map<string, GeneratedModelEntry>
+ * keyed by model id for chat entries only. This parameter exists so the
+ * provider wrapper can pass a prebuilt map instead of rebuilding it every
+ * call (module-level `_generatedCatalogMap` is used when omitted).
+ *
+ * This function is pure, stateless, and O(1) — a single Map.get lookup.
+ * It is called at read time from the provider wrapper so every consumer
+ * (pi, the model registry, downstream code) sees the latest capabilities.
+ */
+export function overlayGeneratedCapabilities(
+	model: Model<string> | ImageModel<string>,
+	generatedOrPrebuilt?: readonly GeneratedModelEntry[] | Map<string, GeneratedModelEntry>,
+): Model<string> | ImageModel<string> {
+	if (!("reasoning" in model && "contextWindow" in model)) {
+		// ImageModel and ClassifierModel do not have reasoning/contextWindow.
+		return model;
+	}
+	// Resolve the lookup map: prebuilt map > array > module-level singleton.
+	const byId: Map<string, GeneratedModelEntry> =
+		generatedOrPrebuilt instanceof Map
+			? generatedOrPrebuilt
+			: Array.isArray(generatedOrPrebuilt)
+				? buildGeneratedCatalogMap(generatedOrPrebuilt)
+				: _generatedCatalogMap;
+	const entry = byId.get(model.id);
+	// Only match when the generated catalog has this id AND the api is the
+	// chat api (openai-completions). Image models use a different api and
+	// a separate static list — they are not in this catalog.
+	if (entry && model.api === NAN_COMPAT_API) {
+		return toModel(entry, { providerId: model.provider, baseUrl: model.baseUrl });
+	}
+	return model;
+}
+
+// ── Combined overlay for chat + image models (GAP 1: getAllModels wrapping) ─
+
+/**
+ * Internal representation of an overlay entry: either a generated chat entry
+ * (GeneratedModelEntry → toModel result) or a baseline image model
+ * (ImageModel). Keys are model ids that are unique across chat/image
+ * namespaces.
+ */
+export interface OverlayEntry {
+	/** For chat models: the pi-ai Model produced by toModel(entry, source). */
+	chat?: Model<string>;
+	/** For image models: the ImageModel from baselineImageModels(source). */
+	image?: ImageModel<string>;
+}
+
+/**
+ * Build a combined overlay map keyed by model id. The overlay contains:
+ * - For every generated chat model id: the toModel() result (chat entry).
+ * - For every baseline image model: the ImageModel itself (image entry).
+ *
+ * This map is built once at factory time (in withStaleCatalogOverlay) and
+ * used by both `getModels` and `getAllModels` wrappers so every read path
+ * receives generated-catalog capability data regardless of whether the
+ * model is chat or image (issue #19, GAP 1).
+ */
+export function buildOverlayMap(
+	source: CatalogSource,
+	generated: readonly GeneratedModelEntry[] = NAN_GENERATED_MODELS,
+	imageModels?: ImageModel<string>[],
+): Map<string, OverlayEntry> {
+	const overlay = new Map<string, OverlayEntry>();
+	// Chat models from the generated catalog.
+	for (const entry of generated) {
+		overlay.set(entry.id, { chat: toModel(entry, source) });
+	}
+	// Image models from the baseline (these live under a different api id
+	// so they cannot coexist as chat entries — ids are unique across types).
+	if (imageModels) {
+		for (const img of imageModels) {
+			overlay.set(img.id, { image: img });
+		}
+	}
+	return overlay;
+}
+
+/**
+ * Internal model-like shape used by applyOverlay: every model type has id, api,
+ * and (for images) a `type` discriminator.
+ */
+interface _ModelLike {
+	id: string;
+	api: string;
+	type?: string;
+}
+
+/**
+ * Apply the combined overlay (chat + image) to a single model. Looks up the
+ * id in the provided map and returns the overlaid entry when present.
+ * Image models (type === "image") receive their ImageModel overlay; chat
+ * models receive their generated-catalog entry via `overlayGeneratedCapabilities`.
+ * ClassifierModel and other model types pass through unchanged.
+ */
+export function applyOverlay<T extends _ModelLike>(
+	model: T,
+	overlay: Map<string, OverlayEntry>,
+): T {
+	const entry = overlay.get(model.id);
+	if (!entry) return model;
+	// Image models: return the baseline ImageModel overlay.
+	if ((model as _ModelLike).type === "image") {
+		return (entry.image ?? model) as T;
+	}
+	// Chat models: use the standard overlay function (still O(1)).
+	if (entry.chat && model.api === NAN_COMPAT_API) {
+		return (entry.chat as unknown as T) ?? model;
+	}
+	return model;
 }

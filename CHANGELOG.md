@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-10-01
+
+### Changed
+
+- **Version scheme now tracks pi**: the package MAJOR.MINOR aligns with the pi
+  release line the release is verified against (pi 1.0.0 → package `1.0.x`);
+  PATCH is the normal cadence between pi minor releases. The peer dependency
+  range stays independent (`>=0.99.0 <2`) — the version marks the verified
+  baseline, not the support range. Documented in `AGENTS.md`.
+
+### Fixed
+
+- **Large cold prompts no longer wedge the session on HTTP 524** (issue #18).
+  Cold requests above ~208k tokens (~1 MB body) past Cloudflare's 120 s Proxy
+  Read Timeout return `524 origin_response_timeout` with no provider body:
+  pi-ai retried the identical cold payload 3× (always failing) and
+  `isContextOverflow()` matched nothing, so the session wedged permanently
+  (measured: cold 208,036 tokens OK at 12.9 s; ~220k and ~286k → 524 at ~126 s;
+  same sizes warm answer in ~10 s). The provider now reclassifies a 524 on an
+  estimated over-ceiling request as a context overflow so pi compacts and
+  retries — same mechanism as the issue #3 generic-400 rewrite, but keyed on
+  the measured cold-cache practical ceiling `NAN_COLD_CACHE_CEILING_TOKENS`
+  (200,000 tokens) instead of the model's declared window. A 524 on a smaller
+  request stays a genuine transient retryable error. The catalog's declared
+  context windows are unchanged; the practical ceiling is documented in the
+  READMEs and `AGENTS.md`.
+- **A stale persisted catalog no longer shadows new capability data**
+  (issue #19). pi-ai restores `models-store.json` entries verbatim at
+  cache-only registration and lets them replace the static baseline per
+  id+type, so a catalog written by an older package version (e.g. without
+  `thinkingLevelMap`) silently disabled the #16 fix after upgrades.
+  `src/provider-factory.ts` now wraps `getModels`/`getAllModels` so the
+  generated catalog's capability data (chat ids, plus image ids from the image
+  baseline) is applied at read time: the persisted store decides which ids
+  exist, the generated catalog decides capabilities; ids outside the catalog
+  (premium live-only `glm5.3`, ghosts) pass through untouched. Upgrading the
+  package now takes effect without deleting `~/.pi/agent/models-store.json`.
+
 ## [0.11.0] - 2026-10-01
 
 ### Added

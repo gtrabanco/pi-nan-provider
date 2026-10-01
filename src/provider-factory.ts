@@ -43,6 +43,11 @@ import {
 	DEFAULT_MODELS_TIMEOUT_MS,
 	resolveCatalog,
 	type CatalogSource,
+	overlayGeneratedCapabilities,
+	buildOverlayMap,
+	applyOverlay,
+	type OverlayEntry,
+	NAN_GENERATED_MODELS,
 } from "./fetch-models.ts";
 import { resolveOpenAICompletionsApi } from "./pi-ai-loader.ts";
 import { sanitizeOpenAICompatPayload } from "./openai-compat-sanitizer.ts";
@@ -134,6 +139,55 @@ export function wrapApiForStrictSanitization(api: ProviderStreams): ProviderStre
 }
 
 /**
+ * Stale-catalog overlay (issue #19): pi-ai's `createProvider` builds an
+ * internal `refreshModels` where phase 1 restores `context.stored.models`
+ * verbatim and phase 2 calls the input `fetchModels` + persists. The
+ * `dynamicModels` list is a closure variable — external code cannot assign
+ * it. When pi restores a persisted store entry written by an older version
+ * of this package (e.g. without `thinkingLevelMap`), that stale copy is
+ * used as-is and never refreshed (because `checkedAt` is recent).
+ *
+ * `currentModels()` merges static `input.models` with `dynamicModels` and a
+ * dynamic entry REPLACES the baseline entry with the same id+type (the
+ * shadowing mechanism). The `ModelsImpl` in pi resolves models exclusively
+ * via `getModels()` / `getAllModels()` on the provider object — it never
+ * inspects the internal dynamicModels list.
+ *
+ * The fix: wrap `getModels` and `getAllModels` on the returned provider so
+ * every call re-checks the generated catalog and applies capability data
+ * when the id exists there. The store decides which ids exist; the
+ * generated catalog decides capability data. Read-time overlay is the only
+ * provider-side hook that wins over the stale restore.
+ *
+ * `overlayMap` is prebuilt once at factory time from BOTH the generated
+ * chat catalog AND `baselineImageModels(source)`. Both `getModels`
+ * and `getAllModels` use `applyOverlay` for O(1) per-model lookup (GAP 2).
+ * This also covers image models: pi-ai's image models are only visible
+ * through `getAllModels()`, so a stale stored IMAGE entry would otherwise
+ * replace the baseline image entry with no overlay (GAP 1).
+ *
+ * We do NOT override `refreshModels` — the built-in phases stay intact. The
+ * overlay only affects read paths.
+ */
+function withStaleCatalogOverlay(
+	provider: Provider<"openai-completions">,
+	overlayMap: Map<string, OverlayEntry>,
+): Provider<"openai-completions"> {
+	return {
+		...provider,
+		getModels: () => {
+			const models = provider.getModels();
+			return models.map((m) => applyOverlay(m, overlayMap)) as typeof models;
+		},
+		getAllModels: () => {
+			const all = provider.getAllModels?.();
+			if (!all) return [];
+			return all.map((m) => applyOverlay(m, overlayMap));
+		},
+	};
+}
+
+/**
  * Build a complete pi-ai Provider for an OpenAI-compatible endpoint:
  *
  * - auth: stored credential key wins, then the first set env var resolves;
@@ -168,34 +222,40 @@ export async function createNanCompatibleProvider(
 	// `available` (e.g. premium-tier models you are not subscribed to).
 	let liveIds: Set<string> | undefined;
 
-	return piAi.createProvider({
-		id: config.id,
-		name: config.name,
-		baseUrl: config.baseUrl,
-		auth: { apiKey: piAi.envApiKeyAuth(`${config.name} API key`, config.envVars) },
-		models: [...baselineModels(source), ...baselineImageModels(source)],
-		images: { [NAN_IMAGE_API]: createNanImagesApi({ fetchImpl: options.fetchImpl, timeoutMs: options.timeoutMs }) },
-		fetchModels: async (context: RefreshModelsContext) => {
-			const credential = context.credential;
-			const resolved = await resolveCatalog(source, {
-				apiKey: credential?.type === "api_key" ? credential.key : undefined,
-				timeoutMs: options.timeoutMs ?? DEFAULT_MODELS_TIMEOUT_MS,
-				fetchImpl: options.fetchImpl,
-			});
-			liveIds = resolved.liveIds;
-			return resolved.models;
-		},
-		filterModels: (models) => {
-			// Snapshot: TS can't prove `liveIds` unchanged across the closure boundary.
-			const current = liveIds;
-			return current ? models.filter((model) => current.has(model.id)) : models;
-		},
-		// Sanitize the payload for NaN's strict schema, then classify an opaque
-		// generic 400 as a context overflow when the request we just sent was over
-		// the model's window. The second layer keeps a replayed cross-model
-		// reasoning trace (or any other over-window request the context-hook guard
-		// cannot reach, e.g. NAN_THINKING_GUARD=0) recoverable instead of wedging
-		// the session — see src/context-overflow-classifier.ts.
-		api: withContextOverflowClassification(wrapApiForStrictSanitization(apiFactory())),
-	});
+	const imageModels = baselineImageModels(source);
+	const overlayMap = buildOverlayMap(source, NAN_GENERATED_MODELS, imageModels);
+
+	return withStaleCatalogOverlay(
+		piAi.createProvider({
+			id: config.id,
+			name: config.name,
+			baseUrl: config.baseUrl,
+			auth: { apiKey: piAi.envApiKeyAuth(`${config.name} API key`, config.envVars) },
+			models: [...baselineModels(source), ...baselineImageModels(source)],
+			images: { [NAN_IMAGE_API]: createNanImagesApi({ fetchImpl: options.fetchImpl, timeoutMs: options.timeoutMs }) },
+			fetchModels: async (context: RefreshModelsContext) => {
+				const credential = context.credential;
+				const resolved = await resolveCatalog(source, {
+					apiKey: credential?.type === "api_key" ? credential.key : undefined,
+					timeoutMs: options.timeoutMs ?? DEFAULT_MODELS_TIMEOUT_MS,
+					fetchImpl: options.fetchImpl,
+				});
+				liveIds = resolved.liveIds;
+				return resolved.models;
+			},
+			filterModels: (models) => {
+				// Snapshot: TS can't prove `liveIds` unchanged across the closure boundary.
+				const current = liveIds;
+				return current ? models.filter((model) => current.has(model.id)) : models;
+			},
+			// Sanitize the payload for NaN's strict schema, then classify an opaque
+			// generic 400 as a context overflow when the request we just sent was over
+			// the model's window. The second layer keeps a replayed cross-model
+			// reasoning trace (or any other over-window request the context-hook guard
+			// cannot reach, e.g. NAN_THINKING_GUARD=0) recoverable instead of wedging
+			// the session — see src/context-overflow-classifier.ts.
+			api: withContextOverflowClassification(wrapApiForStrictSanitization(apiFactory())),
+		}),
+		overlayMap,
+	);
 }
