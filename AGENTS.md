@@ -198,9 +198,16 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
   entry) so the id is never emitted twice.
   Non-chat endpoints: qwen3-embedding, rerank, kokoro (TTS), whisper (STT),
   flux-2-klein and qwen-image-2.1 (images) — MCP-bridge territory, not chat
-  catalog models; `qwen-image-2.1` also sits on models.dev with
-  `limit.output: 0`, so generation excludes it via `NON_CHAT_MODEL_IDS`
-  instead of flagging it "needs manual verification" forever.
+  catalog models. The classification is now applied at RUNTIME too:
+  `NON_CHAT_MODEL_IDS` is exported from `src/fetch-models.ts` (single source
+  of truth: id → provenance reason), imported by `scripts/generate-models.ts`
+  (one definition, no duplicate), enforced by `mergeLiveWithGenerated` (those
+  ids land in the `nonChat` bucket and never enter the registry), and filtered
+  defensively by `baselineModels`. The generator excluded `qwen-image-2.1` via
+  this constant before (it also sits on models.dev with `limit.output: 0`,
+  excluded instead of being flagged "needs manual verification" forever); all
+  six ids are now under the same guard so they can never be emitted as chat
+  models or registered at runtime.
 - NaN can close an SSE stream **before** `finish_reason`. The catalog sets
   `supportsFinishReason: true` so pi-ai raises the retryable
   `Stream ended without finish_reason` (pi-ai's `RETRYABLE_PROVIDER_ERROR_PATTERN`

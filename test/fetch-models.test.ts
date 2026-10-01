@@ -122,10 +122,14 @@ describe("mergeLiveWithGenerated", () => {
 	});
 
 	test("all live ids surface; uncatalogued ones get unknown capabilities", () => {
-		const merged = mergeLiveWithGenerated(["glm5.3", "brand-new-model", "qwen3-embedding"], SOURCE);
-		expect(merged.unknown).toEqual(["glm5.3", "brand-new-model", "qwen3-embedding"]);
+		// qwen3-embedding is a non-chat endpoint (text embedding) — issue #15
+		// requires it to be excluded from the chat catalog, so it no longer
+		// surfaces here.  Only chat-style uncatalogued ids exercise the
+		// unknown-path placeholder logic.
+		const merged = mergeLiveWithGenerated(["glm5.3", "brand-new-model"], SOURCE);
+		expect(merged.unknown).toEqual(["glm5.3", "brand-new-model"]);
 		expect(merged.matched).toEqual([]);
-		expect(merged.models.map((model) => model.id).sort()).toEqual(["brand-new-model", "glm5.3", "qwen3-embedding"]);
+		expect(merged.models.map((model) => model.id).sort()).toEqual(["brand-new-model", "glm5.3"]);
 		const model = merged.models[0]!;
 		expect(model.contextWindow).toBe(UNKNOWN_MODEL_LIMITS.contextWindow);
 		expect(model.maxTokens).toBe(UNKNOWN_MODEL_LIMITS.maxTokens);

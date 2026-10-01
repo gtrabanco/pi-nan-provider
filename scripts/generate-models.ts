@@ -25,7 +25,8 @@
  *   MANUAL_ONLY entry — or this script exits non-zero.
  * - Any other models.dev entry missing `limit.context`/`limit.output` is
  *   skipped and flagged "needs manual verification" — never guessed. Entries
- *   that are not chat models are excluded via NON_CHAT_MODEL_IDS instead.
+ *   that are not chat models are excluded via NON_CHAT_MODEL_IDS instead
+ *   (defined in `src/fetch-models.ts` and also enforced at runtime).
  * - models.dev modalities are intersected with pi's supported input set
  *   ("text" | "image"); e.g. mimo-v2.6-flash's audio input is not
  *   representable in pi's Model type and is dropped from `input` (noted on
@@ -33,6 +34,7 @@
  */
 
 import type { GeneratedModelEntry } from "../src/fetch-models.ts";
+import { NON_CHAT_MODEL_IDS } from "../src/fetch-models.ts";
 import type { ManualModelOverride } from "./manual-overrides.ts";
 import {
 	MANUAL_OVERRIDES,
@@ -97,17 +99,10 @@ const PROVIDER_REMOVED_MODEL_IDS: Record<string, string> = {
 		"removed by NaN (checked 2026-09-29): zero mentions in https://nan.builders/docs/models and in the model param description of https://nan.builders/openapi.json, and models.dev provider nan dropped it as well — superseded by mimo-v2.6-flash; excluded so regeneration does not resurrect it",
 };
 
-/**
- * models.dev entries that are not chat models. They can never join a chat
- * catalog (their output is an image, and models.dev reports limit.output 0),
- * so they are excluded with the docs as the reason instead of being flagged
- * "needs manual verification" forever — that flag would suggest limits worth
- * confirming for a model this package must not serve as chat.
- */
-const NON_CHAT_MODEL_IDS: Record<string, string> = {
-	"qwen-image-2.1":
-		"image-generation model (text→image; output modality image) documented in https://nan.builders/docs/models and https://nan.builders/openapi.json (checked 2026-09-29) — not a chat model, out of the static chat catalog (models.dev reports limit.output 0)",
-};
+// NON_CHAT_MODEL_IDS (six non-chat endpoint ids) is imported from its single
+// source of truth, `src/fetch-models.ts`, where the runtime live merge applies
+// the same classification. Here it feeds convertModel's exclusion and the
+// exclusion-note list in GENERATED_CATALOG_META.notes.
 
 /**
  * Premium/tier-gated models that models.dev documents but that are deliberately
@@ -346,6 +341,14 @@ async function main(): Promise<void> {
 	// so the manual data never disappears silently.
 	const entryById = new Map(entries.map((entry) => [entry.id, entry]));
 	for (const [modelId, detail] of Object.entries(MANUAL_ONLY_MODEL_IDS)) {
+		// Guard: a MANUAL_ONLY_MODEL_IDS entry must not be a non-chat id.
+		// (REQUIRED_MODEL_IDS can't land here: if a required id were non-chat,
+		// convertModel skips it and the existing missing-required fail already
+		// fires — but this guard is explicit for MANUAL_ONLY.)
+		const nonChatReason = NON_CHAT_MODEL_IDS[modelId];
+		if (nonChatReason) {
+			fail(`MANUAL_ONLY_MODEL_IDS id "${modelId}" is classified as non-chat (${nonChatReason}) — this is a contradictory repo configuration`);
+		}
 		const existing = entryById.get(modelId);
 		if (existing) {
 			const note = `manual-only: "${modelId}" skipped: models.dev provider "${SOURCE_PROVIDER_ID}" now lists it, so the manual-only entry is not emitted and the models.dev values are used (${detail})`;

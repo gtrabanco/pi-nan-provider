@@ -12,13 +12,15 @@
  *     only model `id`s — no capability fields. It is used as the authoritative
  *     list of what the endpoint returns for the API key.
  *
- * Merge: live IDs × generated capability data — all live IDs surface:
- * a live ID with generated data keeps its generated capabilities, and an
- * uncatalogued live ID (e.g. a new or undocumented model) gets conservative
- * placeholder limits (the same defaults used in custom-provider.md's
- * dynamic-discovery example) with no reasoning support — capabilities stay
- * "unknown", nothing is fabricated. On fetch failure, timeout, or an unusable
- * response, callers fall back to the generated catalog so startup is never blocked.
+ * Merge: live IDs × generated capability data — non-chat IDs (see
+ * `NON_CHAT_MODEL_IDS`) are excluded from the registered model set and
+ * reported in `MergedCatalog.nonChat`; all other live IDs surface: a live ID
+ * with generated data keeps its generated capabilities, and an uncatalogued
+ * live ID (e.g. a new or undocumented model) gets conservative placeholder
+ * limits (the same defaults used in custom-provider.md's dynamic-discovery
+ * example) with no reasoning support — capabilities stay "unknown", nothing is
+ * fabricated. On fetch failure, timeout, or an unusable response, callers fall
+ * back to the generated catalog so startup is never blocked.
  */
 
 import type { Model, OpenAICompletionsCompat } from "@earendil-works/pi-ai";
@@ -81,6 +83,32 @@ export const UNKNOWN_MODEL_LIMITS = { contextWindow: 128_000, maxTokens: 4_096 }
 /** Timeout for the live /models fetch; matches the pi-synthetic-provider precedent (~3s). */
 export const DEFAULT_MODELS_TIMEOUT_MS = 3_000;
 
+/**
+ * Live endpoint IDs classified as non-chat and excluded from the registered
+ * model set. Keys are model ids; values are provenance reasons citing the
+ * source that designated the endpoint as non-chat.
+ *
+ * Source: https://nan.builders/docs/models (checked 2026-10-01), plus
+ * qwen-image-2.1: https://models.dev API `limit.output: 0` (checked 2026-09-29).
+ * These are MCP-bridge territory (embedding / rerank / TTS / STT / image
+ * generation), not chat catalog models — see AGENTS.md classification notes
+ * and issue #15.
+ */
+export const NON_CHAT_MODEL_IDS: Readonly<Record<string, string>> = {
+	"qwen3-embedding":
+		"embedding endpoint (https://nan.builders/docs/models, checked 2026-10-01) — not a chat model",
+	rerank:
+		"rerank endpoint (https://nan.builders/docs/models, checked 2026-10-01) — not a chat model",
+	kokoro:
+		"text-to-speech (TTS) endpoint (https://nan.builders/docs/models, checked 2026-10-01) — not a chat model",
+	whisper:
+		"speech-to-text (STT) endpoint (https://nan.builders/docs/models, checked 2026-10-01) — not a chat model",
+	"flux-2-klein":
+		"image generation endpoint (https://nan.builders/docs/models, checked 2026-10-01) — not a chat model",
+	"qwen-image-2.1":
+		"image-generation model (text→image; output modality image) documented in https://nan.builders/docs/models and https://nan.builders/openapi.json (checked 2026-09-29) — not a chat model, out of the static chat catalog (models.dev reports limit.output 0)",
+} as const;
+
 export interface CatalogSource {
 	/** Provider id as registered in pi, e.g. "nan". */
 	providerId: string;
@@ -108,7 +136,11 @@ export function toModel(entry: GeneratedModelEntry, source: CatalogSource): Mode
 
 /** The generated fallback catalog as pi-ai Models for the given provider. */
 export function baselineModels(source: CatalogSource): Model<"openai-completions">[] {
-	return NAN_GENERATED_MODELS.map((entry) => toModel(entry, source));
+	// Defensive: the generated baseline never contains non-chat ids today,
+	// but the invariant must hold on every path (issue #15).
+	return NAN_GENERATED_MODELS.filter(
+		(entry) => !NON_CHAT_MODEL_IDS[entry.id],
+	).map((entry) => toModel(entry, source));
 }
 
 export interface LiveModelListOptions {
@@ -163,12 +195,18 @@ export interface MergedCatalog {
 	matched: string[];
 	/** Allowlisted live IDs kept with unknown capabilities (conservative limits). */
 	unknown: string[];
+	/**
+	 * Live model IDs classified as non-chat and excluded from the registered
+	 * model set, in live order. Populated from `NON_CHAT_MODEL_IDS` (issue #15).
+	 */
+	nonChat: string[];
 }
 
 /**
- * Merge live model IDs with the generated capability catalog. All live IDs
- * surface: live IDs with generated data keep their generated capabilities;
- * uncatalogued live IDs get conservative placeholder limits,
+ * Merge live model IDs with the generated capability catalog. Non-chat IDs
+ * (from `NON_CHAT_MODEL_IDS`) are excluded and reported in `nonChat`; all
+ * other live IDs surface: live IDs with generated data keep their generated
+ * capabilities; uncatalogued live IDs get conservative placeholder limits,
  * `reasoning: false`, and zero cost (documented defaults, not invented
  * capabilities).
  */
@@ -181,8 +219,15 @@ export function mergeLiveWithGenerated(
 	const models: Model<"openai-completions">[] = [];
 	const matched: string[] = [];
 	const unknown: string[] = [];
+	const nonChat: string[] = [];
 
 	for (const id of liveIds) {
+		// Issue #15: non-chat endpoint ids must never surface as chat models.
+		const nonChatReason = NON_CHAT_MODEL_IDS[id];
+		if (nonChatReason) {
+			nonChat.push(id);
+			continue;
+		}
 		const entry = byId.get(id);
 		if (entry) {
 			models.push(toModel(entry, source));
@@ -217,7 +262,7 @@ export function mergeLiveWithGenerated(
 		}
 	}
 
-	return { models, matched, unknown };
+	return { models, matched, unknown, nonChat };
 }
 
 export interface FetchModelsOptions {
@@ -240,13 +285,19 @@ export interface ResolvedCatalog {
 	liveIds: Set<string> | undefined;
 	/** Allowlisted live IDs kept with unknown capabilities (present only when liveIds is set). */
 	unknownIds: string[];
+	/**
+	 * Live model IDs classified as non-chat and excluded from the registered
+	 * model set (issue #15). Empty when the live fetch failed.
+	 */
+	nonChatIds: string[];
 }
 
 /**
  * Resolve the effective catalog: live `/models` IDs × generated capability
  * data. A successful live fetch is authoritative (tier-aware: it reflects
  * exactly what your NaN key can use); failure degrades to the generated
- * fallback so startup is never blocked.
+ * fallback so startup is never blocked. Non-chat IDs are excluded from
+ * models and reported in `nonChatIds` (issue #15).
  */
 export async function resolveCatalog(
 	source: CatalogSource,
@@ -260,11 +311,16 @@ export async function resolveCatalog(
 			timeoutMs: options.timeoutMs,
 			fetchImpl: options.fetchImpl,
 		});
-		if (!liveIds) return { models: baseline, liveIds: undefined, unknownIds: [] };
+		if (!liveIds) return { models: baseline, liveIds: undefined, unknownIds: [], nonChatIds: [] };
 		const merged = mergeLiveWithGenerated(liveIds, source);
-		return { models: merged.models, liveIds: new Set(liveIds), unknownIds: merged.unknown };
+		return {
+			models: merged.models,
+			liveIds: new Set(liveIds),
+			unknownIds: merged.unknown,
+			nonChatIds: merged.nonChat,
+		};
 	} catch {
-		return { models: baseline, liveIds: undefined, unknownIds: [] };
+		return { models: baseline, liveIds: undefined, unknownIds: [], nonChatIds: [] };
 	}
 }
 

@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.3] — 2026-10-01
+
+### Fixed
+
+- **Non-chat live `/models` ids are no longer registered as chat models**
+  (issue #15). NaN's `GET /v1/models` endpoint returns ids for
+  embedding/rerank/TTS/STT/image endpoints (`qwen3-embedding`, `rerank`,
+  `kokoro`, `whisper`, `flux-2-klein`, `qwen-image-2.1`) alongside chat
+  models, so the live `/models` merge was registering them as chat models —
+  pi's chat picker offered them and requests failed with 404.
+  - `src/fetch-models.ts` now exports `NON_CHAT_MODEL_IDS` (single source of
+    truth: id → provenance reason) imported by `scripts/generate-models.ts` —
+    one definition, no duplicate. The generator already excluded
+    `qwen-image-2.1`; all six ids are now in the same guard.
+  - `mergeLiveWithGenerated` skips the placeholder for those ids and reports
+    them in a new `MergedCatalog.nonChat: string[]` bucket; they never enter
+    the provider registry. `resolveCatalog` exposes
+    `ResolvedCatalog.nonChatIds: string[]` (`[]` on the fallback path).
+  - `baselineModels` filters them defensively as an extra safety layer.
+  - Uncatalogued CHAT ids (not in the list above) keep getting the
+    conservative placeholder — that behavior is unchanged.
+
 ## [0.10.2] — 2026-10-01
 
 ### Fixed

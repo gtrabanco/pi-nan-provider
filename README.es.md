@@ -41,6 +41,8 @@ El proveedor utiliza un **catálogo de modelos de dos capas** para garantizar la
 > [!IMPORTANT]
 > **Detección de Tier**: La lista en vivo es la autoridad. Si tu clave tiene acceso premium, esos modelos aparecerán automáticamente; de lo contrario, se filtran.
 
+Los ids no-chat que devuelve `/models` en vivo (embedding, rerank, TTS, STT, imagen) **no se registran** como modelos de chat — la clasificación es el único `NON_CHAT_MODEL_IDS` exportado desde `src/fetch-models.ts` (la misma fuente que usa el generador en build-time). La fusión salta sus marcadores y los coloca en un bucket observable `nonChat`; `baselineModels` también los filtra como capa defensiva. Esto evita que el selector de chat de pi ofrezca endpoints que no pueden servir chat (las peticiones devolverían 404).
+
 El registro es síncrono a propósito: el catálogo de fallback está disponible al instante, y el runtime de Models de pi dirige el refresco en vivo (refresco de red en el arranque interactivo y periódico, solo caché en el registro), persistiendo el overlay entre ejecuciones.
 
 ### 🧠 Seguridad al cambiar de modelo (guard de razonamiento cross-model)

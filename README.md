@@ -41,6 +41,8 @@ The provider uses a **two-layer model catalog** to ensure reliability:
 > [!IMPORTANT]
 > **Tier Detection**: The live list is authoritative. If your key has premium access, those models will appear automatically; otherwise, they are filtered out.
 
+NaN's live `/models` also returns non-chat endpoint ids (embedding, rerank, TTS, STT, image). These are **not registered** as chat models — the classification is the single exported `NON_CHAT_MODEL_IDS` from `src/fetch-models.ts` (the same source used by the build-time generator). The merge skips their placeholders and places them in an observable `nonChat` bucket; `baselineModels` also filters them defensively. This prevents pi's chat picker from offering endpoints that cannot serve chat (requests would 404).
+
 The registration is synchronous on purpose: the generated fallback catalog is available immediately, and pi's Models runtime drives the live refresh (network refresh at interactive startup and periodically, cache-only at registration), persisting the overlay between runs.
 
 ### 🧠 Model-switch safety (cross-model reasoning guard)
