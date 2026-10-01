@@ -25,6 +25,12 @@ export interface NanProviderState {
 
 export type BridgeKey = keyof NanProviderState;
 
+/** Server name each bridge registers with `pi.registerMcpServer()`. Single source of truth. */
+export const MCP_SERVER_NAMES: Record<BridgeKey, string> = {
+	webSearch: "nan-search",
+	mediaMcp: "nan-media",
+};
+
 export type BridgeSource = "env" | "persisted" | "default";
 
 function stateFilePath(): string {

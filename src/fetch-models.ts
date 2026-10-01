@@ -22,6 +22,7 @@
  */
 
 import type { Model, OpenAICompletionsCompat } from "@earendil-works/pi-ai";
+import type { ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { GENERATED_CATALOG_META, NAN_GENERATED_MODELS } from "../scripts/models.generated.ts";
 
 export type { Model };
@@ -46,6 +47,15 @@ export interface GeneratedModelEntry {
 	 * An undefined array means the field was not set (legacy / uncatalogued).
 	 */
 	reasoningEffortValues?: string[];
+	/**
+	 * Mapping from pi-ai's user-facing thinking levels to model-specific effort
+	 * strings. When `reasoning: "off"` maps to undefined in pi-ai,
+	 * thinkingLevelMap.off supplies the effort value that NaN understands
+	 * (e.g. "none" for deepseek-v4-flash, "minimal" for glm5.3-flash).
+	 * Without this, no reasoning_effort is sent and NaN does NOT disable
+	 * reasoning, causing runaway reasoning (issue #16).
+	 */
+	thinkingLevelMap?: ThinkingLevelMap;
 	/** Compat applied to every NaN-compatible model (LiteLLM-confirmed, see scripts/generate-models.ts). */
 	compat?: OpenAICompletionsCompat;
 	/** Provenance notes for values overriding models.dev or needing manual confirmation. */
@@ -92,6 +102,7 @@ export function toModel(entry: GeneratedModelEntry, source: CatalogSource): Mode
 		contextWindow: entry.contextWindow,
 		maxTokens: entry.maxTokens,
 		...(entry.compat ? { compat: { ...entry.compat } } : {}),
+		...(entry.thinkingLevelMap ? { thinkingLevelMap: { ...entry.thinkingLevelMap } } : {}),
 	};
 }
 

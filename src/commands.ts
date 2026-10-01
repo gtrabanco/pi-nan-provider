@@ -28,8 +28,9 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { mediaMcpCommand, mediaMcpEnabled, mediaMcpSource, mediaMcpEnvExplicit, mediaMcpEnvTruthy, mediaMcpTimeoutSec } from "./mcp/media-server.ts";
 import { webSearchBridgeEnabled, webSearchBridgeSource, mcpToolsEnvExplicit, mcpToolsDisabled } from "./mcp/api-key.ts";
-import { NAN_API_KEY_ENV, tryResolveNanApiKeyViaRegistry } from "./mcp/api-key.ts";
-import { NAN_STATE_FILE, readBridgeState, writeBridgeState, type BridgeKey, readState, writeState } from "./mcp/state.ts";
+import { NAN_API_KEY_ENV, tryResolveNanApiKeyViaRegistry, resolveStoredNanApiKey } from "./mcp/api-key.ts";
+import { NAN_STATE_FILE, MCP_SERVER_NAMES, readBridgeState, writeBridgeState, type BridgeKey, readState, writeState } from "./mcp/state.ts";
+import { connectorMissingMessage, hasMcpConnector } from "./mcp/host-support.ts";
 
 const USAGE =
 	"Usage: /nan-mcp [status] · /nan-mcp enable [web-search|nan-mcp-server] · /nan-mcp disable [web-search|nan-mcp-server]";
@@ -67,7 +68,7 @@ function sourceLabel(bridge: BridgeKey, source: "env" | "persisted" | "default")
 
 /** Resolve a bridge key to its native server name. */
 function serverName(bridge: BridgeKey): string {
-	return bridge === "webSearch" ? "nan-search" : "nan-media";
+	return MCP_SERVER_NAMES[bridge];
 }
 
 /** Describe the bridge in the status message. */
@@ -86,9 +87,15 @@ function nativeServerRegistered(pi: ExtensionAPI, name: string): boolean {
 	}
 }
 
-/** Status message listing both bridges' gate state and native registration. */
-function statusMessage(pi: ExtensionAPI): string {
+/** Status message listing both bridges' gate state and native registration.
+ * `ctx` is the command context (provides modelRegistry for key lookup).
+ */
+async function statusMessage(pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<string> {
 	const lines: string[] = [];
+
+	if (!hasMcpConnector(pi)) {
+		lines.push(connectorMissingMessage([MCP_SERVER_NAMES.webSearch, MCP_SERVER_NAMES.mediaMcp]));
+	}
 
 	for (const bridge of ["webSearch" as BridgeKey, "mediaMcp" as BridgeKey]) {
 		const enabled = bridge === "webSearch" ? webSearchBridgeEnabled() : mediaMcpEnabled();
@@ -98,7 +105,7 @@ function statusMessage(pi: ExtensionAPI): string {
 
 		if (bridge === "webSearch") {
 			// Key status for web-search
-			const keyStatus = resolveKeyStatus(pi);
+			const keyStatus = await resolveKeyStatus(ctx);
 			lines.push(`  API key: ${keyStatus}.`);
 		}
 		if (bridge === "mediaMcp") {
@@ -110,12 +117,14 @@ function statusMessage(pi: ExtensionAPI): string {
 	return lines.join("\n");
 }
 
-/** Check API key resolution status for web-search. */
-async function resolveKeyStatus(pi: ExtensionAPI): Promise<string> {
-	// @ts-expect-error — modelRegistry is a runtime surface.
-	const registryKey = await tryResolveNanApiKeyViaRegistry(pi.modelRegistry);
+/** Check API key resolution status for web-search.
+ * `ctx` is the command context (provides modelRegistry).
+ */
+async function resolveKeyStatus(ctx: ExtensionCommandContext): Promise<string> {
+	const registryKey = await tryResolveNanApiKeyViaRegistry(ctx.modelRegistry);
+	const storedKey = resolveStoredNanApiKey();
 	const envKey = process.env[NAN_API_KEY_ENV];
-	if (registryKey || envKey) return "resolved";
+	if (registryKey || storedKey || envKey) return "resolved";
 	return "NOT SET — run /login nan or export NAN_API_KEY";
 }
 
@@ -161,7 +170,7 @@ export function registerNanMcpCommand(pi: ExtensionAPI): void {
 			const subcommand = rawSubcommand.toLowerCase();
 
 			if (subcommand === "status") {
-				ctx.ui.notify(statusMessage(pi), "info");
+				ctx.ui.notify(await statusMessage(pi, ctx), "info");
 				return;
 			}
 
@@ -183,6 +192,22 @@ export function registerNanMcpCommand(pi: ExtensionAPI): void {
 					writeBridgeState(bridge, enabled);
 				}
 
+				const where = target ? `for "${target}"` : "for both bridges";
+				const persistence = `persisted in <agentDir>/${NAN_STATE_FILE}`;
+
+				// Without an extension that handles `mcp_servers_change` pi cannot connect the
+				// servers; registering would only trigger its "no loaded extension connects MCP
+				// servers" error (see src/mcp/host-support.ts). The toggle above still persists,
+				// so it applies as soon as a connector (built-in `mcp`) is available.
+				if (enabled && !hasMcpConnector(pi)) {
+					ctx.ui.notify(
+						`Enabled ${describeBridges(bridges)} ${where}, ${persistence} — NOT registered. ` +
+							connectorMissingMessage(bridges.map(serverName)),
+						"warning",
+					);
+					return;
+				}
+
 				// Immediate native registration/unregistration.
 				for (const bridge of bridges) {
 					const name = serverName(bridge);
@@ -190,9 +215,10 @@ export function registerNanMcpCommand(pi: ExtensionAPI): void {
 						// Only register if gate allows it.
 						if (bridgeEffectivelyEnabled(bridge)) {
 							if (bridge === "webSearch") {
-								// @ts-expect-error — modelRegistry is a runtime surface.
-								const registryKey = await tryResolveNanApiKeyViaRegistry(pi.modelRegistry);
-								const apiKey = registryKey ?? process.env[NAN_API_KEY_ENV];
+								// Resolve key: stored credential → registry → env.
+								const registryKey = await tryResolveNanApiKeyViaRegistry(ctx.modelRegistry);
+								const storedKey = resolveStoredNanApiKey();
+								const apiKey = storedKey ?? registryKey ?? process.env[NAN_API_KEY_ENV];
 								if (apiKey) {
 									pi.registerMcpServer(name, {
 										type: "http",
@@ -207,15 +233,26 @@ export function registerNanMcpCommand(pi: ExtensionAPI): void {
 									);
 								}
 							} else {
-								const mediaArgs = mediaMcpCommand();
-								pi.registerMcpServer(name, {
-									type: "stdio",
-									command: mediaArgs[0]!,
-									args: mediaArgs.slice(1),
-									env: { [NAN_API_KEY_ENV]: process.env[NAN_API_KEY_ENV] ?? "" },
-									exposure: "direct",
-									timeout: mediaMcpTimeoutSec(),
-								});
+								// Resolve key for media: stored credential → registry → env.
+								const registryKey = await tryResolveNanApiKeyViaRegistry(ctx.modelRegistry);
+								const storedKey = resolveStoredNanApiKey();
+								const apiKey = storedKey ?? registryKey ?? process.env[NAN_API_KEY_ENV];
+								if (apiKey) {
+									const mediaArgs = mediaMcpCommand();
+									pi.registerMcpServer(name, {
+										type: "stdio",
+										command: mediaArgs[0]!,
+										args: mediaArgs.slice(1),
+										env: { [NAN_API_KEY_ENV]: apiKey },
+										exposure: "direct",
+										timeout: mediaMcpTimeoutSec(),
+									});
+								} else {
+									ctx.ui.notify(
+										`${NAN_API_KEY_ENV} is not set. Export it or run /login nan.`,
+										"warning",
+									);
+								}
 							}
 						}
 					} else {
@@ -223,13 +260,22 @@ export function registerNanMcpCommand(pi: ExtensionAPI): void {
 					}
 				}
 
-				const where = target ? `for "${target}"` : "for both bridges";
-				const persistence = `persisted in <agentDir>/${NAN_STATE_FILE}`;
 				if (enabled) {
-					ctx.ui.notify(
-						`Enabled ${describeBridges(bridges)} ${where}, ${persistence}. Native servers registered for this session.`,
-						"info",
+					// Only claim success if servers were actually registered.
+					const allRegistered = bridges.every((b: BridgeKey) =>
+						nativeServerRegistered(pi, serverName(b)),
 					);
+					if (allRegistered) {
+						ctx.ui.notify(
+							`Enabled ${describeBridges(bridges)} ${where}, ${persistence}. Native servers registered for this session.`,
+							"info",
+						);
+					} else {
+						ctx.ui.notify(
+							`Enabled ${describeBridges(bridges)} ${where}, ${persistence} — API key missing; servers not registered.`,
+							"warning",
+						);
+					}
 				} else {
 					ctx.ui.notify(
 						`Disabled ${describeBridges(bridges)} ${where}, ${persistence}. Native servers unregistered — tools hidden immediately.`,

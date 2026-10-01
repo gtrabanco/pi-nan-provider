@@ -107,9 +107,38 @@ Both bridges are **enabled by default** (session-scoped, visible in `/mcp`). Use
 
 | Command | Effect |
 | :--- | :--- |
-| `/nan-mcp status` | Shows current state of both bridges. |
+| `/nan-mcp status` | Shows current state of both bridges and API key resolution. |
 | `/nan-mcp enable [target]` | Enables `web-search` or `nan-mcp-server` (persisted). |
 | `/nan-mcp disable [target]` | Disables a bridge persistently. |
+
+Both bridges resolve the stored `/login nan` credential (stored → env). If neither resolves, the bridge does not register and a warning is shown in the status output.
+
+> [!NOTE]
+> Registration happens when the extension loads. If you run `/login nan` **after** the session started, the factory has already run — run `/reload` (or `/nan-mcp enable`) to register the bridges without restarting pi.
+
+### 🚧 Hosts without pi's built-in MCP extension (PI WEB)
+
+pi connects registered servers from the extension that handles `mcp_servers_change` — the built-in
+`mcp` extension, which also registers `/mcp`. Hosts that build pi's resource loader without
+`extensionFactories` load **no** built-in extension at all (verified: PI WEB's
+`createAgentSessionServices`, pi 0.99.1 / pi-web 1.202609.1), so nothing connects the servers and pi
+reports `MCP server "nan-media" is registered, but no loaded extension connects MCP servers`.
+
+There the bridges cannot expose tools, so this package replaces that cryptic error with one warning
+per session, keeps the registrations idle, and lets `/nan-mcp enable` persist the toggle without
+registering a server that can never connect. To get MCP in the CLI, enable the connector with
+`pi config` → Built-in extensions → `mcp`.
+
+### pi 0.99 features and NaN models
+
+- **Virtual models** — register a router under `nan` (`pi.registerVirtualModel({ provider: "nan", ... })`);
+  it routes to the physical NaN models with no provider-side configuration. The cross-model thinking
+  guard skips virtual selections, because the routed physical model is not visible to the `context` hook.
+- **Codemode** — works with any tool-calling NaN model. This package's MCP tools use
+  `exposure: "direct"`, so codemode scripts can call them as well. Requires pi's built-in `codemode`
+  extension (see the PI WEB note above).
+- **Classifier models** — not applicable: NaN exposes no classifier API (chat plus
+  embedding/rerank/audio/image endpoints only), so this provider registers no `type: "classifier"` models.
 
 ---
 
@@ -277,9 +306,13 @@ NaN's `reasoning_effort` parameter controls how much the model thinks before ans
 
 | Model | Reasoning effort | How it works |
 | :--- | :--- | :--- |
-| `glm5.3`, `glm5.3-flash` | `low` · `medium` · `high` · `max` | Fully controllable — higher values let the model reason longer |
-| `qwen3.6`, `gemma4` | `none` · `minimal` · `low` · `medium` · `high` · `max` | `none`/`minimal` skip reasoning entirely; others cap at 2K / 8K / 16K / 32K tokens |
-| `deepseek-v4-flash`, `qwen3.8-flash`, `mimo-v2.6-flash` | *(accepted but not adjustable)* | The parameter is accepted and never rejected, but the model manages its own reasoning depth — it is never an error to send a value these models don't adjust |
+| `glm5.3`, `glm5.3-flash` | `minimal` · `low` · `medium` · `high` · `max` | Fully controllable — higher values let the model reason longer; `minimal` yields ~38 reasoning tokens (issue #16, measured 2026-09-27); `none` does NOT suppress reasoning on glm5.3-flash (13,382 tokens) |
+| `qwen3.6`, `gemma4` | `none` · `minimal` · `low` · `medium` · `high` · `max` | `none`/`minimal` skip reasoning entirely; others cap at 2K / 8K / 16K / 32K tokens. `thinking: "off"` sends `reasoning_effort: "none"` automatically via the catalog's `thinkingLevelMap` — the NaN docs state that with no parameter these models reason by default (16,384-token budget), so off must be explicit |
+| `deepseek-v4-flash` | `none` · `minimal` · `low` · `medium` · `high` · `max` (catalog declares ["none"]) | `none` reliably disables reasoning (0 reasoning tokens, measured 2026-09-27); every other value leaves 13-14K reasoning tokens and causes runaway reasoning (finish_reason:"length" with ZERO answer text) — the catalog only declares `none` because the rest are useless. `thinking: "off"` now sends `reasoning_effort: "none"` automatically via the catalog's `thinkingLevelMap` |
+| `qwen3.8-flash`, `mimo-v2.6-flash` | *(accepted but not adjustable)* | The parameter is accepted and never rejected, but the model manages its own reasoning depth — it is never an error to send a value these models don't adjust |
+> [!NOTE]  
+> `maxTokens` does NOT bound the reasoning phase on NaN models. The reasoning phase runs to completion (or truncates at ~60,000 chars for deepseek-v4-flash) regardless of `maxTokens` — measured: `max_tokens=512` on deepseek-v4-flash still consumed 13,376 completion tokens, all reasoning (26x the ceiling). This is gateway behavior confirmed by issue #16 (measured 2026-09-27).
+
 
 ---
 

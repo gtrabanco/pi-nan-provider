@@ -151,11 +151,15 @@ describe("manual overrides in the generated catalog", () => {
 		).toBe(true);
 	});
 
-	test("glm5.3-flash context window is 1M tokens (models.dev value, no override needed)", () => {
+	test("glm5.3-flash context window is 1M tokens (models.dev value, no contextWindow override)", () => {
 		const entry = byId.get("glm5.3-flash");
 		expect(entry).toBeDefined();
 		expect(entry!.contextWindow).toBe(1_000_000);
-		expect(MANUAL_OVERRIDES["glm5.3-flash"]).toBeUndefined();
+		// The override exists only for thinkingLevelMap (issue #16), not contextWindow.
+		expect(MANUAL_OVERRIDES["glm5.3-flash"]?.contextWindow).toBeUndefined();
+		// But the override does exist (for thinkingLevelMap), so verify its presence.
+		expect(MANUAL_OVERRIDES["glm5.3-flash"]).toBeDefined();
+		expect(MANUAL_OVERRIDES["glm5.3-flash"]?.thinkingLevelMap?.off).toBe("minimal");
 	});
 
 	test("every declared override lands on the generated entry and carries its provenance note", () => {
@@ -169,6 +173,44 @@ describe("manual overrides in the generated catalog", () => {
 			expect(entry!.notes?.some((value) => value === note), `${modelId} note`).toBe(true);
 		}
 	});
+
+	// Issue #16: thinkingLevelMap must be declared on models that need
+	// reasoning suppression when pi maps reasoning:"off" → undefined.
+	test("deepseek-v4-flash has thinkingLevelMap.off='none' (issue #16, measured 2026-09-27)", () => {
+		const entry = byId.get("deepseek-v4-flash");
+		expect(entry).toBeDefined();
+		expect(entry!.thinkingLevelMap?.off).toBe("none");
+		// The note must cite issue #16.
+		expect(
+			entry!.notes?.some((n) => n.includes("issue #16") || n.includes("#16")),
+			"note must cite issue #16",
+		).toBe(true);
+	});
+
+	test("glm5.3-flash has thinkingLevelMap.off='minimal' (issue #16, measured 2026-09-27)", () => {
+		const entry = byId.get("glm5.3-flash");
+		expect(entry).toBeDefined();
+		expect(entry!.thinkingLevelMap?.off).toBe("minimal");
+		// The note must cite issue #16.
+		expect(
+			entry!.notes?.some((n) => n.includes("issue #16") || n.includes("#16")),
+			"note must cite issue #16",
+		).toBe(true);
+	});
+
+	// Issue #16 gap: qwen3.6 and gemma4 reason by default (16,384-token budget)
+	// when no reasoning_effort is sent, so `thinking: off` must map to `none`.
+	for (const modelId of ["qwen3.6", "gemma4"]) {
+		test(`${modelId} has thinkingLevelMap.off='none' (issue #16, NaN docs 2026-10-01)`, () => {
+			const entry = byId.get(modelId);
+			expect(entry).toBeDefined();
+			expect(entry!.thinkingLevelMap?.off).toBe("none");
+			expect(
+				entry!.notes?.some((n) => n.includes("issue #16") || n.includes("#16")),
+				`${modelId} note must cite issue #16`,
+			).toBe(true);
+		});
+	}
 
 	test("every generated entry treats a missing finish_reason as a retryable error (issue #2)", () => {
 		// The NaN LiteLLM gateway intermittently closes SSE streams before

@@ -10,7 +10,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -25,6 +25,8 @@ process.env.PI_CODING_AGENT_DIR = agentDir;
 afterEach(() => {
 	for (const key of ["NAN_MEDIA_MCP", "NAN_MCP_TOOLS", "NAN_API_KEY"]) delete process.env[key];
 	rmSync(join(agentDir, NAN_STATE_FILE), { force: true });
+	rmSync(join(agentDir, "auth.json"), { force: true });
+	process.env.PI_CODING_AGENT_DIR = agentDir;
 });
 
 interface RecordedServer {
@@ -54,13 +56,18 @@ function fakeCommandPi() {
 		} as unknown as ExtensionAPI,
 	);
 
+	const modelRegistry = {
+		getApiKeyForProvider: async (provider: string): Promise<string | undefined> => undefined,
+	} as unknown as { getApiKeyForProvider: (provider: string) => Promise<string | undefined> };
+
 	const commandCtx = {
 		ui: {
 			notify: (message: string, type?: string) => notifications.push({ message, type }),
 		},
+		modelRegistry,
 	} as unknown as ExtensionCommandContext;
 
-	return { command, servers, notifications, commandCtx };
+	return { command, servers, notifications, commandCtx, modelRegistry };
 }
 
 describe("/nan-mcp command (native MCP registration)", () => {
@@ -104,6 +111,7 @@ describe("/nan-mcp command (native MCP registration)", () => {
 	});
 
 	test("enable accepts the /mcp muscle-memory alias for the media server", async () => {
+		process.env.NAN_API_KEY = "sk-test";
 		const { command, servers, commandCtx } = fakeCommandPi();
 		await command!.handler("disable", commandCtx);
 		await command!.handler("enable media", commandCtx);
@@ -169,5 +177,99 @@ describe("/nan-mcp command (native MCP registration)", () => {
 		const state = JSON.parse(readFileSync(join(agentDir, NAN_STATE_FILE), "utf8")) as Record<string, boolean>;
 		expect(state.webSearch).toBe(true);
 		expect(state.mediaMcp).toBe(true);
+	});
+
+	test("status with registry key shows 'resolved', NOT [object Promise]", async () => {
+		process.env.NAN_API_KEY = "sk-test";
+		const registryKeyPromise = Promise.resolve("sk-registry");
+		const commandCtxWithRegistry = {
+			ui: {
+				notify: (message: string, type?: string) => notifications.push({ message, type }),
+			},
+			modelRegistry: {
+				getApiKeyForProvider: async () => "sk-registry",
+			} as unknown as { getApiKeyForProvider: (provider: string) => Promise<string | undefined> },
+		} as unknown as ExtensionCommandContext;
+		const { command, notifications, servers, commandCtx } = fakeCommandPi();
+
+		await command!.handler("status", commandCtxWithRegistry);
+		const message = notifications.at(-1)!.message;
+		expect(message).toContain("web-search bridge");
+		expect(message).toContain("API key: resolved");
+		expect(message).not.toContain("[object Promise]");
+	});
+
+	test("enable web-search with stored credential and no env key registers", async () => {
+		const authPath = join(agentDir, "auth.json");
+		writeFileSync(authPath, JSON.stringify({
+			nan: { type: "api_key", key: "sk-stored" },
+		}), "utf8");
+		delete process.env.NAN_API_KEY;
+		const commandCtxWithRegistry = {
+			ui: {
+				notify: (message: string, type?: string) => notifications.push({ message, type }),
+			},
+						modelRegistry: {
+				getApiKeyForProvider: async () => "sk-registry",
+			} as unknown as { getApiKeyForProvider: (provider: string) => Promise<string | undefined> },
+		} as unknown as ExtensionCommandContext;
+		const { command, notifications, servers, commandCtx } = fakeCommandPi();
+
+		await command!.handler("enable web-search", commandCtxWithRegistry);
+
+		const nanSearch = servers.find((s) => s.name === "nan-search");
+		expect(nanSearch).toBeDefined();
+		expect((nanSearch!.config.headers as Record<string, string>)?.Authorization).toBe("Bearer sk-stored");
+		expect(notifications.at(-1)?.type).toBe("info");
+		expect(notifications.at(-1)?.message).toContain("Native servers registered for this session");
+	});
+
+	test("enable web-search with no key: no registration, warning, no false success", async () => {
+		delete process.env.NAN_API_KEY;
+		const commandCtxWithRegistry = {
+			ui: {
+				notify: (message: string, type?: string) => notifications.push({ message, type }),
+			},
+						modelRegistry: {
+				getApiKeyForProvider: async () => undefined,
+			} as unknown as { getApiKeyForProvider: (provider: string) => Promise<string | undefined> },
+		} as unknown as ExtensionCommandContext;
+		const { command, notifications, servers, commandCtx } = fakeCommandPi();
+
+		await command!.handler("enable web-search", commandCtxWithRegistry);
+
+		const nanSearch = servers.find((s) => s.name === "nan-search");
+		expect(nanSearch).toBeUndefined();
+		// Should show a warning about missing key, NOT the success message
+		const lastNotif = notifications.at(-1);
+		expect(lastNotif?.type).toBe("warning");
+		expect(lastNotif?.message).not.toContain("Native servers registered for this session");
+		expect(lastNotif?.message).toContain("API key missing");
+	});
+
+	test("enable media with stored credential and no env key registers with correct env", async () => {
+		const authPath = join(agentDir, "auth.json");
+		writeFileSync(authPath, JSON.stringify({
+			nan: { type: "api_key", key: "sk-stored-media" },
+		}), "utf8");
+		delete process.env.NAN_API_KEY;
+		const commandCtxWithRegistry = {
+			ui: {
+				notify: (message: string, type?: string) => notifications.push({ message, type }),
+			},
+						modelRegistry: {
+				getApiKeyForProvider: async () => undefined,
+			} as unknown as { getApiKeyForProvider: (provider: string) => Promise<string | undefined> },
+		} as unknown as ExtensionCommandContext;
+		const { command, notifications, servers, commandCtx } = fakeCommandPi();
+
+		await command!.handler("enable nan-mcp-server", commandCtxWithRegistry);
+
+		const nanMedia = servers.find((s) => s.name === "nan-media");
+		expect(nanMedia).toBeDefined();
+		const env = nanMedia!.config.env as Record<string, string>;
+		expect(env["NAN_API_KEY"]).toBe("sk-stored-media");
+		expect(notifications.at(-1)?.type).toBe("info");
+		expect(notifications.at(-1)?.message).toContain("Native servers registered for this session");
 	});
 });

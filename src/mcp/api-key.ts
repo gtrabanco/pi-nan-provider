@@ -1,4 +1,5 @@
 import { bridgeSource, resolveBridgeEnabled } from "./state.ts";
+import { readStoredCredential } from "@earendil-works/pi-coding-agent";
 
 /**
  * NaN API key resolution — shared across every surface (web search, media, usage).
@@ -6,6 +7,38 @@ import { bridgeSource, resolveBridgeEnabled } from "./state.ts";
  * Strategy: pi's stored credential (modelRegistry) wins → env var fallback.
  * Never logs or embeds the key beyond the Authorization header.
  */
+
+/**
+ * Resolve the NaN API key through pi's stored credential (auth.json).
+ * Reads synchronously via `readStoredCredential("nan")` — the factory-time
+ * ExtensionAPI has NO modelRegistry (verified pi 0.99.1); stored credentials
+ * must be resolved at load time through the coding-agent API.
+ *
+ * Guards the credential shape: only accepts `{ type: "api_key", key: "sk-..." }`
+ * with a non-empty string key. Wraps in try/catch → undefined on any error.
+ *
+ * Precedence: this function is the **stored-credential** layer; callers compose
+ * it with the env var fallback to achieve stored → env order.
+ */
+export function resolveStoredNanApiKey(): string | undefined {
+	try {
+		const credential = readStoredCredential(NAN_PROVIDER_ID);
+		if (
+			credential != null &&
+			typeof credential === "object" &&
+			"type" in credential &&
+			credential.type === "api_key" &&
+			"key" in credential &&
+			typeof credential.key === "string" &&
+			credential.key.length > 0
+		) {
+			return credential.key;
+		}
+		return undefined;
+	} catch {
+		return undefined;
+	}
+}
 
 /** Env var that overrides the official web_search bridge. */
 export const NAN_MCP_TOOLS_ENV = "NAN_MCP_TOOLS";

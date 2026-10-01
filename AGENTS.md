@@ -140,6 +140,24 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
   runtime then drives `fetchModels` refreshes (network refresh at interactive
   startup and periodically, cache-only at registration) and persists the overlay.
   A `fetchModels` rejection never blocks startup.
+- **pi 0.99 virtual models do not break the provider, but they do interact with the
+  cross-model thinking guard** (verified pi 0.99.1/0.99.2). A virtual model
+  (`pi.registerVirtualModel`, api `pi-virtual`) can be registered under `nan` and
+  route to physical `nan` models via `ctx.modelRegistry.find("nan", id)` — no
+  provider-side change needed. Inside the extension `context` hook, though,
+  `ctx.model` is the **selection** (the virtual entry), never the routed physical
+  model (`core/virtual-models.js`; `agent-session.js` "The selection stays in
+  agent state; only this request uses the routed model"), and the routed target is
+  not exposed to the hook. `stripCrossModelThinking` therefore skips virtual
+  selections (`src/cross-model-thinking-guard.ts`, `VIRTUAL_MODEL_API`); otherwise
+  its same-model check would strip reasoning on every continuation. Registered
+  virtual models are otherwise transparent to the catalog/factory.
+- **Factory-time ExtensionAPI has NO `modelRegistry`** (verified pi 0.99.1):
+  The `ExtensionAPI` interface does not include `modelRegistry`; it exists only on
+  `ExtensionContext` (the `ctx` passed to command/event handlers). At factory time,
+  stored credentials are resolved via `readStoredCredential("nan")` from
+  `@earendil-works/pi-coding-agent`. Command-time paths (`/nan-mcp`, `/nan-usage`) use
+  `ctx.modelRegistry`.
 - models.json overrides compose **above** registered native providers.
 - Capability values that diverge from models.dev are recorded as build-time
   `MANUAL_OVERRIDES` (mandatory provenance note) in `scripts/manual-overrides.ts`,
@@ -202,6 +220,7 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
   `test/issue-2-truncated-stream.test.ts`, `test/issue-4-token-usage.test.ts`,
   `test/issue-7-streaming-usage-default.test.ts`;
   issues #2, #4 and #7.
+- **Catalog now declares `thinkingLevelMap` for reasoning suppression** (issue #16, measured 2026-09-27 against live gateway, repro script in the issue). `deepseek-v4-flash` → `{ off: "none" }` (0 reasoning tokens, reproducible); `glm5.3-flash` → `{ off: "minimal" }` (38 reasoning tokens + answer; `none` does NOT work on glm5.3 — 13,382 tokens); `qwen3.6` and `gemma4` → `{ off: "none" }` (gap left by the measured-only fix: the NaN docs state that with no parameter both reason by default with a 16,384-token budget and that `none`/`minimal` skip the reasoning phase entirely — https://nan.builders/docs/models#controlling-reasoning, checked 2026-10-01 — so `off` must send `none` explicitly). `reasoningEffortValues` corrected: deepseek-v4-flash from `[]` to `["none"]`; glm5.3-flash from `["low","medium","high","max"]` to include `"minimal"`. README limits table notes that `maxTokens` does NOT bound the reasoning phase (measured: max_tokens=512 still yielded 13,376 reasoning tokens). pi-ai's `buildRequest` (0.99.1) maps `reasoning: "off"` → `reasoningEffort: undefined` → fires the off-branch that checks `model.thinkingLevelMap?.off` (verified in pi-ai source ~line 718-722). A model whose reasoning depth is genuinely not adjustable (`qwen3.8-flash`, `mimo-v2.6-flash`) keeps no `thinkingLevelMap`: `off` sends nothing and the model uses its own default.
 - A NaN request that still exceeds the destination model's context window (the
   cross-model thinking guard is disabled with `NAN_THINKING_GUARD=0`, the
   inflation is not a `thinking` block, or the window is smaller) gets NaN's
@@ -241,3 +260,18 @@ Every PR that changes code MUST bump `package.json` version in the same PR; CI p
   - Automated check (scripts/check-nan-mcp-server.ts) compares the npm registry
     against the pin weekly and files a `dependencies` issue when a newer release
     exists, with a breaking/safe verdict from the live server tool surface.
+- **pi reports unhandled MCP registrations right after `session_start`** (verified
+  on pi 0.99.1): `AgentSession.bindExtensions()` emits `session_start` and then
+  calls `ExtensionRunner.reportUnhandledMcpServers()`, which raises
+  `MCP server "<name>" is registered, but no loaded extension connects MCP
+  servers` whenever no loaded extension handles `mcp_servers_change`. A host
+  that builds `DefaultResourceLoader` WITHOUT `extensionFactories` loads no
+  `builtin:*` extension at all — PI WEB's `createAgentSessionServices` does
+  exactly that (pi-web 1.202609.1, verified 2026-09-30 with a faithful loader
+  run: packages load, `builtin:mcp` absent, no `/mcp` command), so its sessions
+  have no MCP connector and `mcp.json` servers never connect either.
+  `src/mcp/host-support.ts` detects the gap through the `/mcp` command
+  (`pi.getCommands()` missing → conservative "connector present"), claims
+  `mcp_servers_change` so pi's report stays silent, and warns once per session;
+  `/nan-mcp enable` persists the toggle without registering. Regression tests:
+  `test/mcp-host-connector.test.ts`.

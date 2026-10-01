@@ -6,7 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -26,7 +26,6 @@ interface CapturedNotify {
 function mockPi(
 	options: {
 		withoutRegisterMcpServer?: boolean;
-		withRegistryKey?: string;
 	} = {},
 ) {
 	const servers: RecordedServer[] = [];
@@ -49,9 +48,6 @@ function mockPi(
 		ui: {
 			notify: (message: string, type: string) => notifications.push({ message, type }),
 		},
-		modelRegistry: options.withRegistryKey
-			? { getApiKeyForProvider: async () => options.withRegistryKey }
-			: undefined,
 	} as unknown as ExtensionAPI;
 
 	return { pi, servers, notifications };
@@ -83,25 +79,53 @@ afterEach(() => {
 });
 
 describe("native web-search MCP registration", () => {
-	test("registers with exact config when gate on and key resolves", async () => {
+	test("registers with stored credential from auth.json (no env var)", async () => {
 		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
-		cleanAgent.set("NAN_API_KEY", "sk-test-key");
+		// Write auth.json with a stored credential
+		const authPath = join(agentDir, "auth.json");
+		writeFileSync(authPath, JSON.stringify({
+			nan: { type: "api_key", key: "sk-stored" },
+		}), "utf8");
+		// Ensure NAN_API_KEY is NOT set — key must come from stored credential
+		delete process.env[NAN_API_KEY_ENV];
 		try {
-			const { pi, servers, notifications } = mockPi();
+			const { pi, servers } = mockPi();
 			await extension(pi);
 
 			const nanSearch = servers.find((s) => s.name === "nan-search");
 			expect(nanSearch).toBeDefined();
 			expect(nanSearch!.config.type).toBe("http");
 			expect(nanSearch!.config.url).toBe("https://api.nan.builders/mcp");
-			expect(nanSearch!.config.headers).toEqual({ Authorization: "Bearer sk-test-key" });
+			expect(nanSearch!.config.headers).toEqual({ Authorization: "Bearer sk-stored" });
 			expect(nanSearch!.config.exposure).toBe("direct");
 		} finally {
 			cleanAgent.restore();
+			rmSync(authPath, { force: true });
 		}
 	});
 
-	test("uses env var when registry is empty", async () => {
+	test("stored credential takes precedence over env var", async () => {
+		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
+		const authPath = join(agentDir, "auth.json");
+		writeFileSync(authPath, JSON.stringify({
+			nan: { type: "api_key", key: "sk-stored" },
+		}), "utf8");
+		cleanAgent.set("NAN_API_KEY", "sk-env");
+		try {
+			const { pi, servers } = mockPi();
+			await extension(pi);
+
+			const nanSearch = servers.find((s) => s.name === "nan-search");
+			expect(nanSearch).toBeDefined();
+			// Stored credential should win (precedence order: stored → env)
+			expect((nanSearch!.config.headers as Record<string, string>)?.Authorization).toBe("Bearer sk-stored");
+		} finally {
+			cleanAgent.restore();
+			rmSync(authPath, { force: true });
+		}
+	});
+
+	test("registers with env var when no stored credential", async () => {
 		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
 		cleanAgent.set("NAN_API_KEY", "sk-env-key");
 		try {
@@ -132,15 +156,40 @@ describe("native web-search MCP registration", () => {
 		}
 	});
 
-	test("does NOT register when key missing but gate is on", async () => {
+	test("does NOT register when key missing (no stored, no env)", async () => {
 		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
+		delete process.env[NAN_API_KEY_ENV];
 		try {
 			const { pi, servers } = mockPi();
 			await extension(pi);
 
 			const nanSearch = servers.find((s) => s.name === "nan-search");
 			expect(nanSearch).toBeUndefined();
-			// Key missing → no registration (new design: key resolved at load time)
+		} finally {
+			cleanAgent.restore();
+		}
+	});
+
+	test("warns when no key resolves (console.warn spy)", async () => {
+		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
+		delete process.env[NAN_API_KEY_ENV];
+		try {
+			const warnings: string[] = [];
+			const originalWarn = console.warn;
+			console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+			try {
+				const { pi, servers } = mockPi();
+				await extension(pi);
+
+				const nanSearch = servers.find((s) => s.name === "nan-search");
+				expect(nanSearch).toBeUndefined();
+				// Must warn about the missing key
+				expect(warnings.length).toBeGreaterThan(0);
+				expect(warnings.some((w) => w.includes("NAN_API_KEY"))).toBe(true);
+				expect(warnings.some((w) => w.includes("/login nan"))).toBe(true);
+			} finally {
+				console.warn = originalWarn;
+			}
 		} finally {
 			cleanAgent.restore();
 		}

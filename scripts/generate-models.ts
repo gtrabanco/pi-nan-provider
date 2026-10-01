@@ -237,6 +237,7 @@ function buildManualOnlyModelEntry(
 			contextWindow: override?.contextWindow ?? 1_048_576,
 			maxTokens: override?.maxTokens ?? 131_072,
 			reasoningEffortValues,
+			...(override?.thinkingLevelMap ? { thinkingLevelMap: { ...override.thinkingLevelMap } } : {}),
 			compat: { ...NAN_COMPAT },
 			notes: [
 				NAN_COMPAT_NOTE,
@@ -300,6 +301,7 @@ function convertModel(modelId: string, m: ModelsDevModel): GeneratedModel | { sk
 			contextWindow: override?.contextWindow ?? contextWindow,
 			maxTokens: override?.maxTokens ?? maxTokens,
 			reasoningEffortValues,
+			...(override?.thinkingLevelMap ? { thinkingLevelMap: { ...override.thinkingLevelMap } } : {}),
 			compat: { ...NAN_COMPAT },
 			notes: [
 				NAN_COMPAT_NOTE,

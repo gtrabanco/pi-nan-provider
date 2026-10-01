@@ -107,9 +107,41 @@ Ambos puentes están **activados por defecto** (por sesión, visibles en `/mcp`)
 
 | Comando | Efecto |
 | :--- | :--- |
-| `/nan-mcp status` | Muestra el estado actual de ambos puentes. |
+| `/nan-mcp status` | Muestra el estado actual de ambos puentes y la resolución de la clave API. |
 | `/nan-mcp enable [target]` | Activa `web-search` o `nan-mcp-server` (persiste). |
 | `/nan-mcp disable [target]` | Desactiva un puente de forma persistente. |
+
+Ambos puentes resuelven la credencial almacenada de `/login nan` (almacenada → env). Si ninguna se resuelve, el puente no se registra y se muestra un aviso en la salida de estado.
+
+> [!NOTE]
+> El registro ocurre cuando se carga la extensión. Si ejecutas `/login nan` **después** de que la sesión haya empezado, la factoría ya se ejecutó — usa `/reload` (o `/nan-mcp enable`) para registrar los puentes sin reiniciar pi.
+
+### 🚧 Hosts sin la extensión MCP integrada de pi (PI WEB)
+
+pi conecta los servidores registrados desde la extensión que maneja `mcp_servers_change` — la
+extensión integrada `mcp`, que además registra `/mcp`. Los hosts que construyen el resource loader
+de pi sin `extensionFactories` no cargan **ninguna** extensión integrada (verificado:
+`createAgentSessionServices` de PI WEB, pi 0.99.1 / pi-web 1.202609.1), así que nada conecta los
+servidores y pi reporta `MCP server "nan-media" is registered, but no loaded extension connects MCP
+servers`.
+
+Ahí los puentes no pueden exponer herramientas, así que este paquete reemplaza ese error críptico
+con un único aviso por sesión, mantiene los registros inactivos y deja que `/nan-mcp enable` persista
+el toggle sin registrar un servidor que nunca podrá conectarse. Para tener MCP en la CLI, activa el
+conector con `pi config` → Built-in extensions → `mcp`.
+
+### Funciones de pi 0.99 y modelos NaN
+
+- **Modelos virtuales** — registra un router bajo `nan` (`pi.registerVirtualModel({ provider: "nan", ... })`);
+  enruta a los modelos físicos de NaN sin configuración por parte del proveedor. El guard de
+  razonamiento entre modelos se salta las selecciones virtuales, porque el modelo físico enrutado no
+  es visible para el hook `context`.
+- **Codemode** — funciona con cualquier modelo NaN que soporte tool calling. Las herramientas MCP de
+  este paquete usan `exposure: "direct"`, así que los scripts de codemode también pueden llamarlas.
+  Requiere la extensión integrada `codemode` de pi (ver la nota de PI WEB arriba).
+- **Modelos clasificadores** — no aplica: NaN no expone ninguna API de clasificación (solo chat y
+  endpoints de embedding/rerank/audio/imagen), así que este proveedor no registra modelos
+  `type: "classifier"`.
 
 ---
 
@@ -270,6 +302,22 @@ Catálogo base (verificado contra [docs de NaN](https://nan.builders/docs/models
 > `mimo-v2.5` fue eliminado por NaN: ya no aparece ni en [los docs de NaN](https://nan.builders/docs/models) ni en la [lista de modelos del OpenAPI](https://nan.builders/openapi.json) (comprobado 2026-09-29), así que sale del catálogo — lo sustituye `mimo-v2.6-flash` (mismos límites 1,048,576 / 131,072 y cuota mensual de 1.0B). El consumo histórico de `mimo-v2.5` en `/nan-usage` sigue apareciendo en la sección de modelos no documentados.
 
 ---
+
+---
+
+## 🧠 Controles de razonamiento
+
+El parámetro `reasoning_effort` de NaN controla cuánto piensa el modelo antes de responder — pero el grado de control varía por modelo:
+
+| Modelo | Effort de razonamiento | Cómo funciona |
+| :--- | :--- | :--- |
+| `glm5.3`, `glm5.3-flash` | `minimal` · `low` · `medium` · `high` · `max` | Completamente controlable — valores más altos permiten al modelo razonar más; `minimal` produce ~38 tokens de razonamiento (issue #16, medido 2026-09-27); `none` NO suprime el razonamiento en glm5.3-flash (13,382 tokens) |
+| `qwen3.6`, `gemma4` | `none` · `minimal` · `low` · `medium` · `high` · `max` | `none`/`minimal` omiten el razonamiento por completo; otros valores limitan a 2K / 8K / 16K / 32K tokens. `thinking: "off"` envía `reasoning_effort: "none"` automáticamente vía el `thinkingLevelMap` del catálogo — los docs de NaN dicen que sin parámetro estos modelos razonan por defecto (presupuesto de 16,384 tokens), así que `off` debe ser explícito |
+| `deepseek-v4-flash` | `none` · `minimal` · `low` · `medium` · `high` · `max` (el catálogo declara ["none"]) | `none` deshabilita el razonamiento de forma fiable (0 tokens de razonamiento, medido 2026-09-27); cualquier otro valor deja 13-14K tokens de razonamiento y causa razonamiento descontrolado (finish_reason:"length" con CERO texto de respuesta) — el catálogo solo declara `none` porque el resto es ruido. `thinking: "off"` ahora envía `reasoning_effort: "none"` automáticamente vía el `thinkingLevelMap` del catálogo |
+| `qwen3.8-flash`, `mimo-v2.6-flash` | *(aceptado pero no ajustable)* | El parámetro es aceptado y nunca rechazado, pero el modelo gestiona su propia profundidad de razonamiento — nunca es un error enviar un valor que estos modelos no ajustan |
+
+> [!NOTE]  
+> `maxTokens` NO limita la fase de razonamiento en los modelos de NaN. La fase de razonamiento corre hasta completarse (o se trunca a ~60,000 caracteres para deepseek-v4-flash) independientemente de `maxTokens` — medido: `max_tokens=512` en deepseek-v4-flash aún consumió 13,376 tokens de completación, todos de razonamiento (26x el techo). Este es un comportamiento del gateway confirmado por el issue #16 (medido 2026-09-27).
 
 ## 🚀 Desarrollo
 

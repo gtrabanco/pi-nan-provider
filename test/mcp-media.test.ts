@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -178,6 +178,53 @@ describe("native media MCP registration", () => {
 			expect(nanSearch).toBeUndefined();
 		} finally {
 			cleanAgent.restore();
+		}
+	});
+
+	test("registers with stored credential from auth.json (no env var)", async () => {
+		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
+		const authPath = join(agentDir, "auth.json");
+		writeFileSync(authPath, JSON.stringify({
+			nan: { type: "api_key", key: "sk-stored" },
+		}), "utf8");
+		delete process.env.NAN_API_KEY;
+		try {
+			const { pi, servers } = mockPi();
+			await extension(pi);
+
+			const nanMedia = servers.find((s) => s.name === "nan-media");
+			expect(nanMedia).toBeDefined();
+			expect(nanMedia!.config.type).toBe("stdio");
+			const env = nanMedia!.config.env as Record<string, string>;
+			expect(env["NAN_API_KEY"]).toBe("sk-stored");
+		} finally {
+			cleanAgent.restore();
+			rmSync(authPath, { force: true });
+		}
+	});
+
+	test("does NOT register when no key anywhere (warns)", async () => {
+		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
+		rmSync(join(agentDir, "auth.json"), { force: true });
+		delete process.env.NAN_API_KEY;
+		try {
+			const warnings: string[] = [];
+			const originalWarn = console.warn;
+			console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+			try {
+				const { pi, servers } = mockPi();
+				await extension(pi);
+
+				const nanMedia = servers.find((s) => s.name === "nan-media");
+				expect(nanMedia).toBeUndefined();
+				expect(warnings.length).toBeGreaterThan(0);
+				expect(warnings.some((w) => w.includes("NAN_API_KEY"))).toBe(true);
+			} finally {
+				console.warn = originalWarn;
+			}
+		} finally {
+			cleanAgent.restore();
+			rmSync(join(agentDir, "auth.json"), { force: true });
 		}
 	});
 });

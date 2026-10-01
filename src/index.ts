@@ -39,8 +39,9 @@ import {
 import { baselineModels } from "./fetch-models.ts";
 import { createNanCompatibleProvider, type OpenAICompatibleProviderConfig } from "./provider-factory.ts";
 import { PROVIDERS } from "./providers.ts";
-import { NAN_API_KEY_ENV, mcpToolsDisabled, mcpToolsEnvExplicit, resolveNanApiKey, tryResolveNanApiKeyViaRegistry, NAN_MCP_TOOLS_ENV, webSearchBridgeEnabled } from "./mcp/api-key.ts";
+import { NAN_API_KEY_ENV, mcpToolsDisabled, mcpToolsEnvExplicit, resolveNanApiKey, tryResolveNanApiKeyViaRegistry, resolveStoredNanApiKey, NAN_MCP_TOOLS_ENV, webSearchBridgeEnabled } from "./mcp/api-key.ts";
 import { mediaMcpCommand, mediaMcpEnabled, mediaMcpEnvExplicit, mediaMcpEnvTruthy, mediaMcpTimeoutSec } from "./mcp/media-server.ts";
+import { registerMcpHostGuard } from "./mcp/host-support.ts";
 
 /**
  * Register a provider on any pi version: the native full-Provider overload
@@ -78,6 +79,7 @@ async function registerProviderCompat(
 			contextWindow: model.contextWindow,
 			maxTokens: model.maxTokens,
 			...(model.compat ? { compat: { ...model.compat } } : {}),
+			...(model.thinkingLevelMap ? { thinkingLevelMap: { ...model.thinkingLevelMap } } : {}),
 		})),
 	};
 	pi.registerProvider(config.id, legacy);
@@ -93,10 +95,13 @@ const NO_NATIVE_MCP_GUARD_MSG =
 	"pi-nan-provider 0.10+ requires pi >= 0.99 for MCP tools (native MCP); upgrade pi or stay on package 0.9.x";
 
 /** Register the official NaN web-search MCP server (session-scoped). */
-async function registerWebSearchMcpServer(pi: ExtensionAPI): Promise<boolean> {
+async function registerWebSearchMcpServer(pi: ExtensionAPI, apiKey: string | undefined): Promise<boolean> {
 	if (!webSearchBridgeEnabled()) return false;
-	const apiKey = process.env[NAN_API_KEY_ENV];
 	if (!apiKey) {
+		console.warn(
+			"[pi-nan-provider] NAN_API_KEY is not set — web-search server not registered. " +
+				"Run `/login nan` in pi or export `NAN_API_KEY=<your-key>`.",
+		);
 		return false;
 	}
 	pi.registerMcpServer("nan-search", {
@@ -109,14 +114,21 @@ async function registerWebSearchMcpServer(pi: ExtensionAPI): Promise<boolean> {
 }
 
 /** Register the community media stdio MCP server (session-scoped). */
-function registerMediaMcpServer(pi: ExtensionAPI): boolean {
+function registerMediaMcpServer(pi: ExtensionAPI, apiKey: string | undefined): boolean {
 	if (!mediaMcpEnabled()) return false;
+	if (!apiKey) {
+		console.warn(
+			"[pi-nan-provider] NAN_API_KEY is not set — media server not registered. " +
+				"Run `/login nan` in pi or export `NAN_API_KEY=<your-key>`.",
+		);
+		return false;
+	}
 	const mediaArgs = mediaMcpCommand();
 	pi.registerMcpServer("nan-media", {
 		type: "stdio",
 		command: mediaArgs[0]!,
 		args: mediaArgs.slice(1),
-		env: { [NAN_API_KEY_ENV]: process.env[NAN_API_KEY_ENV] ?? "" },
+		env: { [NAN_API_KEY_ENV]: apiKey },
 		exposure: "direct",
 		timeout: mediaMcpTimeoutSec(),
 	});
@@ -141,11 +153,14 @@ async function registerMcpServersNative(pi: ExtensionAPI): Promise<void> {
 		return;
 	}
 
+	// Resolve the API key ONCE: stored credential (auth.json) → env fallback.
+	// The factory-time ExtensionAPI has NO modelRegistry; stored credentials
+	// must be read through the coding-agent's readStoredCredential API.
+	const storedKey = resolveStoredNanApiKey();
+	const apiKey = storedKey ?? process.env[NAN_API_KEY_ENV];
 
-	const didWebSearch = await registerWebSearchMcpServer(pi);
-	registerMediaMcpServer(pi);
-
-
+	await registerWebSearchMcpServer(pi, apiKey);
+	registerMediaMcpServer(pi, apiKey);
 }
 
 // ── Extension entrypoint ─────────────────────────────────────────────────
@@ -179,6 +194,9 @@ export function registerCrossModelThinkingGuard(pi: ExtensionAPI): void {
 
 export default async function nanProviderExtension(pi: ExtensionAPI): Promise<void> {
 	registerCrossModelThinkingGuard(pi);
+	// Replaces pi's cryptic "no loaded extension connects MCP servers" error with
+	// actionable guidance when the host loads no built-in `mcp` extension (PI WEB).
+	registerMcpHostGuard(pi);
 	for (const config of PROVIDERS) {
 		await registerProviderCompat(pi, config);
 	}

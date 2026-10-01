@@ -124,6 +124,15 @@ describe("stripCrossModelThinking", () => {
 		expect(stripCrossModelThinking(messages, { provider: "anthropic", api: "anthropic-messages", id: "claude" }, OPTIONS)).toBe(messages);
 	});
 
+	test("skips a virtual-model selection (pi 0.99): the routed physical model is unknown", () => {
+		// `ctx.model` is the virtual entry (api "pi-virtual"), not the physical
+		// model the router picks. Comparing against it would strip reasoning on
+		// every continuation, so the guard must leave the messages untouched.
+		const virtualTarget = { provider: "nan", api: "pi-virtual", id: "auto" };
+		const messages = [assistant({ model: "qwen3.6" })];
+		expect(stripCrossModelThinking(messages, virtualTarget, OPTIONS)).toBe(messages);
+	});
+
 	test("ignores an undefined target (model not resolved yet)", () => {
 		const messages = [assistant()];
 		expect(stripCrossModelThinking(messages, undefined, OPTIONS)).toBe(messages);
@@ -190,6 +199,16 @@ describe("registerCrossModelThinkingGuard (extension wiring)", () => {
 	test("returns nothing (no context rewrite) for a non-NaN target", () => {
 		const handler = capture();
 		expect(handler({ type: "context", messages: [assistant()] }, { model: { provider: "anthropic", api: "anthropic-messages", id: "claude" } })).toBeUndefined();
+	});
+
+	test("returns nothing (no context rewrite) for a virtual nan selection", () => {
+		const handler = capture();
+		expect(
+			handler(
+				{ type: "context", messages: [assistant({ model: "qwen3.6" })] },
+				{ model: { provider: "nan", api: "pi-virtual", id: "auto" } },
+			),
+		).toBeUndefined();
 	});
 
 	test("returns nothing when the guard is disabled by env", () => {

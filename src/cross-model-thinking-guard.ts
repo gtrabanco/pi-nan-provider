@@ -65,6 +65,14 @@ export function crossModelThinkingGuardEnabled(env: NodeJS.ProcessEnv = process.
 	return value !== "0" && value !== "false" && value !== "no" && value !== "off";
 }
 
+/**
+ * API id pi 0.99 assigns to virtual catalog entries (`core/virtual-models.js`,
+ * `VIRTUAL_MODEL_API`). A virtual selection routes each request to a physical
+ * model; the physical target is not exposed to the `context` hook, so the guard
+ * cannot tell which physical model will answer.
+ */
+const VIRTUAL_MODEL_API = "pi-virtual";
+
 function isGuardMessage(value: unknown): value is GuardMessage {
 	return typeof value === "object" && value !== null;
 }
@@ -84,6 +92,16 @@ export function stripCrossModelThinking<T>(
 	options: CrossModelThinkingGuardOptions,
 ): readonly T[] {
 	if (!target?.provider || !options.providerIds.has(target.provider)) return messages;
+
+	// Virtual selection (pi 0.99): `ctx.model` is the selectable virtual entry
+	// (api "pi-virtual"), not the physical model the router picks for this
+	// request. Its api/id never match a physical assistant message, so the
+	// same-model check below would strip reasoning on EVERY continuation —
+	// including when the router keeps the same physical model — losing the
+	// prompt cache and thinking continuity the guard promises to preserve.
+	// The routed physical model is not available here, so skip virtual
+	// selections entirely; cross-model trimming is the router's concern there.
+	if (target.api === VIRTUAL_MODEL_API) return messages;
 
 	let changed = false;
 

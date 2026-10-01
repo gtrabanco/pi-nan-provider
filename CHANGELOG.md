@@ -5,6 +5,87 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] — 2026-10-01
+
+### Fixed
+
+- **Cross-model thinking guard no longer misfires on pi 0.99 virtual models.**
+  In the `context` hook `ctx.model` is the virtual selection (`api:
+  "pi-virtual"`), not the physical model the router picks for that request, so
+  the guard's same-model check never matched and it stripped every replayed
+  thinking block — including same-physical-model reasoning on a continuation,
+  losing the prompt cache and thinking continuity. Virtual selections are now
+  exempt (the routed physical target is not exposed to the hook). Regression
+  tests: `test/cross-model-thinking-guard.test.ts`.
+
+- **MCP bridges now resolve the stored `/login nan` credential** (issue #14).
+  The factory-time `ExtensionAPI` has no `modelRegistry` (verified pi 0.99.1),
+  so stored credentials are now resolved at extension load time via
+  `readStoredCredential("nan")` from `@earendil-works/pi-coding-agent`, with env
+  fallback. Precedence: stored credential → env var.
+  - Web-search: no longer silently skips registration — a `console.warn` now
+    clarifies the missing key (mentions `/login nan` and `NAN_API_KEY`).
+  - Media: no longer spawns the child process with an empty API key (which
+    caused `"MCP connection closed"`). Refuses to register without a key and warns.
+  - `/nan-mcp enable` now uses the real command-context `ctx.modelRegistry`
+    (was using `pi.modelRegistry` which is undefined on `ExtensionAPI`) and only
+    claims "Native servers registered" when they actually are (fixes false
+    success message when no key resolves).
+  - `/nan-mcp status` no longer prints `API key: [object Promise].` (missing
+    `await` on the async key status call).
+  Regression tests: `test/mcp-search.test.ts`, `test/mcp-media.test.ts`,
+  `test/nan-mcp-command.test.ts`.
+
+- **Reasoning model `finish_reason: "length"` wedge when `thinking: "off"`**
+  (issue #16). pi-ai maps `reasoning: "off"` to `reasoningEffort: undefined`;
+  the NaN catalog had no `thinkingLevelMap` entries, so no `reasoning_effort`
+  was sent, and NaN did NOT disable reasoning — runaway reasoning (13–14K
+  tokens), `finish_reason: "length"` with zero answer text, empty assistant
+  message, wedged session.
+  - Added `thinkingLevelMap` to the generated catalog: deepseek-v4-flash
+    (`off → "none"`, 0 reasoning tokens), glm5.3-flash (`off → "minimal"`,
+    38 reasoning tokens; measured 2026-09-27, repro included in the issue),
+    **qwen3.6** and **gemma4** (`off → "none"`). The last two close a gap left
+    by the measured-only fix: the NaN docs state that with no parameter both
+    models reason by default (16,384-token budget) and that `none`/`minimal`
+    skip the reasoning phase entirely
+    (https://nan.builders/docs/models#controlling-reasoning, checked
+    2026-10-01), so `thinking: "off"` must send `reasoning_effort: "none"`
+    explicitly. The prior regression test that asserted qwen3.6 sends nothing
+    was codifying that gap and has been corrected (qwen3.8-flash, whose depth
+    is genuinely not adjustable, now covers the no-map case).
+  - Added `thinkingLevelMap` field to `GeneratedModelEntry` and propagated it
+    through `toModel()`, the generator, and the legacy fallback path in
+    `src/index.ts`.
+  - Corrected `reasoningEffortValues`: deepseek-v4-flash from `[]` to
+    `["none"]` (only "none" has deterministic effect), glm5.3-flash from
+    `["low","medium","high","max"]` to include `"minimal"` (accepted by the
+    gateway, effective but not documented).
+  - Updated README limits table with a note that `maxTokens` does NOT bound
+    the reasoning phase (measured: max_tokens=512 still yielded 13,376
+    reasoning tokens).
+  Regression tests: `test/issue-16-thinking-level-map.test.ts` (end-to-end
+  payload test through the real provider and mock gateway); updated
+  `test/generated-catalog.test.ts` (thinkingLevelMap contract + glm5.3-flash
+  override now has a non-contextWindow field).
+
+## [0.10.1] — 2026-09-30
+
+### Fixed
+
+- **No more `MCP server "nan-media" is registered, but no loaded extension connects MCP servers`.**
+  Hosts that build pi's resource loader without `extensionFactories` (PI WEB
+  sessions) load no built-in extension at all, so `builtin:mcp` never connects
+  the registered servers and pi reports them as an extension error right after
+  `session_start`. `src/mcp/host-support.ts` now detects the missing connector
+  through the `/mcp` command (`pi.getCommands()` unavailable → conservative
+  "present"), claims `mcp_servers_change` so pi's report stays silent, and warns
+  once per session with the fix (`pi config` → Built-in extensions → `mcp`).
+  `/nan-mcp status` states the missing connector; `/nan-mcp enable` persists the
+  toggle without registering a server that can never connect. Registrations in a
+  healthy `pi` CLI session are untouched. Regression tests:
+  `test/mcp-host-connector.test.ts`.
+
 ## [0.10.0] — 2026-09-29
 
 ### Breaking
