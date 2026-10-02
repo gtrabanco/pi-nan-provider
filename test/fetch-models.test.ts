@@ -114,7 +114,7 @@ describe("mergeLiveWithGenerated", () => {
 		const model = merged.models[0]!;
 		// From models.dev provider nan: context 1M, output 384K.
 		expect(model.contextWindow).toBe(1_000_000);
-		expect(model.maxTokens).toBe(384_000);
+		expect(model.maxTokens).toBe(32_768);
 		expect(model.reasoning).toBe(true);
 		expect(model.api).toBe("openai-completions");
 		expect(model.provider).toBe("nan");
@@ -193,7 +193,7 @@ describe("baselineModels", () => {
 		// on 2026-09-29 with exactly the limits the docs state.
 		expect(byId.get("qwen3.6")).toMatchObject({ contextWindow: 262_144, maxTokens: 65_536, reasoning: true, input: ["text", "image"] });
 		expect(byId.get("gemma4")).toMatchObject({ contextWindow: 262_144, maxTokens: 32_768, reasoning: true, input: ["text", "image"] });
-		expect(byId.get("deepseek-v4-flash")).toMatchObject({ contextWindow: 1_000_000, maxTokens: 384_000, reasoning: true, input: ["text", "image"] });
+		expect(byId.get("deepseek-v4-flash")).toMatchObject({ contextWindow: 1_000_000, maxTokens: 32_768, reasoning: true, input: ["text", "image"] });
 		expect(byId.get("mimo-v2.6-flash")).toMatchObject({ contextWindow: 1_048_576, maxTokens: 131_072, reasoning: true, input: ["text", "image"] });
 		// mimo-v2.5 was removed by NaN (absent from the docs and openapi model
 		// list, checked 2026-09-29) — the baseline must not advertise it anymore.

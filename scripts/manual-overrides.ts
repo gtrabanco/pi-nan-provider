@@ -141,10 +141,12 @@ export const MANUAL_ONLY_MODELS: Record<string, ManualModelOverride> = {
 export const MANUAL_OVERRIDES: Record<string, ManualModelOverride> = {
 	"deepseek-v4-flash": {
 		input: ["text", "image"],
+		maxTokens: 32_768,
 		reasoningEffortValues: ["none"],
 		thinkingLevelMap: { off: "none" },
 		note:
 			"input includes image: NaN serves the Vision-Exp variant ('takes images as input', https://nan.builders/docs/models; the image_url content-parts in https://nan.builders/openapi.json list deepseek-v4-flash among the vision models). models.dev provider nan also lists text+image now (DeepSeek V4.1 Flash entry, checked 2026-09-13; its 2026-09-07 snapshot listed text only), so this override is kept as a pin for the vision capability rather than as a divergence. " +
+			"maxTokens 32768 per the official NaN pi docs (https://nan.builders/docs/pi, 'the same set the NaN CLI writes', checked 2026-10-02) closing issue #20 — the gateway now rejects max_tokens above ~256k for this model with 403 permission_error (measured 2026-10-02: 256,000 → 200; 262,143 → 403), and the previous models.dev-derived 384000 made every pi request fail since pi-ai sends max_tokens = model.maxTokens when no cap is set. models.dev still lists 384000, so this override pins the documented value. " +
 			"reasoning_effort_values=[\"none\"] (issue #16, measured 2026-09-27 against live gateway, repro included in the issue): only \"none\" deterministically disables reasoning (0 reasoning tokens, answer produced). Every other value leaves 13-14K reasoning tokens and causes runaway reasoning (finish_reason:\"length\" with ZERO answer text). The catalog declares only [\"none\"] because the remaining values are useless noise. " +
 			"thinkingLevelMap { off: \"none\" } (issue #16, measured 2026-09-27): when pi maps reasoning:\"off\" to reasoningEffort:undefined, the thinkingLevelMap.off=\"none\" supplies the effort so the gateway receives reasoning_effort:\"none\" and does NOT enter runaway reasoning mode.",
 	},

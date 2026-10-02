@@ -151,7 +151,7 @@ describe("issue #19 — stale catalog overlay (chat models)", () => {
 			expect(ds).toBeDefined();
 			// Generated capabilities must be overlaid despite stale store
 			expect(ds!.contextWindow).toBe(1_000_000);
-			expect(ds!.maxTokens).toBe(384_000);
+			expect(ds!.maxTokens).toBe(32_768);
 			expect(ds!.thinkingLevelMap?.off).toBe("none");
 			expect(ds!.input).toEqual(["text", "image"]);
 			expect(ds!.compat?.supportsReasoningEffort).toBe(true);

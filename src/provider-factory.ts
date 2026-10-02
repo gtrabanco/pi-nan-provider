@@ -37,6 +37,7 @@ import type {
 	RefreshModelsContext,
 } from "@earendil-works/pi-ai";
 import { withContextOverflowClassification } from "./context-overflow-classifier.ts";
+import { withReasoningOnlyStreamGuard } from "./reasoning-only-stream-guard.ts";
 import { NAN_IMAGE_API, baselineImageModels, createNanImagesApi } from "./images.ts";
 import {
 	baselineModels,
@@ -248,13 +249,19 @@ export async function createNanCompatibleProvider(
 				const current = liveIds;
 				return current ? models.filter((model) => current.has(model.id)) : models;
 			},
-			// Sanitize the payload for NaN's strict schema, then classify an opaque
-			// generic 400 as a context overflow when the request we just sent was over
-			// the model's window. The second layer keeps a replayed cross-model
-			// reasoning trace (or any other over-window request the context-hook guard
-			// cannot reach, e.g. NAN_THINKING_GUARD=0) recoverable instead of wedging
-			// the session — see src/context-overflow-classifier.ts.
-			api: withContextOverflowClassification(wrapApiForStrictSanitization(apiFactory())),
+			// Sanitize the payload for NaN's strict schema, then wrap a guard that
+			// detects NaN's reasoning-only stream closure marker and rewrites the
+			// terminal message so pi-ai retries it as a retryable error (issue #21).
+			// Finally, classify an opaque generic 400 as a context overflow when
+			// the request we just sent was over the model's window (issue #3).
+			//
+			// Composition order: outermost → classifier (error rewrites),
+			// middle → guard (marker detection), innermost → sanitizer (payload).
+			// The guard's onProviderStreamEvent hook sees the raw response chunks
+			// (NOT onPayload, which only receives the outgoing request params).
+			api: withContextOverflowClassification(
+				withReasoningOnlyStreamGuard(wrapApiForStrictSanitization(apiFactory())),
+			),
 		}),
 		overlayMap,
 	);

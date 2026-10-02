@@ -327,12 +327,14 @@ Chat models:
 | :--- | :--- | :--- | :--- | :---: |
 | `qwen3.6` | 262,144 | 65,536 | text, image | ✅ |
 | `gemma4` | 262,144 | 32,768 | text, image | ✅ |
-| `deepseek-v4-flash` | 1,000,000 | 384,000 | text, image | ✅ |
+| `deepseek-v4-flash` | 1,000,000 | 32,768* | text, image | ✅ |
 | `mimo-v2.6-flash` | 1,048,576 | 131,072 | text, image | ✅ |
 | `glm5.3-flash` | 1,000,000 | 131,072 | text, image | ✅ |
 | `qwen3.8-flash` | 262,144 | 131,072 | text, image | ✅ |
 
 > [!NOTE]
+> `*` deepseek-v4-flash max output 32,768 is the ceiling from the official NaN pi docs (https://nan.builders/docs/pi, "the same set the NaN CLI writes", issue #20, 2026-10-02); models.dev still lists 384,000 but the gateway rejects `max_tokens` above ~256k with 403.
+>
 > **Cold prompt cache practical ceiling (issue #18).** The context windows above are the models' real windows, but the api.nan.builders edge (Cloudflare) aborts responses past its 120 s Proxy Read Timeout. Measured with direct cold requests (unique filler, no prompt cache; 2026-10-01): 208,036 tokens (~960 KB body) answered in 12.9 s while ~220k and ~286k tokens returned **HTTP 524 `origin_response_timeout`** at ~126 s; the same sizes with a warm prompt cache answer in ~10 s. The practical ceiling for cold requests is therefore well below the declared windows. Since 1.0.0 the provider reclassifies a 524 on an estimated over-200,000-token request (`NAN_COLD_CACHE_CEILING_TOKENS`) as a context overflow so pi compacts and retries instead of wedging; a 524 on a smaller request is left alone (genuine transient timeout).
 
 Non-chat image models (available through `models.generateImages()` /
