@@ -251,8 +251,8 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   Server names and tool IDs:
   - `nan-search` → tools: `mcp__nan_search__web_search`
     (official remote, HTTP, `Authorization: Bearer <key>` header)
-  - `nan-media` → tools: `mcp__nan_media__generate_image/edit_image/text_to_speech/list_voices/speech_to_text/list_models/embed_text/rerank_documents`
-    (community stdio, `npx -y nan-mcp-server@1.1.2`, 120s timeout; 8 tools as of 1.1.2)
+  - `nan-media` → tools: `mcp__nan_media__generate_image/edit_image/text_to_speech/list_voices/speech_to_text/list_models/embed_text/rerank_documents/get_quota`
+    (community stdio, `npx -y nan-mcp-server@1.3.0`, 120s timeout; 9 tools as of 1.3.0)
   - `exposure: "direct"` on both — tools are declared to the model.
   - User `mcp.json` entries with the same name take precedence.
   - `/nan-mcp enable/disable` calls `pi.registerMcpServer()` / `pi.unregisterMcpServer()` directly.
@@ -271,10 +271,10 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
     key, shared rate limit/quota). Spec: https://nan.builders/openapi.json
     (tag "MCP"). Currently exposes `web_search`.
   - Community `nan-mcp-server` (https://github.com/luciferfran/nan-mcp-server):
-    stdio MCP server, version-pinned via NAN_MEDIA_MCP_VERSION (default 1.1.2)
-    or full command override via NAN_MEDIA_MCP_COMMAND. Tools (1.1.2): generate_image,
+    stdio MCP server, version-pinned via NAN_MEDIA_MCP_VERSION (default 1.3.0)
+    or full command override via NAN_MEDIA_MCP_COMMAND. Tools (1.3.0): generate_image,
     edit_image, text_to_speech, list_voices, speech_to_text, list_models, embed_text,
-    rerank_documents.
+    rerank_documents, get_quota.
   - Automated check (scripts/check-nan-mcp-server.ts) compares the npm registry
     against the pin weekly and files a `dependencies` issue when a newer release
     exists, with a breaking/safe verdict from the live server tool surface.

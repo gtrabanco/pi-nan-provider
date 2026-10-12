@@ -195,6 +195,7 @@ conector con `pi config` → Built-in extensions → `mcp`.
 | `mcp__nan_media__list_models` | Listar los ids de modelos que alcanza la key |
 | `mcp__nan_media__embed_text` | Embeddings de texto (qwen3-embedding) |
 | `mcp__nan_media__rerank_documents` | Reordenación de documentos (Qwen3-Reranker) |
+| `mcp__nan_media__get_quota` | Cuota de tokens por modelo (usado / tope / restante / reinicio) |
 
 > pi 0.99.0–0.99.1 usaba las formas con guiones (`mcp__nan-search__web_search`,
 > `mcp__nan-media__*`); pi 0.99.2+ sanitiza los nombres de herramientas a solo
@@ -206,7 +207,7 @@ conector con `pi config` → Built-in extensions → `mcp`.
 | Variable | Por defecto | Descripción |
 | :--- | :--- | :--- |
 | `NAN_MEDIA_MCP` | — | Override por sesión (`0` o `false` para desactivar). |
-| `NAN_MEDIA_MCP_VERSION` | `1.1.2` | Versión del servidor fijada (recomendado). |
+| `NAN_MEDIA_MCP_VERSION` | `1.3.0` | Versión del servidor fijada (recomendado). |
 | `NAN_MEDIA_MCP_COMMAND` | — | Override del comando personalizado. |
 | `NAN_MEDIA_MCP_TIMEOUT_MS` | `120000` | Timeout por llamada. |
 | `NAN_MCP_TOOLS` | — | Override para el puente oficial (`0` para desactivar). |

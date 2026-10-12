@@ -27,7 +27,7 @@ export function mediaMcpTimeoutSec(): number {
 
 export const NAN_MEDIA_MCP_ENV = "NAN_MEDIA_MCP";
 
-export const DEFAULT_NAN_MEDIA_MCP_VERSION = "1.1.2";
+export const DEFAULT_NAN_MEDIA_MCP_VERSION = "1.3.0";
 export const DEFAULT_MEDIA_MCP_TIMEOUT_MS = 120_000;
 export const NAN_MEDIA_MCP_VERSION_ENV = "NAN_MEDIA_MCP_VERSION";
 export const NAN_MEDIA_MCP_COMMAND_ENV = "NAN_MEDIA_MCP_COMMAND";

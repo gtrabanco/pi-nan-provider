@@ -74,7 +74,7 @@ describe("native media MCP registration", () => {
 			expect(nanMedia).toBeDefined();
 			expect(nanMedia!.config.type).toBe("stdio");
 			expect(nanMedia!.config.command).toBe("npx");
-			expect(nanMedia!.config.args).toEqual(["-y", "nan-mcp-server@1.1.2"]);
+			expect(nanMedia!.config.args).toEqual(["-y", "nan-mcp-server@1.3.0"]);
 			expect(nanMedia!.config.exposure).toBe("direct");
 			// Timeout: 120000ms → 120 seconds (ceil)
 			expect(nanMedia!.config.timeout).toBe(120);

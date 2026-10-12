@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-10-12
+
+### Changed
+
+- **Media MCP bridge pin bumped `nan-mcp-server@1.1.2 → 1.3.0`** (issue #22,
+  auto-created by `scripts/check-nan-mcp-server.ts`; verdict "safe to bump,
+  non-breaking"). Verified from the published tarballs: every bridged tool is
+  still present and `1.3.0` adds exactly one tool, `get_quota` (read-only,
+  free, third-party dashboard route `/api/usage/quota`). Because the bridge
+  registers the whole server with `exposure: "direct"`, `get_quota` is exposed
+  automatically as `mcp__nan_media__get_quota` — documented in both READMEs,
+  `AGENTS.md`, and the `NAN_MEDIA_MCP_VERSION` default. The `renderIssueBody`
+  bump hint pointed at the nonexistent `src/mcp/nan-media.ts`; corrected to
+  `src/mcp/media-server.ts`.
+
+## [1.0.1] - 2026-10-02
+
+### Fixed
+
+- **`deepseek-v4-flash` max-token ceiling** (issue #20): the gateway rejects
+  `max_tokens` above ~256k for this model with `403 permission_error`
+  (measured 2026-10-02: 256,000 → 200; 262,143 → 403), and the models.dev
+  value `384000` made every request fail. The catalog pins `maxTokens: 32768`
+  per the official NaN pi docs via `MANUAL_OVERRIDES`; `contextWindow`
+  unchanged. The issue-#19 read-time overlay propagates it to stale stores.
+- **Reasoning-only stream guard** (issue #21): NaN can close a reasoning-only
+  stream with `finish_reason: "length"` on an empty delta plus an unbilled
+  `nan_truncation { reason: "reasoning_only_stream" }` marker that pi-ai
+  discarded, surfacing a useless empty turn. The provider now classifies it as
+  a retryable error instead of a silent stop.
+
 ## [1.0.0] - 2026-10-01
 
 ### Changed

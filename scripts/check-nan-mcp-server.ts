@@ -318,7 +318,7 @@ export function renderIssueBody(report: NanMcpServerCheckReport): string {
 	}
 	lines.push("### To bump");
 	lines.push(
-		`1. Edit \`DEFAULT_NAN_MEDIA_MCP_VERSION\` in \`src/mcp/nan-media.ts\` from \`${report.pinnedVersion}\` to \`${report.latestVersion}\`.`,
+		`1. Edit \`DEFAULT_NAN_MEDIA_MCP_VERSION\` in \`src/mcp/media-server.ts\` from \`${report.pinnedVersion}\` to \`${report.latestVersion}\`.`,
 	);
 	lines.push("2. Run \`bun test && bun run typecheck\`.");
 	lines.push(

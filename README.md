@@ -192,6 +192,7 @@ registering a server that can never connect. To get MCP in the CLI, enable the c
 | `mcp__nan_media__list_models` | List the NaN model ids the key can reach |
 | `mcp__nan_media__embed_text` | Text embeddings (qwen3-embedding) |
 | `mcp__nan_media__rerank_documents` | Document reranking (Qwen3-Reranker) |
+| `mcp__nan_media__get_quota` | Per-model token quota (used / cap / remaining / reset) |
 
 > pi 0.99.0–0.99.1 used the hyphenated forms (`mcp__nan-search__web_search`,
 > `mcp__nan-media__*`); pi 0.99.2+ sanitizes tool names to `[A-Za-z0-9_]` only,
@@ -203,7 +204,7 @@ registering a server that can never connect. To get MCP in the CLI, enable the c
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `NAN_MEDIA_MCP` | — | Per-session override (`0` or `false` to disable). |
-| `NAN_MEDIA_MCP_VERSION` | `1.1.2` | Pinned server version (recommended). |
+| `NAN_MEDIA_MCP_VERSION` | `1.3.0` | Pinned server version (recommended). |
 | `NAN_MEDIA_MCP_COMMAND` | — | Custom command override. |
 | `NAN_MEDIA_MCP_TIMEOUT_MS` | `120000` | Per-call timeout. |
 | `NAN_MCP_TOOLS` | — | Override for the official bridge (`0` to disable). |
