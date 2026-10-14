@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-10-14
+
+Minor realigns with the pi release line (pi 1.2.0). Closes issue #23.
+
+### Added
+
+- **Catalog authority order is now explicit** (`AGENTS.md`): a manual override
+  while the docs have not changed, then https://nan.builders/docs/models as the
+  source of truth, then models.dev — a downstream mirror a human updates later.
+  When the docs change and an override predates it, the docs win **but the
+  override is re-probed live first**; when the probe disagrees with the docs,
+  the measurement wins.
+- **`LIVE_ONLY_MODEL_DATA`** (`src/fetch-models.ts`): documented capabilities
+  for tier-gated live-only models. `glm5.3` (premium) previously registered live
+  with the blind `UNKNOWN_MODEL_LIMITS` placeholder (128K/4K, text-only, no
+  reasoning), contradicting the docs. It now gets `1,048,576` / `131,072`,
+  text+image input and `thinkingLevelMap { off: "low" }`, applied by both
+  `mergeLiveWithGenerated` and `buildOverlayMap`. It stays out of the static
+  baseline so a non-premium key never sees a model it cannot call, and the
+  stored catalog still decides which ids exist (issue #19 invariant intact).
+
+### Changed
+
+- **pi SDK `1.0.0 → 1.2.0`** (`@earendil-works/pi-ai` and
+  `@earendil-works/pi-coding-agent`, devDependencies). Drop-in: pi-ai 1.2.0's
+  `index.d.ts` is byte-identical to 1.0.0, and the peer range `">=0.99.0 <2"`
+  already covered it, so no code changed. The package version realigns to the
+  pi release line per the `AGENTS.md` version policy.
+- **Context windows follow the docs**: `deepseek-v4-flash`, `glm5.3-flash` and
+  `qwen3.8-flash` move to `1,048,576`. models.dev had the rounded `1,000,000`
+  for the first two and a stale `262,144` for `qwen3.8-flash`, while the docs
+  state "1M token context (1,048,576 tokens)". The earlier `qwen3.8-flash`
+  override had been withdrawn on 2026-09-07 when the docs read "262K token
+  context, the model's native window".
+- **`mimo-v2.6-flash` can now disable reasoning**: the docs called its depth
+  "not adjustable", but the live gateway makes `reasoning_effort` effective at
+  the off end, so the catalog gains `thinkingLevelMap { off: "none" }`.
+- **`deepseek-v4-flash` reasoning contract re-verified**: the docs' "any value
+  (no effect)" claim is stale. A 2026-10-14 probe (with `mimo-v2.6-flash` and
+  `qwen3.6` as controls) gave 0 reasoning tokens for `none` on all three, while
+  `low`/omitted kept reasoning on (57/63, 22/17, 951/905) and `minimal` gave
+  109. The measured behavior stays: `reasoningEffortValues: ["none"]` plus
+  `thinkingLevelMap { off: "none" }`.
+- **Reasoning-only stream limit** documented with the gateway's real figures in
+  `src/reasoning-only-stream-guard.ts`: 45,000 reasoning characters / 420 s
+  (600 s once the turn has passed that count), not the previously stated
+  60,000.
+
+### Verified
+
+- `bun test` — 330 pass / 0 fail; `bun run typecheck` clean;
+  `bun run generate-models` idempotent.
+- The live probe and the path-protection records for the updated tests live in
+  `docs/fix/docs-as-source-of-truth/decisions.md`.
+
 ## [1.0.2] - 2026-10-12
 
 ### Changed
