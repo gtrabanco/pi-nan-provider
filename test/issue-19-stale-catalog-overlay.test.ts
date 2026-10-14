@@ -150,7 +150,7 @@ describe("issue #19 — stale catalog overlay (chat models)", () => {
 			const ds = models.find((m) => m.id === "deepseek-v4-flash");
 			expect(ds).toBeDefined();
 			// Generated capabilities must be overlaid despite stale store
-			expect(ds!.contextWindow).toBe(1_000_000);
+			expect(ds!.contextWindow).toBe(1_048_576);
 			expect(ds!.maxTokens).toBe(32_768);
 			expect(ds!.thinkingLevelMap?.off).toBe("none");
 			expect(ds!.input).toEqual(["text", "image"]);
@@ -179,7 +179,7 @@ describe("issue #19 — stale catalog overlay (chat models)", () => {
 			const models = provider.getModels() as Model<"openai-completions">[];
 			const glm = models.find((m) => m.id === "glm5.3-flash");
 			expect(glm).toBeDefined();
-			expect(glm!.contextWindow).toBe(1_000_000);
+			expect(glm!.contextWindow).toBe(1_048_576);
 			expect(glm!.maxTokens).toBe(131_072);
 			expect(glm!.thinkingLevelMap?.off).toBe("minimal");
 		},
@@ -218,12 +218,12 @@ describe("issue #19 — stale catalog overlay (chat models)", () => {
 
 describe("issue #19 — live-only / uncatalogued stored ids pass through", () => {
 	test(
-		"a stored id not in the generated catalog (e.g. premium glm5.3) passes through as-is",
+		"a stored premium glm5.3 gets the documented capabilities, not the stale store values",
 		async () => {
 			const provider = await createNanCompatibleProvider(NAN_PROVIDER);
 
 			const liveOnlyModel: Model<"openai-completions"> = {
-				id: "glm5.3", // premium tier — not in generated catalog
+				id: "glm5.3", // premium tier — out of the static baseline
 				name: "GLM 5.3",
 				api: "openai-completions",
 				provider: "nan",
@@ -231,8 +231,8 @@ describe("issue #19 — live-only / uncatalogued stored ids pass through", () =>
 				reasoning: true,
 				input: ["text"],
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				contextWindow: 1_000_000,
-				maxTokens: 131_072,
+				contextWindow: 128_000,
+				maxTokens: 4_096,
 				compat: {
 					supportsDeveloperRole: false,
 					supportsReasoningEffort: true,
@@ -251,9 +251,13 @@ describe("issue #19 — live-only / uncatalogued stored ids pass through", () =>
 			const models = provider.getModels() as Model<"openai-completions">[];
 			const glm53 = models.find((m) => m.id === "glm5.3");
 			expect(glm53).toBeDefined();
-			// Pass through as-is — capabilities preserved from store
-			expect(glm53!.contextWindow).toBe(1_000_000);
-			expect(glm53!.thinkingLevelMap).toBeUndefined();
+			// The store decides which ids exist (issue #19); the live-only
+			// documented capability data decides their values, so a stale
+			// placeholder entry is corrected instead of passing through.
+			expect(glm53!.contextWindow).toBe(1_048_576);
+			expect(glm53!.maxTokens).toBe(131_072);
+			expect(glm53!.input).toEqual(["text", "image"]);
+			expect(glm53!.thinkingLevelMap?.off).toBe("low");
 			expect(glm53!.compat?.supportsReasoningEffort).toBe(true);
 		},
 	);
@@ -378,7 +382,7 @@ describe("issue #19 — network refresh still correct after overlay", () => {
 			const models = provider.getModels() as Model<"openai-completions">[];
 			const ds = models.find((m) => m.id === "deepseek-v4-flash");
 			expect(ds).toBeDefined();
-			expect(ds!.contextWindow).toBe(1_000_000);
+			expect(ds!.contextWindow).toBe(1_048_576);
 			expect(ds!.thinkingLevelMap?.off).toBe("none");
 			// mimo-v2.6-flash should also be present (live list includes it)
 			const mimo = models.find((m) => m.id === "mimo-v2.6-flash");
@@ -416,7 +420,7 @@ describe("issue #19 — network refresh still correct after overlay", () => {
 			const models = provider.getModels() as Model<"openai-completions">[];
 			const ds = models.find((m) => m.id === "deepseek-v4-flash");
 			expect(ds).toBeDefined();
-			expect(ds!.contextWindow).toBe(1_000_000);
+			expect(ds!.contextWindow).toBe(1_048_576);
 			expect(ds!.thinkingLevelMap?.off).toBe("none");
 		},
 	);
@@ -487,7 +491,7 @@ describe("issue #19 — overlay is idempotent, no behavioral regression", () => 
 
 			expect(ds0!.contextWindow).toBe(ds1!.contextWindow);
 			expect(ds1!.contextWindow).toBe(ds2!.contextWindow);
-			expect(ds0!.contextWindow).toBe(1_000_000);
+			expect(ds0!.contextWindow).toBe(1_048_576);
 			expect(ds0!.thinkingLevelMap?.off).toBe("none");
 		},
 	);

@@ -40,7 +40,7 @@ describe("issue #20 — deepseek-v4-flash maxTokens ceiling", () => {
 
 	test("generated catalog entry for deepseek-v4-flash still has contextWindow=1000000 (unchanged)", () => {
 		const entry = byId.get("deepseek-v4-flash");
-		expect(entry!.contextWindow).toBe(1_000_000);
+		expect(entry!.contextWindow).toBe(1_048_576);
 	});
 
 	test("baseline model for deepseek-v4-flash exposes maxTokens=32768", () => {
@@ -48,7 +48,7 @@ describe("issue #20 — deepseek-v4-flash maxTokens ceiling", () => {
 		const model = baselines.find((m) => m.id === "deepseek-v4-flash");
 		expect(model).toBeDefined();
 		expect(model!.maxTokens).toBe(32_768);
-		expect(model!.contextWindow).toBe(1_000_000);
+		expect(model!.contextWindow).toBe(1_048_576);
 	});
 
 	test("MANUAL_OVERRIDES['deepseek-v4-flash'] has maxTokens=32768 with provenance note", () => {

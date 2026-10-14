@@ -110,19 +110,20 @@ describe("manual overrides in the generated catalog", () => {
 		}
 	});
 
-	test("qwen3.8-flash context window follows the docs at 262K native (1M override withdrawn)", () => {
+	test("qwen3.8-flash context window follows the docs at 1M (1,048,576 tokens)", () => {
 		const entry = byId.get("qwen3.8-flash");
 		expect(entry).toBeDefined();
-		expect(entry!.contextWindow).toBe(262_144);
-		// The 1,000,000 override (maintainer-confirmed 2026-09-05) was withdrawn
-		// once the docs were updated on 2026-09-07 and still said "262K token
-		// context, the model's native window"; models.dev agrees at 262,144.
-		expect(MANUAL_OVERRIDES["qwen3.8-flash"]).toBeUndefined();
-		const note = entry!.notes?.find((value) => value.includes("withdrawn"));
+		expect(entry!.contextWindow).toBe(1_048_576);
+		// The docs are the source of truth (maintainer instruction: docs win over
+		// models.dev, which a user updates later). The docs state "1M token
+		// context (1,048,576 tokens)" for this model, checked 2026-10-14;
+		// models.dev still lists 262,144, so the override pins the documented
+		// value until models.dev catches up.
+		const note = MANUAL_OVERRIDES["qwen3.8-flash"]?.note;
 		expect(note).toBeDefined();
-		expect(note).toContain("262,144");
-		expect(note).toContain("2026-09-07");
-		expect(note).toContain("native window");
+		expect(note).toContain("1,048,576");
+		expect(note).toContain("2026-10-14");
+		expect(note).toContain("docs");
 	});
 
 	test("glm5.2 stays excluded even though models.dev re-listed it", () => {
@@ -151,14 +152,14 @@ describe("manual overrides in the generated catalog", () => {
 		).toBe(true);
 	});
 
-	test("glm5.3-flash context window is 1M tokens (models.dev value, no contextWindow override)", () => {
+	test("glm5.3-flash context window follows the docs at 1M (1,048,576 tokens)", () => {
 		const entry = byId.get("glm5.3-flash");
 		expect(entry).toBeDefined();
-		expect(entry!.contextWindow).toBe(1_000_000);
-		// The override exists only for thinkingLevelMap (issue #16), not contextWindow.
-		expect(MANUAL_OVERRIDES["glm5.3-flash"]?.contextWindow).toBeUndefined();
-		// But the override does exist (for thinkingLevelMap), so verify its presence.
-		expect(MANUAL_OVERRIDES["glm5.3-flash"]).toBeDefined();
+		expect(entry!.contextWindow).toBe(1_048_576);
+		// The docs state "1M token context" (checked 2026-10-14); models.dev lists
+		// the rounded 1,000,000, which the override corrects to the documented
+		// window. The override also carries thinkingLevelMap (issue #16).
+		expect(MANUAL_OVERRIDES["glm5.3-flash"]?.contextWindow).toBe(1_048_576);
 		expect(MANUAL_OVERRIDES["glm5.3-flash"]?.thinkingLevelMap?.off).toBe("minimal");
 	});
 

@@ -144,6 +144,22 @@ describe("issue #16 — thinkingLevelMap flows to the wire", () => {
 		expect(gateway.lastBody().reasoning_effort).toBe("none");
 	});
 
+	test("mimo-v2.6-flash maps off to 'none' (live re-probe 2026-10-14)", async () => {
+		// The docs list this model as "accepted, depth not adjustable", but the
+		// live gateway makes the parameter effective at the off end: `none` gave
+		// 0 reasoning tokens / a full answer while `low` gave 22 and omission 17.
+		// The measurement wins, so the catalog carries thinkingLevelMap.off.
+		const model = modelFor("mimo-v2.6-flash");
+		expect(model.thinkingLevelMap?.off).toBe("none");
+		expect(model.reasoning).toBe(true);
+		expect(model.compat?.supportsReasoningEffort).toBe(true);
+
+		const gateway = capturingGateway();
+		await runTurn(model, gateway);
+
+		expect(gateway.lastBody().reasoning_effort).toBe("none");
+	});
+
 	test("a model with non-adjustable reasoning sends no reasoning_effort when reasoning: 'off'", async () => {
 		// qwen3.8-flash accepts the parameter but its depth is not adjustable and
 		// it has no `none` value, so the catalog declares no thinkingLevelMap:

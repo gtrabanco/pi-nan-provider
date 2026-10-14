@@ -86,6 +86,41 @@ export const UNKNOWN_MODEL_LIMITS = { contextWindow: 128_000, maxTokens: 4_096 }
 export const DEFAULT_MODELS_TIMEOUT_MS = 3_000;
 
 /**
+ * Capability data for models the docs serve but the static baseline must NOT
+ * carry (tier-gated), so the live `/models` path registers them with real
+ * documented values instead of the blind `UNKNOWN_MODEL_LIMITS` placeholder.
+ *
+ * `glm5.3` is premium-tier: a non-premium key must never see it in the static
+ * baseline (it cannot call it), but a premium key that discovers it live must
+ * get its real capabilities. Every value traces to
+ * https://nan.builders/docs/models (checked 2026-10-14; docs are the source of
+ * truth — models.dev lags):
+ * - Context 1M tokens, multimodal input text·image·audio·video (pi-representable
+ *   subset: text, image; pi's Model.input has no audio/video), output text,
+ *   tool calling, reasoning_effort low·medium·high·max.
+ * - Max output 131,072: models.dev documents that value for glm5.3; the docs
+ *   give the same 131K figure for the sibling glm5.3-flash, and do not state a
+ *   lower bound for glm5.3. Kept as the confirmed maximum rather than invented.
+ * - thinkingLevelMap { off: "low" }: the docs list low as glm5.3's shallowest
+ *   level, so `thinking: off` sends the shallowest supported effort. glm5.3 was
+ *   never measured (issue #16 covered glm5.3-flash, whose shallowest effective
+ *   value is "minimal"); "low" is the documented floor.
+ */
+export const LIVE_ONLY_MODEL_DATA: Readonly<Record<string, Omit<GeneratedModelEntry, "compat">>> = {
+	"glm5.3": {
+		id: "glm5.3",
+		name: "GLM 5.3",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 1_048_576,
+		maxTokens: 131_072,
+		reasoningEffortValues: ["low", "medium", "high", "max"],
+		thinkingLevelMap: { off: "low" },
+	},
+};
+
+/**
  * Live endpoint IDs classified as non-chat and excluded from the registered
  * model set. Keys are model ids; values are provenance reasons citing the
  * source that designated the endpoint as non-chat.
@@ -218,6 +253,10 @@ export function mergeLiveWithGenerated(
 	generated: readonly GeneratedModelEntry[] = NAN_GENERATED_MODELS,
 ): MergedCatalog {
 	const byId = new Map(generated.map((entry) => [entry.id, entry]));
+	// Every generated entry shares the same NaN/LiteLLM compat block; borrow it
+	// for the live-only documented entries so the gateway-behavior flags never
+	// drift between the static catalog and the live overlay.
+	const catalogCompat = generated.find((entry) => entry.compat)?.compat;
 	const models: Model<"openai-completions">[] = [];
 	const matched: string[] = [];
 	const unknown: string[] = [];
@@ -235,6 +274,16 @@ export function mergeLiveWithGenerated(
 			models.push(toModel(entry, source));
 			matched.push(id);
 		} else {
+			// Documented data for tier-gated live-only ids (glm5.3): the static
+			// baseline excludes them so a non-premium key never sees a model it
+			// cannot call, but a key that discovers one live gets its real
+			// capabilities instead of the blind placeholder below.
+			const liveOnlyEntry = LIVE_ONLY_MODEL_DATA[id];
+			if (liveOnlyEntry) {
+				models.push(toModel({ ...liveOnlyEntry, compat: catalogCompat }, source));
+				matched.push(id);
+				continue;
+			}
 			// Placeholder for uncatalogued live ids (e.g. new or undocumented):
 			// limits are the documented safe envelope and capabilities stay
 			// "unknown". The compat keys are the same gateway-behavior flags
@@ -442,6 +491,15 @@ export function buildOverlayMap(
 	// Chat models from the generated catalog.
 	for (const entry of generated) {
 		overlay.set(entry.id, { chat: toModel(entry, source) });
+	}
+	// Tier-gated live-only chat models with documented capabilities (glm5.3):
+	// absent from the static baseline so a non-premium key never sees them, but
+	// present here so a stored entry for one is corrected to the documented
+	// values instead of passing through stale. The store still decides which ids
+	// exist (issue #19); this map only decides their capabilities.
+	const catalogCompat = generated.find((entry) => entry.compat)?.compat;
+	for (const entry of Object.values(LIVE_ONLY_MODEL_DATA)) {
+		overlay.set(entry.id, { chat: toModel({ ...entry, compat: catalogCompat }, source) });
 	}
 	// Image models from the baseline (these live under a different api id
 	// so they cannot coexist as chat entries — ids are unique across types).
