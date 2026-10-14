@@ -172,20 +172,43 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   override (maintainer-confirmed 2026-09-05) was withdrawn 2026-09-07 — the
   updated NaN docs still say 262K "the model's native window" and models.dev
   agrees at 262,144.
+- **Catalog authority order** (maintainer instruction, 2026-10-14):
+  1. a **manual override**, as long as the docs have not changed since it was
+     written; 2. **https://nan.builders/docs/models** — the source of truth;
+  3. **models.dev** (provider `nan`). When the docs change and an override
+     predates the change, the docs win, **but the override must be re-verified
+     against the live gateway first** — a measured override usually encodes a
+     real failure mode the docs may not describe. **When the live probe
+     disagrees with the docs, the measurement wins** (maintainer instruction,
+     2026-10-14): the docs' `deepseek-v4-flash` "any value (no effect)" claim
+     was disproven by a re-probe, so the measured `none` behavior stayed.
+     models.dev is a
+     downstream mirror a human updates later than the docs or a Discord
+     announcement, so a divergence is never by itself proof the docs are
+     wrong. Every divergence or exclusion is recorded with provenance.
 - **Which models exist**: https://nan.builders/docs/models is the source of
   truth (maintainer instruction, reaffirmed 2026-09-29), cross-checked against
-  the `model` param description in https://nan.builders/openapi.json; models.dev
-  (provider `nan`) supplies the numeric limits for the ids it documents, and
-  every divergence or exclusion is recorded with provenance.
-  Official chat models (checked 2026-09-29): community `deepseek-v4-flash`,
+  the `model` param description in https://nan.builders/openapi.json. All seven
+  chat models declare 1M-token windows where the docs say so —
+  `deepseek-v4-flash`, `glm5.3-flash`, `qwen3.8-flash` and `mimo-v2.6-flash` at
+  **1,048,576**, `qwen3.6` and `gemma4` at **262,144** — and the first three
+  carry a `MANUAL_OVERRIDES.contextWindow` because models.dev lagged (rounded
+  1,000,000 for the first two, stale 262,144 for `qwen3.8-flash`; docs checked
+  2026-10-14).
+  Official chat models (checked 2026-10-14): community `deepseek-v4-flash`,
   `mimo-v2.6-flash`, `qwen3.8-flash`, `glm5.3-flash`, `qwen3.6`, `gemma4`
   (all text+image vision) + premium-tier `glm5.3`
-  (~753B MoE, text-only input, 1M context, 400M tokens/rolling 4h window).
-  glm5.3 is now documented by models.dev too (1M context / 131,072 max output,
-  checked 2026-09-13) but stays out of the static catalog via
-  `LIVE_ONLY_MODEL_IDS` (premium tier) so a non-premium key never sees a
-  model it cannot call when the live `/models` fetch is unavailable; premium
-  keys still receive it live with conservative placeholder limits.
+  (~753B MoE, multimodal text+image+audio+video input, 1M context, 400M
+  tokens/rolling 4h window).
+  glm5.3 stays out of the static catalog via `LIVE_ONLY_MODEL_IDS` (premium
+  tier) so a non-premium key never sees a model it cannot call when the live
+  `/models` fetch is unavailable. Premium keys receive it live with its
+  DOCUMENTED capabilities, not a blind placeholder: `LIVE_ONLY_MODEL_DATA` in
+  `src/fetch-models.ts` (1,048,576 / 131,072, text+image, `thinkingLevelMap
+  { off: "low" }`) is applied both by `mergeLiveWithGenerated` and by
+  `buildOverlayMap`, so a stored `glm5.3` entry is also corrected. The store
+  still decides which ids exist; the table only decides their capabilities
+  (issue #19's invariant is intact).
   Removed by the provider: `glm5.2` (2026-09-05) and `mimo-v2.5` (checked
   2026-09-29 — zero mentions in the docs and in openapi.json, and models.dev
   dropped it too; superseded by `mimo-v2.6-flash`). models.dev may re-list a
@@ -293,11 +316,48 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   `mcp_servers_change` so pi's report stays silent, and warns once per session;
   `/nan-mcp enable` persists the toggle without registering. Regression tests:
   `test/mcp-host-connector.test.ts`.
-- **pi 1.0.0 / pi-ai 1.0.0 compat** (verified 2026-10-01): the peer range is now
-  `">=0.99.0 <2"` (widened from `">=0.99.0 <1"`); the pi-ai 1.0.0 index/compat/types
-  type surfaces are identical to 0.99.1 (the release only adds a `./models` subpath,
-  Anthropic federation env consts, and a z.ai CN overflow pattern); the package's
-  tests and typecheck pass against 1.0.0 unchanged.
+- **`deepseek-v4-flash` reasoning_effort: the docs are stale, the measurement
+  wins** (re-probed live 2026-10-14). The docs claim the parameter is "any value
+  (no effect)"; a three-model probe disproves it — `none` gave **0** reasoning
+  tokens with a full answer on `deepseek-v4-flash`, `mimo-v2.6-flash` and
+  `qwen3.6`, while `low` gave 57 / 22 / 951 and omitting the parameter 63 / 17 /
+  905 (`minimal` on deepseek gave 109). So `none` disables reasoning and every
+  other value leaves it on. The catalog keeps `reasoningEffortValues: ["none"]`
+  and `thinkingLevelMap { off: "none" }`, and `mimo-v2.6-flash` — which the docs
+  called "depth not adjustable" — gains `thinkingLevelMap { off: "none" }` for
+  the same reason. `qwen3.8-flash` stays unmapped: only `none` was sampled for
+  it, so no other level is mapped. Probe: short prompt, `max_tokens: 2048`,
+  streaming with `include_usage`; 10 requests, under 50k tokens.
+- **Reasoning-only stream limit** (https://nan.builders/docs/models
+  #reasoning-only-stream-limit, checked 2026-10-14): NaN closes a turn that
+  produced only reasoning once it passes 45,000 reasoning characters, or after
+  420 s without visible output (600 s once the turn has demonstrably exceeded
+  that character count); the character budget also scales with prompt size
+  (~150,000 headroom + half the prompt, capped at 300,000). The cut is
+  `finish_reason: "length"` on an empty delta plus a final usage chunk marked
+  `estimated: true`, `billed: false` and carrying
+  `nan_truncation: { reason: "reasoning_only_stream" }`.
+  `src/reasoning-only-stream-guard.ts` (issue #21) keys on that marker;
+  earlier comment/message text said "60,000 characters" and was corrected to
+  the documented figures.
+- **pi 1.2.0 / pi-ai 1.2.0 compat** (verified 2026-10-14, the current verified
+  baseline): the peer range stays `">=0.99.0 <2"` (1.2.0 is inside it). The pi-ai
+  1.2.0 index/compat type surface is byte-identical to 1.0.0 (`index.d.ts` diff is
+  empty); the only additions are `KnownProvider` gaining `"azure"` (renamed from
+  `"azure-openai-responses"` in pi 1.0.3 — not used here), a new
+  `"openai-decisions"` classifier API, `SamplingParams`/`SamplingParamsByThinkingLevel`
+  type aliases (fields pi-ai already honored; `models.json`-only), and a new
+  optional `RefreshModelsContext.baseUrl`. `ThinkingLevelMap`, `ImageModel`,
+  `ImageApi`, `OpenAICompletionsCompat`, `createProvider`, `envApiKeyAuth`,
+  `registerMcpServer`/`unregisterMcpServer` and `registerVirtualModel` are all
+  unchanged, and the `thinkingLevelMap.off` branch in `buildRequest` still fires
+  at `api/openai-completions.js` ~line 719. The package's tests (328) and
+  typecheck pass against 1.2.0 unchanged; the upgrade is devDependency-only.
+- **pi 1.0.0 / pi-ai 1.0.0 compat** (verified 2026-10-01): the peer range was
+  widened to `">=0.99.0 <2"` (from `">=0.99.0 <1"`); the pi-ai 1.0.0
+  index/compat/types type surfaces are identical to 0.99.1 (the release only adds
+  a `./models` subpath, Anthropic federation env consts, and a z.ai CN overflow
+  pattern); the package's tests and typecheck pass against 1.0.0 unchanged.
 - **Native image models** (verified 2026-10-01): pi 1.0 lets a provider register
   `ImageModel` entries (`type: "image"`) plus a `Provider.images` implementation map
   keyed by a custom `ImageApi` id (`"nan-images"`); codemode reaches them with

@@ -2,8 +2,13 @@
  * NaN reasoning-only stream guard (issue #21).
  *
  * Problem: NaN's gateway closes a streaming turn that produced ONLY reasoning
- * (no content, no tool calls) at 60,000 reasoning chars or 420 seconds:
- * `finish_reason: "length"` on an empty delta, followed by a final usage chunk
+ * (no content, no tool calls) once it has produced more than 45,000 reasoning
+ * characters, or 420 seconds without visible output (600 seconds once the turn
+ * has demonstrably exceeded that character count). The reasoning-character
+ * budget also scales with prompt size: ~150,000 characters of headroom plus
+ * half the prompt's size, capped at 300,000
+ * (https://nan.builders/docs/models#reasoning-only-stream-limit,
+ * checked 2026-10-14). The cut is:
  * (estimated, unbilled) carrying `nan_truncation: { reason: "reasoning_only_stream" }`.
  * Through pi-ai this maps to `stopReason: "length"` with no text — indistinguishable
  * from a real output-limit cut, never retried, and the turn is silently wasted.
@@ -72,7 +77,7 @@ export function isReasoningOnlyStreamChunk(chunk: unknown): boolean {
 const REASONING_ONLY_REWRITE: Partial<AssistantMessage> = {
 	stopReason: "error" as const,
 	errorMessage:
-		"NaN timed out the stream before any answer content (reasoning-only stream guard: 420 s / 60,000-character limit; the turn was not billed). Original finish_reason: length.",
+		"NaN timed out the stream before any answer content (reasoning-only stream guard: the 420 s / 45,000-reasoning-character limit; the turn was not billed). Original finish_reason: length.",
 };
 
 /**

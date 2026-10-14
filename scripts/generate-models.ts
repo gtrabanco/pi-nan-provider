@@ -79,12 +79,10 @@ const PI_SUPPORTED_INPUT = new Set(["text", "image"]);
  * (shared with test/generated-catalog.test.ts, which pins that every
  * override lands on the generated entry with its provenance note).
  * Capability divergences from models.dev are recorded there, never here.
- * MANUAL_NOTES adds provenance-only notes to otherwise-untouched entries.
+ * MANUAL_NOTES adds provenance-only notes to otherwise-untouched entries
+ * (currently empty; per-model corrections live in MANUAL_OVERRIDES).
  */
-const MANUAL_NOTES: Record<string, string> = {
-	"qwen3.8-flash":
-		"contextWindow 262,144: the earlier 1,000,000 override (maintainer-confirmed 2026-09-05) was withdrawn 2026-09-07 — the updated https://nan.builders/docs/models still states '262K token context, the model's native window' and models.dev agrees at 262,144; NaN docs are treated as the most reliable source (maintainer instruction, 2026-09-07).",
-};
+const MANUAL_NOTES: Record<string, string> = {};
 
 /**
  * Models the provider has removed but that models.dev may still list.

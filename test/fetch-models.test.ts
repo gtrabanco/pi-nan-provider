@@ -112,8 +112,8 @@ describe("mergeLiveWithGenerated", () => {
 		expect(merged.matched).toEqual(["deepseek-v4-flash"]);
 		expect(merged.unknown).toEqual([]);
 		const model = merged.models[0]!;
-		// From models.dev provider nan: context 1M, output 384K.
-		expect(model.contextWindow).toBe(1_000_000);
+		// From the NaN docs (authoritative): context 1M = 1,048,576 tokens.
+		expect(model.contextWindow).toBe(1_048_576);
 		expect(model.maxTokens).toBe(32_768);
 		expect(model.reasoning).toBe(true);
 		expect(model.api).toBe("openai-completions");
@@ -126,10 +126,10 @@ describe("mergeLiveWithGenerated", () => {
 		// requires it to be excluded from the chat catalog, so it no longer
 		// surfaces here.  Only chat-style uncatalogued ids exercise the
 		// unknown-path placeholder logic.
-		const merged = mergeLiveWithGenerated(["glm5.3", "brand-new-model"], SOURCE);
-		expect(merged.unknown).toEqual(["glm5.3", "brand-new-model"]);
+		const merged = mergeLiveWithGenerated(["brand-new-model", "another-new-model"], SOURCE);
+		expect(merged.unknown).toEqual(["brand-new-model", "another-new-model"]);
 		expect(merged.matched).toEqual([]);
-		expect(merged.models.map((model) => model.id).sort()).toEqual(["brand-new-model", "glm5.3"]);
+		expect(merged.models.map((model) => model.id).sort()).toEqual(["another-new-model", "brand-new-model"]);
 		const model = merged.models[0]!;
 		expect(model.contextWindow).toBe(UNKNOWN_MODEL_LIMITS.contextWindow);
 		expect(model.maxTokens).toBe(UNKNOWN_MODEL_LIMITS.maxTokens);
@@ -140,10 +140,27 @@ describe("mergeLiveWithGenerated", () => {
 	});
 
 	test("mixed catalog keeps generated and uncatalogued live entries side by side", () => {
-		const merged = mergeLiveWithGenerated(["glm5.3-flash", "glm5.3"], SOURCE);
+		const merged = mergeLiveWithGenerated(["glm5.3-flash", "brand-new-model"], SOURCE);
 		expect(merged.models.length).toBe(2);
 		expect(merged.matched).toEqual(["glm5.3-flash"]);
-		expect(merged.unknown).toEqual(["glm5.3"]);
+		expect(merged.unknown).toEqual(["brand-new-model"]);
+	});
+
+	test("live-only glm5.3 gets documented capabilities, not the unknown placeholder", () => {
+		// Premium-tier model, deliberately out of the static baseline so a
+		// non-premium key never sees it. When a premium key discovers it live,
+		// LIVE_ONLY_MODEL_DATA supplies the documented capabilities instead of
+		// the blind 128K/4K placeholder.
+		const merged = mergeLiveWithGenerated(["glm5.3"], SOURCE);
+		expect(merged.matched).toEqual(["glm5.3"]);
+		expect(merged.unknown).toEqual([]);
+		const model = merged.models[0]!;
+		expect(model.contextWindow).toBe(1_048_576);
+		expect(model.maxTokens).toBe(131_072);
+		expect(model.reasoning).toBe(true);
+		expect(model.input).toEqual(["text", "image"]);
+		expect(model.thinkingLevelMap?.off).toBe("low");
+		expect(model.compat?.supportsFinishReason).toBe(true);
 	});
 
 	test("mimo-v2.6-flash resolves to catalog capabilities, not the 128K placeholder (2026-09-25)", () => {
@@ -193,7 +210,7 @@ describe("baselineModels", () => {
 		// on 2026-09-29 with exactly the limits the docs state.
 		expect(byId.get("qwen3.6")).toMatchObject({ contextWindow: 262_144, maxTokens: 65_536, reasoning: true, input: ["text", "image"] });
 		expect(byId.get("gemma4")).toMatchObject({ contextWindow: 262_144, maxTokens: 32_768, reasoning: true, input: ["text", "image"] });
-		expect(byId.get("deepseek-v4-flash")).toMatchObject({ contextWindow: 1_000_000, maxTokens: 32_768, reasoning: true, input: ["text", "image"] });
+		expect(byId.get("deepseek-v4-flash")).toMatchObject({ contextWindow: 1_048_576, maxTokens: 32_768, reasoning: true, input: ["text", "image"] });
 		expect(byId.get("mimo-v2.6-flash")).toMatchObject({ contextWindow: 1_048_576, maxTokens: 131_072, reasoning: true, input: ["text", "image"] });
 		// mimo-v2.5 was removed by NaN (absent from the docs and openapi model
 		// list, checked 2026-09-29) — the baseline must not advertise it anymore.
@@ -215,7 +232,9 @@ describe("fetchNanCompatibleModels", () => {
 		const qwen = models.find((model) => model.id === "qwen3.6")!;
 		expect(qwen.contextWindow).toBe(262_144); // generated data wins
 		const premium = models.find((model) => model.id === "glm5.3")!;
-		expect(premium.contextWindow).toBe(UNKNOWN_MODEL_LIMITS.contextWindow);
+		// Live-only premium id: documented capabilities, not the blind placeholder.
+		expect(premium.contextWindow).toBe(1_048_576);
+		expect(premium.maxTokens).toBe(131_072);
 	});
 
 	test("timeout falls back entirely to the generated catalog", async () => {

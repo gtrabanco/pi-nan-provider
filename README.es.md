@@ -331,10 +331,14 @@ Modelos de chat:
 | :--- | :--- | :--- | :--- | :---: |
 | `qwen3.6` | 262,144 | 65,536 | texto, imagen | ✅ |
 | `gemma4` | 262,144 | 32,768 | texto, imagen | ✅ |
-| `deepseek-v4-flash` | 1,000,000 | 384,000 | texto, imagen | ✅ |
+| `deepseek-v4-flash` | 1,048,576 | 32,768* | texto, imagen | ✅ |
 | `mimo-v2.6-flash` | 1,048,576 | 131,072 | texto, imagen | ✅ |
-| `glm5.3-flash` | 1,000,000 | 131,072 | texto, imagen | ✅ |
-| `qwen3.8-flash` | 262,144 | 131,072 | texto, imagen | ✅ |
+| `glm5.3-flash` | 1,048,576 | 131,072 | texto, imagen | ✅ |
+| `qwen3.8-flash` | 1,048,576 | 131,072 | texto, imagen | ✅ |
+
+> Las ventanas de la tabla son las **documentadas** en [los docs de NaN](https://nan.builders/docs/models) (comprobado 2026-10-14), que son la fuente de verdad; models.dev es un espejo que un humano actualiza más tarde y puede ir por detrás. `glm5.3` (tier premium, fuera de la tabla estática) es 1,048,576 / 131,072 con entrada texto+imagen cuando una clave premium lo descubre en vivo.
+>
+> `*` El límite de salida de 32,768 en `deepseek-v4-flash` es el techo de los docs oficiales de NaN para pi (https://nan.builders/docs/pi, "the same set the NaN CLI writes", issue #20, 2026-10-02); models.dev sigue listando 384,000, pero la pasarela rechaza `max_tokens` por encima de ~256k con 403.
 
 > [!NOTE]
 > **Techo práctico con caché de prompt fría (issue #18).** Las ventanas de contexto de la tabla son las ventanas reales de los modelos, pero el borde de api.nan.builders (Cloudflare) aborta las respuestas que superan su Proxy Read Timeout de 120 s. Medido con peticiones frías directas (relleno único, sin caché de prompt; 2026-10-01): 208.036 tokens (~960 KB de cuerpo) respondió en 12,9 s mientras que ~220k y ~286k tokens devolvieron **HTTP 524 `origin_response_timeout`** a los ~126 s; los mismos tamaños con caché cálida responden en ~10 s. El techo práctico para peticiones frías queda por tanto muy por debajo de las ventanas declaradas. Desde 1.0.0 el provider reclasifica un 524 en una petición estimada por encima de 200.000 tokens (`NAN_COLD_CACHE_CEILING_TOKENS`) como desbordamiento de contexto para que pi compacte y reintente en vez de quedarse colgado; un 524 en una petición menor se deja intacto (timeout transitorio genuino).
@@ -364,11 +368,12 @@ El parámetro `reasoning_effort` de NaN controla cuánto piensa el modelo antes 
 | :--- | :--- | :--- |
 | `glm5.3`, `glm5.3-flash` | `minimal` · `low` · `medium` · `high` · `max` | Completamente controlable — valores más altos permiten al modelo razonar más; `minimal` produce ~38 tokens de razonamiento (issue #16, medido 2026-09-27); `none` NO suprime el razonamiento en glm5.3-flash (13,382 tokens) |
 | `qwen3.6`, `gemma4` | `none` · `minimal` · `low` · `medium` · `high` · `max` | `none`/`minimal` omiten el razonamiento por completo; otros valores limitan a 2K / 8K / 16K / 32K tokens. `thinking: "off"` envía `reasoning_effort: "none"` automáticamente vía el `thinkingLevelMap` del catálogo — los docs de NaN dicen que sin parámetro estos modelos razonan por defecto (presupuesto de 16,384 tokens), así que `off` debe ser explícito |
-| `deepseek-v4-flash` | `none` · `minimal` · `low` · `medium` · `high` · `max` (el catálogo declara ["none"]) | `none` deshabilita el razonamiento de forma fiable (0 tokens de razonamiento, medido 2026-09-27); cualquier otro valor deja 13-14K tokens de razonamiento y causa razonamiento descontrolado (finish_reason:"length" con CERO texto de respuesta) — el catálogo solo declara `none` porque el resto es ruido. `thinking: "off"` ahora envía `reasoning_effort: "none"` automáticamente vía el `thinkingLevelMap` del catálogo |
-| `qwen3.8-flash`, `mimo-v2.6-flash` | *(aceptado pero no ajustable)* | El parámetro es aceptado y nunca rechazado, pero el modelo gestiona su propia profundidad de razonamiento — nunca es un error enviar un valor que estos modelos no ajustan |
+| `deepseek-v4-flash` | `none` (el catálogo declara ["none"]) | `none` deshabilita el razonamiento (0 tokens de razonamiento, respuesta completa); cualquier otro valor — incluido `minimal` y omitir el parámetro — lo deja ENCENDIDO (57 / 63 / 109 tokens de razonamiento), así que el catálogo solo declara `none`. Re-sondado en vivo 2026-10-14: los docs de NaN afirman "any value (no effect)", pero gana la medición. `thinking: "off"` envía `reasoning_effort: "none"` automáticamente vía el `thinkingLevelMap` del catálogo — sin él el modelo se descontrola hasta `finish_reason: "length"` sin respuesta (issue #16) |
+| `qwen3.8-flash` | *(aceptado pero no ajustable)* | El parámetro es aceptado y nunca rechazado, pero el modelo gestiona su propia profundidad de razonamiento — nunca es un error enviar un valor que este modelo no ajusta |
+| `mimo-v2.6-flash` | `none` | Los docs lo llamaban "profundidad no ajustable", pero el gateway en vivo (2026-10-14) muestra que `none` da 0 tokens de razonamiento con respuesta completa mientras `low` da 22 y omitirlo 17 — así que `thinking: "off"` envía `reasoning_effort: "none"` vía el `thinkingLevelMap` del catálogo |
 
 > [!NOTE]  
-> `maxTokens` NO limita la fase de razonamiento en los modelos de NaN. La fase de razonamiento corre hasta completarse (o se trunca a ~60,000 caracteres para deepseek-v4-flash) independientemente de `maxTokens` — medido: `max_tokens=512` en deepseek-v4-flash aún consumió 13,376 tokens de completación, todos de razonamiento (26x el techo). Este es un comportamiento del gateway confirmado por el issue #16 (medido 2026-09-27).
+> `maxTokens` NO limita la fase de razonamiento en los modelos de NaN. La fase de razonamiento corre hasta completarse (o se corta en el límite de stream solo-razonamiento de NaN: 45.000 caracteres de razonamiento, o 420 s sin salida visible) independientemente de `maxTokens` — medido: `max_tokens=512` en deepseek-v4-flash aún consumió 13,376 tokens de completación, todos de razonamiento (26x el techo). Este es un comportamiento del gateway confirmado por el issue #16 (medido 2026-09-27).
 
 ## 🚀 Desarrollo
 
