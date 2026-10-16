@@ -1,7 +1,7 @@
 {
 	"name": "@gtrabanco/pi-nan-provider",
-	"version": "1.2.0",
-	"description": "NaN Builders (api.nan.builders) model provider for pi - OpenAI-compatible registration with a models.dev-generated fallback, tier-aware live catalog, and MCP bridges (official web search + optional community media server)",
+	"version": "1.2.1",
+	"description": "NaN Builders (api.nan.builders) model provider for pi - OpenAI-compatible registration with a models.dev-generated fallback, tier-aware live catalog, and an optional community media MCP bridge",
 	"keywords": [
 		"pi",
 		"pi-package",

@@ -1,11 +1,13 @@
+[![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://nan.builders/?ref=built-with-nan)
+
 # @gtrabanco/pi-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.11.0-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-1.2.1-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 
 [NaN Builders](https://nan.builders) model provider + MCP nativo para [pi](https://github.com/earendil-works/pi). 
 
-Registra el proveedor `nan` vía `pi.registerProvider()` usando la API OpenAI-compatible de NaN (`https://api.nan.builders/v1`), y registra servidores MCP nativos con `pi.registerMcpServer()`.
+Registra el proveedor `nan` vía `pi.registerProvider()` usando la API OpenAI-compatible de NaN (`https://api.nan.builders/v1`), y registra el servidor MCP de media de la comunidad con `pi.registerMcpServer()`.
 
 ---
 
@@ -101,22 +103,48 @@ Consigue una clave en la [plataforma NaN](https://cloud.nan.builders/r/7GK06FX8)
 
 ## 🔌 MCP nativo
 
-Dado que [pi 0.99.0 incluye un cliente MCP integrado](https://github.com/earendil-works/pi/blob/main/docs/usage.md), este paquete migra sus puentes a MCP nativo (requiere `pi >=0.99, <2` — pi 0.99 hasta 1.0 son compatibles; el rango peer se amplió a `<2` en 0.11.0).
+Dado que [pi 0.99.0 incluye un cliente MCP integrado](https://github.com/earendil-works/pi/blob/main/docs/usage.md), este paquete usa MCP nativo (requiere `pi >=0.99, <2` — pi 0.99 hasta 1.2 son compatibles; el rango peer se amplió a `<2` en 0.11.0).
 
-Ambos puentes están **activados por defecto** (por sesión, visibles en `/mcp`). Usa `/nan-mcp` para gestionarlos.
+El puente de media está **activado por defecto** (por sesión, visible en `/mcp`). Usa `/nan-mcp` para gestionarlo.
 
-> [!TIP]
-> ¿Prefieres configurar los servidores MCP de NaN tú mismo? Desde pi 0.99.2/1.0, un servidor MCP HTTP en el `mcp.json` global puede autenticarse con tu token de `/login nan` en vez de una clave copiada: `{ "auth": { "provider": "nan" } }` (solo en el `mcp.json` global; requiere `https`). El registro integrado de `nan-search` sigue usando `NAN_API_KEY`/la credencial almacenada.
+> [!WARNING]
+> **El servidor MCP remoto oficial de NaN ya no expone ninguna herramienta.** Hasta 1.2.0 este paquete
+> incluía un puente `nan-search` apuntando a `https://api.nan.builders/mcp`, que exponía
+> `web_search`. Ese servidor ahora responde a `initialize` con `capabilities.tools` vacío y a
+> `tools/list` con `{"tools":[]}` — verificado con una clave válida el 2026-10-15 — y NaN eliminó toda
+> mención a MCP de su documentación (la antigua página `/docs/mcp` ahora redirige a `/docs/agent-setup`).
+> El puente se eliminó en **1.2.1** porque registrar un servidor que no expone nada solo produce un
+> servidor sin herramientas en `/mcp`.
+>
+> **Trae tu propio `web_search` y fetch.** Instala un servidor MCP que los proporcione (p. ej. el par
+> `fetch` + `brave-search` de los servidores MCP oficiales, o cualquier otro servidor MCP de
+> búsqueda/fetch) y decláralo en tu `mcp.json` global:
+>
+> ```json
+> {
+>   "mcpServers": {
+>     "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] },
+>     "web-search": {
+>       "command": "npx",
+>       "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+>       "env": { "BRAVE_API_KEY": "tu-clave" }
+>     }
+>   }
+> }
+> ```
+>
+> Vuelve a comprobar `https://api.nan.builders/mcp` periódicamente: si NaN publica herramientas otra
+> vez, este paquete puede restaurar el puente.
 
 ### 🛠️ Comando de Gestión: `/nan-mcp`
 
 | Comando | Efecto |
 | :--- | :--- |
-| `/nan-mcp status` | Muestra el estado actual de ambos puentes y la resolución de la clave API. |
-| `/nan-mcp enable [target]` | Activa `web-search` o `nan-mcp-server` (persiste). |
-| `/nan-mcp disable [target]` | Desactiva un puente de forma persistente. |
+| `/nan-mcp status` | Muestra el estado del puente de media y la resolución de la clave API. |
+| `/nan-mcp enable [target]` | Activa `nan-mcp-server` (persiste). |
+| `/nan-mcp disable [target]` | Lo desactiva de forma persistente. |
 
-Ambos puentes resuelven la credencial almacenada de `/login nan` (almacenada → env). Si ninguna se resuelve, el puente no se registra y se muestra un aviso en la salida de estado.
+El puente resuelve la credencial almacenada de `/login nan` (almacenada → env). Si ninguna se resuelve, el servidor no se registra y se muestra un aviso en la salida de estado.
 
 > [!NOTE]
 > El registro ocurre cuando se carga la extensión. Si ejecutas `/login nan` **después** de que la sesión haya empezado, la factoría ya se ejecutó — usa `/reload` (o `/nan-mcp enable`) para registrar los puentes sin reiniciar pi.
@@ -171,15 +199,7 @@ conector con `pi config` → Built-in extensions → `mcp`.
 
 ---
 
-### 1. Servidor MCP oficial de NaN
-*Puente oficial para herramientas remotas vía [https://api.nan.builders/mcp](https://nan.builders/docs/api).*
-
-- **`mcp__nan_search__web_search(query, ...)`**: Realiza búsquedas web a través del gateway de NaN.
-  > pi 0.99.0–0.99.1 usaba la forma con guiones (`mcp__nan-search__web_search`); pi 0.99.2+ sanitiza
-  > los nombres de herramientas a solo `[A-Za-z0-9_]`, así que los guiones se convirtieron en
-  > guiones bajos. La forma con guiones bajos aplica desde 0.99.2 hasta pi 1.0.
-
-### 2. Servidor MCP de Media (Comunidad)
+### Servidor MCP de Media (Comunidad)
 *Conecta [`nan-mcp-server`](https://github.com/luciferfran/nan-mcp-server) mediante un cliente stdio local mínimo.*
 
 - **Por sesión**: El servidor se conecta al registrarse (eager). Aparece en `/mcp` con fuente "extension".
@@ -197,10 +217,9 @@ conector con `pi config` → Built-in extensions → `mcp`.
 | `mcp__nan_media__rerank_documents` | Reordenación de documentos (Qwen3-Reranker) |
 | `mcp__nan_media__get_quota` | Cuota de tokens por modelo (usado / tope / restante / reinicio) |
 
-> pi 0.99.0–0.99.1 usaba las formas con guiones (`mcp__nan-search__web_search`,
-> `mcp__nan-media__*`); pi 0.99.2+ sanitiza los nombres de herramientas a solo
-> `[A-Za-z0-9_]`, así que los guiones se convirtieron en guiones bajos. La forma
-> con guiones bajos aplica desde 0.99.2 hasta pi 1.0.
+> pi 0.99.0–0.99.1 usaba la forma con guiones (`mcp__nan-media__*`); pi 0.99.2+ sanitiza los
+> nombres de herramientas a solo `[A-Za-z0-9_]`, así que los guiones se convirtieron en guiones
+> bajos. La forma con guiones bajos aplica desde 0.99.2 hasta pi 1.2.
 
 #### 🔧 Configuración del Puente de Media
 
@@ -210,7 +229,6 @@ conector con `pi config` → Built-in extensions → `mcp`.
 | `NAN_MEDIA_MCP_VERSION` | `1.3.0` | Versión del servidor fijada (recomendado). |
 | `NAN_MEDIA_MCP_COMMAND` | — | Override del comando personalizado. |
 | `NAN_MEDIA_MCP_TIMEOUT_MS` | `120000` | Timeout por llamada. |
-| `NAN_MCP_TOOLS` | — | Override para el puente oficial (`0` para desactivar). |
 
 #### 🤖 Detección Automática de Actualizaciones
 

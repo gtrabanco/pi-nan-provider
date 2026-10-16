@@ -15,17 +15,13 @@
  *     0.84 alike), and the openai-completions streaming implementation is
  *     resolved dynamically — see provider-factory.ts for why.
  *
- *  2. MCP servers via pi's native registerMcpServer (pi >=0.99):
- *     - `nan-search` — the official NaN remote MCP server
- *       (https://api.nan.builders/mcp), exposing `mcp__nan_search__web_search`
- *       (pi >=0.99.2; 0.99.0-0.99.1 kept the hyphen: `mcp__nan-search__web_search`).
- *       Default: enabled. NAN_MCP_TOOLS=0 to disable.
+ *  2. MCP server via pi's native registerMcpServer (pi >=0.99):
  *     - `nan-media` — the community stdio media server
  *       (flux-2-klein / kokoro / whisper), exposing
  *       `mcp__nan_media__generate_image` etc. Default: enabled,
  *       NAN_MEDIA_MCP=0 to disable.
  *
- *     Both are session-scoped (visible in /mcp with source "extension").
+ *     It is session-scoped (visible in /mcp with source "extension").
  *     Exposure: `direct` — tools are declared to the model like built-ins.
  */
 
@@ -40,7 +36,7 @@ import {
 import { baselineModels } from "./fetch-models.ts";
 import { createNanCompatibleProvider, type OpenAICompatibleProviderConfig } from "./provider-factory.ts";
 import { PROVIDERS } from "./providers.ts";
-import { NAN_API_KEY_ENV, mcpToolsDisabled, mcpToolsEnvExplicit, resolveNanApiKey, tryResolveNanApiKeyViaRegistry, resolveStoredNanApiKey, NAN_MCP_TOOLS_ENV, webSearchBridgeEnabled } from "./mcp/api-key.ts";
+import { NAN_API_KEY_ENV, resolveNanApiKey, tryResolveNanApiKeyViaRegistry, resolveStoredNanApiKey } from "./mcp/api-key.ts";
 import { mediaMcpCommand, mediaMcpEnabled, mediaMcpEnvExplicit, mediaMcpEnvTruthy, mediaMcpTimeoutSec } from "./mcp/media-server.ts";
 import { registerMcpHostGuard } from "./mcp/host-support.ts";
 
@@ -95,26 +91,6 @@ async function registerProviderCompat(
 const NO_NATIVE_MCP_GUARD_MSG =
 	"pi-nan-provider 0.10+ requires pi >= 0.99 for MCP tools (native MCP); upgrade pi or stay on package 0.9.x";
 
-/** Register the official NaN web-search MCP server (session-scoped). */
-async function registerWebSearchMcpServer(pi: ExtensionAPI, apiKey: string | undefined): Promise<boolean> {
-	if (!webSearchBridgeEnabled()) return false;
-	if (!apiKey) {
-		console.warn(
-			"[pi-nan-provider] NAN_API_KEY is not set — web-search server not registered. " +
-				"Run `/login nan` in pi or export `NAN_API_KEY=<your-key>`.",
-		);
-		return false;
-	}
-	pi.registerMcpServer("nan-search", {
-		type: "http",
-		url: "https://api.nan.builders/mcp",
-		headers: { Authorization: `Bearer ${apiKey}` },
-		exposure: "direct",
-		description: "Web search through NaN's gateway (official NaN MCP server)",
-	});
-	return true;
-}
-
 /** Register the community media stdio MCP server (session-scoped). */
 function registerMediaMcpServer(pi: ExtensionAPI, apiKey: string | undefined): boolean {
 	if (!mediaMcpEnabled()) return false;
@@ -139,11 +115,11 @@ function registerMediaMcpServer(pi: ExtensionAPI, apiKey: string | undefined): b
 }
 
 /**
- * Register MCP servers via pi's native registerMcpServer.
+ * Register the MCP server via pi's native registerMcpServer.
  *
- * Session-scoped: servers appear in /mcp with source "extension", are
- * visible to the model (exposure: "direct"), and user mcp.json entries
- * with the same name take precedence.
+ * Session-scoped: the server appears in /mcp with source "extension", is
+ * visible to the model (exposure: "direct"), and a user mcp.json entry
+ * with the same name takes precedence.
  *
  * On pi <0.99 (registerMcpServer absent) this does NOT bridge — it
  * notifies once and skips (same loud-skip style as existing guards).
@@ -162,7 +138,6 @@ async function registerMcpServersNative(pi: ExtensionAPI): Promise<void> {
 	const storedKey = resolveStoredNanApiKey();
 	const apiKey = storedKey ?? process.env[NAN_API_KEY_ENV];
 
-	await registerWebSearchMcpServer(pi, apiKey);
 	registerMediaMcpServer(pi, apiKey);
 }
 

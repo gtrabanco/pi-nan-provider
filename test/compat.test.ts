@@ -76,15 +76,15 @@ const cleanEnv = (keys: string[]) => {
 };
 
 afterEach(() => {
-	for (const key of ["NAN_MCP_TOOLS", "NAN_MEDIA_MCP", "NAN_MEDIA_MCP_COMMAND", "NAN_API_KEY"]) {
+	for (const key of ["NAN_MEDIA_MCP", "NAN_MEDIA_MCP_COMMAND", "NAN_API_KEY"]) {
 		delete process.env[key];
 	}
 });
 
 describe("pi version compatibility (one entrypoint, any runtime)", () => {
-	test("modern pi: native provider + both native MCP servers by default", async () => {
+	test("modern pi: native provider + the media MCP server by default", async () => {
 		const { pi, recorded } = fakePi();
-		// Key must be set for web-search to register (new design: key resolved at load time)
+		// Key must be set for the media server to register (key resolved at load time)
 		process.env.NAN_API_KEY = "sk-test";
 		await extension(pi);
 		expect(recorded.native.length).toBe(PROVIDERS.length);
@@ -92,9 +92,7 @@ describe("pi version compatibility (one entrypoint, any runtime)", () => {
 		expect(recorded.tools).toEqual([]);
 		expect(recorded.commands.map((c) => c.name)).toEqual(["nan-mcp", "nan-usage"]);
 		const names = recorded.mcpServers.map((s) => s.name);
-		expect(names).toContain("nan-search");
-		expect(names).toContain("nan-media");
-		expect(recorded.mcpServers).toHaveLength(2);
+		expect(names).toEqual(["nan-media"]);
 		for (const server of recorded.mcpServers) {
 			expect(server.config.exposure).toBe("direct");
 		}
@@ -131,34 +129,17 @@ describe("pi version compatibility (one entrypoint, any runtime)", () => {
 		await extension(pi);
 		expect(recorded.native.length).toBe(PROVIDERS.length);
 		expect(recorded.commands).toEqual([]);
-		expect(recorded.mcpServers).toHaveLength(2);
+		expect(recorded.mcpServers.map((s) => s.name)).toEqual(["nan-media"]);
 	});
 
-	test("NAN_MCP_TOOLS=0: only media server registers", async () => {
-		const env = cleanEnv(["NAN_MCP_TOOLS", "NAN_API_KEY"]);
-		env.set("NAN_MCP_TOOLS", "0");
-		env.set("NAN_API_KEY", "sk-test");
-		try {
-			const { pi, recorded } = fakePi();
-			await extension(pi);
-			const names = recorded.mcpServers.map((s) => s.name);
-			expect(names).not.toContain("nan-search");
-			expect(names).toContain("nan-media");
-		} finally {
-			env.restore();
-		}
-	});
-
-	test("NAN_MEDIA_MCP=0: only web-search server registers", async () => {
+	test("NAN_MEDIA_MCP=0: no MCP server registers", async () => {
 		const env = cleanEnv(["NAN_MEDIA_MCP", "NAN_API_KEY"]);
 		env.set("NAN_MEDIA_MCP", "0");
 		env.set("NAN_API_KEY", "sk-test");
 		try {
 			const { pi, recorded } = fakePi();
 			await extension(pi);
-			const names = recorded.mcpServers.map((s) => s.name);
-			expect(names).not.toContain("nan-media");
-			expect(names).toContain("nan-search");
+			expect(recorded.mcpServers).toEqual([]);
 		} finally {
 			env.restore();
 		}
@@ -168,7 +149,7 @@ describe("pi version compatibility (one entrypoint, any runtime)", () => {
 		const env = cleanEnv(["PI_CODING_AGENT_DIR"]);
 		const dir = mkdtempSync(join(tmpdir(), "nan-compat-native-"));
 		env.set("PI_CODING_AGENT_DIR", dir);
-		writeState({ webSearch: false, mediaMcp: false });
+		writeState({ mediaMcp: false });
 		try {
 			const { pi, recorded } = fakePi();
 			await extension(pi);

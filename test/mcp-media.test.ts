@@ -55,7 +55,7 @@ const agentDir = mkdtempSync(join(tmpdir(), "mcp-media-test-"));
 const cleanAgent = cleanEnv(["PI_CODING_AGENT_DIR"]);
 
 afterEach(() => {
-	for (const key of ["NAN_MCP_TOOLS", "NAN_MEDIA_MCP", "NAN_API_KEY", "NAN_MEDIA_MCP_VERSION", "NAN_MEDIA_MCP_COMMAND", "NAN_MEDIA_MCP_TIMEOUT_MS"]) {
+	for (const key of ["NAN_MEDIA_MCP", "NAN_API_KEY", "NAN_MEDIA_MCP_VERSION", "NAN_MEDIA_MCP_COMMAND", "NAN_MEDIA_MCP_TIMEOUT_MS"]) {
 		delete process.env[key];
 	}
 	cleanAgent.delete("PI_CODING_AGENT_DIR");
@@ -152,30 +152,13 @@ describe("native media MCP registration", () => {
 	test("persisted disable keeps server out", async () => {
 		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
 		cleanAgent.set("NAN_API_KEY", "sk-media");
-		writeState({ webSearch: true, mediaMcp: false });
+		writeState({ mediaMcp: false });
 		try {
 			const { pi, servers } = mockPi();
 			await extension(pi);
 
 			const nanMedia = servers.find((s) => s.name === "nan-media");
 			expect(nanMedia).toBeUndefined();
-		} finally {
-			cleanAgent.restore();
-		}
-	});
-
-	test("media registration is independent of web-search gate", async () => {
-		cleanAgent.set("PI_CODING_AGENT_DIR", agentDir);
-		cleanAgent.set("NAN_MCP_TOOLS", "0");
-		cleanAgent.set("NAN_API_KEY", "sk-media");
-		try {
-			const { pi, servers } = mockPi();
-			await extension(pi);
-
-			const nanMedia = servers.find((s) => s.name === "nan-media");
-			expect(nanMedia).toBeDefined();
-			const nanSearch = servers.find((s) => s.name === "nan-search");
-			expect(nanSearch).toBeUndefined();
 		} finally {
 			cleanAgent.restore();
 		}

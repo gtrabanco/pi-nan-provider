@@ -1,11 +1,13 @@
+[![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://nan.builders/?ref=built-with-nan)
+
 # @gtrabanco/pi-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.11.0-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-1.2.1-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 
-[NaN Builders](https://nan.builders) model provider + native MCP servers for [pi](https://github.com/earendil-works/pi). 
+[NaN Builders](https://nan.builders) model provider + a native MCP server for [pi](https://github.com/earendil-works/pi). 
 
-Registers the `nan` provider via `pi.registerProvider()` using NaN's OpenAI-compatible API (`https://api.nan.builders/v1`), and registers MCP servers via pi's native `pi.registerMcpServer()`.
+Registers the `nan` provider via `pi.registerProvider()` using NaN's OpenAI-compatible API (`https://api.nan.builders/v1`), and registers the community media MCP server via pi's native `pi.registerMcpServer()`.
 
 ---
 
@@ -99,24 +101,50 @@ You can override any model's `compat` per-model in `~/.pi/agent/models.json` (pi
 
 Get a key from the [NaN platform](https://cloud.nan.builders/r/7GK06FX8) (user settings → API Keys; referral link).
 
-## 🔌 Native MCP Servers
+## 🔌 Native MCP Server
 
-Since [pi 0.99.0 ships a built-in MCP client](https://github.com/earendil-works/pi/blob/main/docs/usage.md), this package migrates its bridges to native MCP (requires `pi >=0.99, <2` — pi 0.99 through 1.0 are supported; the peer range was widened to `<2` in 0.11.0).
+Since [pi 0.99.0 ships a built-in MCP client](https://github.com/earendil-works/pi/blob/main/docs/usage.md), this package bridges to native MCP (requires `pi >=0.99, <2` — pi 0.99 through 1.2 are supported; the peer range was widened to `<2` in 0.11.0).
 
-Both bridges are **enabled by default** (session-scoped, visible in `/mcp`). Use `/nan-mcp` to manage them.
+The media bridge is **enabled by default** (session-scoped, visible in `/mcp`). Use `/nan-mcp` to manage it.
 
-> [!TIP]
-> Prefer to configure NaN's MCP servers yourself? Since pi 0.99.2/1.0 an HTTP MCP server in the global `mcp.json` can authenticate with your `/login nan` token instead of a copied key: `{ "auth": { "provider": "nan" } }` (global `mcp.json` only; `https` required). The bundled `nan-search` registration keeps using `NAN_API_KEY`/the stored credential.
+> [!WARNING]
+> **NaN's official remote MCP server no longer exposes any tool.** Until 1.2.0 this package shipped a
+> `nan-search` bridge pointing at `https://api.nan.builders/mcp`, which exposed
+> `web_search`. That server now answers `initialize` with an empty `capabilities.tools` and
+> `tools/list` with `{"tools":[]}` — verified with a valid key on 2026-10-15 — and NaN removed every
+> MCP mention from its documentation (the old `/docs/mcp` page now redirects to `/docs/agent-setup`).
+> The bridge was removed in **1.2.1** because registering a server that exposes nothing only produces
+> a tool-less server in `/mcp`.
+>
+> **Bring your own `web_search` and fetch.** Install an MCP server that provides them (e.g. the
+> `fetch` + `brave-search` pair for the official MCP servers, or any other search/fetch MCP server)
+> and declare it in your global `mcp.json`:
+>
+> ```json
+> {
+>   "mcpServers": {
+>     "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] },
+>     "web-search": {
+>       "command": "npx",
+>       "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+>       "env": { "BRAVE_API_KEY": "your-key" }
+>     }
+>   }
+> }
+> ```
+>
+> Re-check `https://api.nan.builders/mcp` periodically: if NaN publishes tools again, this package can
+> restore the bridge.
 
 ### 🛠️ Management Command: `/nan-mcp`
 
 | Command | Effect |
 | :--- | :--- |
-| `/nan-mcp status` | Shows current state of both bridges and API key resolution. |
-| `/nan-mcp enable [target]` | Enables `web-search` or `nan-mcp-server` (persisted). |
-| `/nan-mcp disable [target]` | Disables a bridge persistently. |
+| `/nan-mcp status` | Shows the media bridge state and API key resolution. |
+| `/nan-mcp enable [target]` | Enables `nan-mcp-server` (persisted). |
+| `/nan-mcp disable [target]` | Disables it persistently. |
 
-Both bridges resolve the stored `/login nan` credential (stored → env). If neither resolves, the bridge does not register and a warning is shown in the status output.
+The bridge resolves the stored `/login nan` credential (stored → env). If neither resolves, the server does not register and a warning is shown in the status output.
 
 > [!NOTE]
 > Registration happens when the extension loads. If you run `/login nan` **after** the session started, the factory has already run — run `/reload` (or `/nan-mcp enable`) to register the bridges without restarting pi.
@@ -168,15 +196,7 @@ registering a server that can never connect. To get MCP in the CLI, enable the c
 
 ---
 
-### 1. Official NaN MCP Server
-*Official remote MCP server registered natively via `pi.registerMcpServer()`.*
-
-- **`mcp__nan_search__web_search(query, ...)`**: Performs web searches through NaN's gateway.
-  > pi 0.99.0–0.99.1 used the hyphenated form (`mcp__nan-search__web_search`); pi 0.99.2+ sanitizes
-  > tool names to `[A-Za-z0-9_]` only, so hyphens became underscores. The underscore form applies
-  > from 0.99.2 onward through pi 1.0.
-
-### 2. Community Media MCP Server
+### Community Media MCP Server
 *Bridges [`nan-mcp-server`](https://github.com/luciferfran/nan-mcp-server) via a minimal local stdio client.*
 
 - **Session-scoped**: The server connects at registration time (eager). Appears in `/mcp` with source "extension".
@@ -194,10 +214,9 @@ registering a server that can never connect. To get MCP in the CLI, enable the c
 | `mcp__nan_media__rerank_documents` | Document reranking (Qwen3-Reranker) |
 | `mcp__nan_media__get_quota` | Per-model token quota (used / cap / remaining / reset) |
 
-> pi 0.99.0–0.99.1 used the hyphenated forms (`mcp__nan-search__web_search`,
-> `mcp__nan-media__*`); pi 0.99.2+ sanitizes tool names to `[A-Za-z0-9_]` only,
-> so hyphens became underscores. The underscore form applies from 0.99.2 onward
-> through pi 1.0.
+> pi 0.99.0–0.99.1 used the hyphenated form (`mcp__nan-media__*`); pi 0.99.2+ sanitizes tool
+> names to `[A-Za-z0-9_]` only, so hyphens became underscores. The underscore form applies from
+> 0.99.2 onward through pi 1.2.
 
 #### 🔧 Media Bridge Configuration
 
@@ -207,7 +226,6 @@ registering a server that can never connect. To get MCP in the CLI, enable the c
 | `NAN_MEDIA_MCP_VERSION` | `1.3.0` | Pinned server version (recommended). |
 | `NAN_MEDIA_MCP_COMMAND` | — | Custom command override. |
 | `NAN_MEDIA_MCP_TIMEOUT_MS` | `120000` | Per-call timeout. |
-| `NAN_MCP_TOOLS` | — | Override for the official bridge (`0` to disable). |
 
 #### 🤖 Automated Update Detection
 

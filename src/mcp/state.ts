@@ -17,8 +17,6 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 export const NAN_STATE_FILE = "nan-provider.json";
 
 export interface NanProviderState {
-	/** Persisted enablement of the official web_search MCP bridge. */
-	webSearch?: boolean;
 	/** Persisted enablement of the community nan-mcp-server media bridge. */
 	mediaMcp?: boolean;
 }
@@ -27,7 +25,6 @@ export type BridgeKey = keyof NanProviderState;
 
 /** Server name each bridge registers with `pi.registerMcpServer()`. Single source of truth. */
 export const MCP_SERVER_NAMES: Record<BridgeKey, string> = {
-	webSearch: "nan-search",
 	mediaMcp: "nan-media",
 };
 

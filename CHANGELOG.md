@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-10-15
+
+Patch: removes the dead official web-search bridge.
+
+### Removed
+
+- **The `nan-search` MCP bridge.** NaN's official remote MCP server
+  (`https://api.nan.builders/mcp`) no longer exposes any tool: `initialize` answers
+  with an empty `capabilities.tools` and `tools/list` returns `{"tools":[]}` — verified
+  with a valid key on 2026-10-15 — and every MCP mention disappeared from NaN's docs
+  (the old `/docs/mcp` page now redirects to `/docs/agent-setup`). Registering a server
+  that exposes nothing only left a tool-less `nan-search` entry in `/mcp`, so the bridge,
+  its `NAN_MCP_TOOLS` env var, and its persisted `webSearch` toggle are gone.
+- `test/mcp-search.test.ts` (the removed bridge's test file).
+
+### Changed
+
+- `/nan-mcp` now manages only the community media server; `web-search` (and its
+  aliases `search`, `web_search`, `official`, `nan-web-search`) are no longer accepted
+  targets, and the `webSearch` key is no longer written to `nan-provider.json`.
+- Both READMEs carry a warning block explaining that `web_search`/fetch must now come
+  from the user's own MCP server (with a `mcp.json` example), plus the
+  "Built with NaN" badge.
+
+---
+
 ## [1.2.0] - 2026-10-14
 
 Minor realigns with the pi release line (pi 1.2.0). Closes issue #23.

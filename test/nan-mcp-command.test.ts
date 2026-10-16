@@ -16,14 +16,13 @@ import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { registerNanMcpCommand } from "../src/commands.ts";
 import { mediaMcpEnabled, mediaMcpSource } from "../src/mcp/media-server.ts";
-import { webSearchBridgeEnabled, webSearchBridgeSource } from "../src/mcp/api-key.ts";
 import { NAN_STATE_FILE, readBridgeState, writeBridgeState } from "../src/mcp/state.ts";
 
 const agentDir = mkdtempSync(join(tmpdir(), "nan-mcp-cmd-native-"));
 process.env.PI_CODING_AGENT_DIR = agentDir;
 
 afterEach(() => {
-	for (const key of ["NAN_MEDIA_MCP", "NAN_MCP_TOOLS", "NAN_API_KEY"]) delete process.env[key];
+	for (const key of ["NAN_MEDIA_MCP", "NAN_API_KEY"]) delete process.env[key];
 	rmSync(join(agentDir, NAN_STATE_FILE), { force: true });
 	rmSync(join(agentDir, "auth.json"), { force: true });
 	process.env.PI_CODING_AGENT_DIR = agentDir;
@@ -76,59 +75,43 @@ describe("/nan-mcp command (native MCP registration)", () => {
 		expect(command?.name).toBe("nan-mcp");
 	});
 
-	test("enable with no target registers BOTH native servers", async () => {
-		// Web-search registration needs NAN_API_KEY (resolved at enable time)
+	test("enable with no target registers the media native server", async () => {
+		// Registration needs NAN_API_KEY (resolved at enable time)
 		process.env.NAN_API_KEY = "sk-test";
 		const { command, servers, notifications, commandCtx } = fakeCommandPi();
-		expect(webSearchBridgeEnabled()).toBe(true);
 		expect(mediaMcpEnabled()).toBe(true);
 
 		await command!.handler("enable", commandCtx);
 
-		const nanSearch = servers.find((s) => s.name === "nan-search");
 		const nanMedia = servers.find((s) => s.name === "nan-media");
-		expect(nanSearch).toBeDefined();
 		expect(nanMedia).toBeDefined();
-		expect(nanSearch!.config.exposure).toBe("direct");
 		expect(nanMedia!.config.exposure).toBe("direct");
 		expect(notifications.at(-1)?.type).toBe("info");
-		expect(readBridgeState("webSearch")).toBe(true);
 		expect(readBridgeState("mediaMcp")).toBe(true);
 	});
 
-	test("enable accepts per-bridge targets and aliases", async () => {
+	test("enable accepts the target and its aliases", async () => {
 		process.env.NAN_API_KEY = "sk-test";
 		const { command, servers, commandCtx } = fakeCommandPi();
 		await command!.handler("disable", commandCtx);
+		expect(servers.find((s) => s.name === "nan-media")).toBeUndefined();
 
-		await command!.handler("enable nan-mcp-server", commandCtx);
-		expect(servers.find((s) => s.name === "nan-search")).toBeUndefined();
+		await command!.handler("enable", commandCtx);
 		expect(servers.find((s) => s.name === "nan-media")).toBeDefined();
 
-		await command!.handler("enable web-search", commandCtx);
-		expect(servers.find((s) => s.name === "nan-search")).toBeDefined();
-		expect(servers.find((s) => s.name === "nan-media")).toBeDefined();
-	});
-
-	test("enable accepts the /mcp muscle-memory alias for the media server", async () => {
-		process.env.NAN_API_KEY = "sk-test";
-		const { command, servers, commandCtx } = fakeCommandPi();
 		await command!.handler("disable", commandCtx);
 		await command!.handler("enable media", commandCtx);
 		expect(servers.find((s) => s.name === "nan-media")).toBeDefined();
-		expect(servers.find((s) => s.name === "nan-search")).toBeUndefined();
 	});
 
 	test("disable unregisters immediately", async () => {
 		process.env.NAN_API_KEY = "sk-test";
 		const { command, servers, notifications, commandCtx } = fakeCommandPi();
 		await command!.handler("enable", commandCtx);
-		expect(servers.find((s) => s.name === "nan-search")).toBeDefined();
 		expect(servers.find((s) => s.name === "nan-media")).toBeDefined();
 
-		await command!.handler("disable web-search", commandCtx);
-		expect(servers.find((s) => s.name === "nan-search")).toBeUndefined();
-		expect(servers.find((s) => s.name === "nan-media")).toBeDefined();
+		await command!.handler("disable", commandCtx);
+		expect(servers.find((s) => s.name === "nan-media")).toBeUndefined();
 		expect(notifications.at(-1)?.type).toBe("warning");
 		expect(notifications.at(-1)?.message).toContain("tools hidden immediately");
 	});
@@ -141,41 +124,34 @@ describe("/nan-mcp command (native MCP registration)", () => {
 		expect(last.message).toContain("Unknown target");
 	});
 
-	test("status reports both bridges with registration state", async () => {
+	test("status reports the media bridge with registration state", async () => {
 		const { command, notifications, commandCtx } = fakeCommandPi();
 		await command!.handler("status", commandCtx);
 		const message = notifications.at(-1)!.message;
-		expect(message).toContain("web-search bridge (official NaN MCP");
-		expect(message).toContain("nan-mcp-server bridge (community media MCP");
-		expect(message).toContain("default (both bridges are enabled by default)");
+		expect(message).toContain("nan-mcp-server bridge");
+		expect(message).toContain("default (bridge is enabled by default)");
 
-		await command!.handler("disable web-search", commandCtx);
+		await command!.handler("disable", commandCtx);
 		await command!.handler("status", commandCtx);
-		expect(notifications.at(-1)!.message).toContain("persisted in <agentDir>/nan-provider.json (web-search: false)");
+		expect(notifications.at(-1)!.message).toContain("persisted in <agentDir>/nan-provider.json (nan-mcp-server: false)");
 	});
 
 	test("env vars override the persisted toggles", () => {
 		writeBridgeState("mediaMcp", false);
-		writeBridgeState("webSearch", false);
 		process.env.NAN_MEDIA_MCP = "1";
-		process.env.NAN_MCP_TOOLS = "0";
 		try {
 			expect(mediaMcpEnabled()).toBe(true);
 			expect(mediaMcpSource()).toBe("env");
-			expect(webSearchBridgeEnabled()).toBe(false);
-			expect(webSearchBridgeSource()).toBe("env");
 		} finally {
 			delete process.env.NAN_MEDIA_MCP;
-			delete process.env.NAN_MCP_TOOLS;
 		}
 	});
 
-	test("state file keeps both toggles in one JSON", async () => {
+	test("state file persists the media toggle", async () => {
 		const { command, commandCtx } = fakeCommandPi();
-		await command!.handler("disable web-search", commandCtx);
+		await command!.handler("disable", commandCtx);
 		await command!.handler("enable", commandCtx);
 		const state = JSON.parse(readFileSync(join(agentDir, NAN_STATE_FILE), "utf8")) as Record<string, boolean>;
-		expect(state.webSearch).toBe(true);
 		expect(state.mediaMcp).toBe(true);
 	});
 
@@ -194,37 +170,12 @@ describe("/nan-mcp command (native MCP registration)", () => {
 
 		await command!.handler("status", commandCtxWithRegistry);
 		const message = notifications.at(-1)!.message;
-		expect(message).toContain("web-search bridge");
+		expect(message).toContain("nan-mcp-server bridge");
 		expect(message).toContain("API key: resolved");
 		expect(message).not.toContain("[object Promise]");
 	});
 
-	test("enable web-search with stored credential and no env key registers", async () => {
-		const authPath = join(agentDir, "auth.json");
-		writeFileSync(authPath, JSON.stringify({
-			nan: { type: "api_key", key: "sk-stored" },
-		}), "utf8");
-		delete process.env.NAN_API_KEY;
-		const commandCtxWithRegistry = {
-			ui: {
-				notify: (message: string, type?: string) => notifications.push({ message, type }),
-			},
-						modelRegistry: {
-				getApiKeyForProvider: async () => "sk-registry",
-			} as unknown as { getApiKeyForProvider: (provider: string) => Promise<string | undefined> },
-		} as unknown as ExtensionCommandContext;
-		const { command, notifications, servers, commandCtx } = fakeCommandPi();
-
-		await command!.handler("enable web-search", commandCtxWithRegistry);
-
-		const nanSearch = servers.find((s) => s.name === "nan-search");
-		expect(nanSearch).toBeDefined();
-		expect((nanSearch!.config.headers as Record<string, string>)?.Authorization).toBe("Bearer sk-stored");
-		expect(notifications.at(-1)?.type).toBe("info");
-		expect(notifications.at(-1)?.message).toContain("Native servers registered for this session");
-	});
-
-	test("enable web-search with no key: no registration, warning, no false success", async () => {
+	test("enable with no key: no registration, warning, no false success", async () => {
 		delete process.env.NAN_API_KEY;
 		const commandCtxWithRegistry = {
 			ui: {
@@ -236,15 +187,13 @@ describe("/nan-mcp command (native MCP registration)", () => {
 		} as unknown as ExtensionCommandContext;
 		const { command, notifications, servers, commandCtx } = fakeCommandPi();
 
-		await command!.handler("enable web-search", commandCtxWithRegistry);
+		await command!.handler("enable", commandCtxWithRegistry);
 
-		const nanSearch = servers.find((s) => s.name === "nan-search");
-		expect(nanSearch).toBeUndefined();
+		expect(servers.find((s) => s.name === "nan-media")).toBeUndefined();
 		// Should show a warning about missing key, NOT the success message
 		const lastNotif = notifications.at(-1);
 		expect(lastNotif?.type).toBe("warning");
-		expect(lastNotif?.message).not.toContain("Native servers registered for this session");
-		expect(lastNotif?.message).toContain("API key missing");
+		expect(lastNotif?.message).not.toContain("Native server registered for this session");
 	});
 
 	test("enable media with stored credential and no env key registers with correct env", async () => {
@@ -270,6 +219,6 @@ describe("/nan-mcp command (native MCP registration)", () => {
 		const env = nanMedia!.config.env as Record<string, string>;
 		expect(env["NAN_API_KEY"]).toBe("sk-stored-media");
 		expect(notifications.at(-1)?.type).toBe("info");
-		expect(notifications.at(-1)?.message).toContain("Native servers registered for this session");
+		expect(notifications.at(-1)?.message).toContain("Native server registered for this session");
 	});
 });

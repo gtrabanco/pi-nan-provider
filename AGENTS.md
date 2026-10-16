@@ -270,29 +270,33 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   the `SessionEntry` union, expanded `TurnEndEvent`, removed `shouldStopAfterTurn`,
   `SessionManager` canonical for provider context. The package touches none of them.
 - Since 0.10.0, this package uses native MCP via `pi.registerMcpServer()`.
-  Both servers are session-scoped, visible in `/mcp` with source "extension".
+  The server is session-scoped, visible in `/mcp` with source "extension".
   Server names and tool IDs:
-  - `nan-search` → tools: `mcp__nan_search__web_search`
-    (official remote, HTTP, `Authorization: Bearer <key>` header)
   - `nan-media` → tools: `mcp__nan_media__generate_image/edit_image/text_to_speech/list_voices/speech_to_text/list_models/embed_text/rerank_documents/get_quota`
     (community stdio, `npx -y nan-mcp-server@1.3.0`, 120s timeout; 9 tools as of 1.3.0)
-  - `exposure: "direct"` on both — tools are declared to the model.
+  - `exposure: "direct"` — tools are declared to the model.
   - User `mcp.json` entries with the same name take precedence.
   - `/nan-mcp enable/disable` calls `pi.registerMcpServer()` / `pi.unregisterMcpServer()` directly.
-  - Missing `NAN_API_KEY` at load: web-search server NOT registered (console.warn).
+  - Missing `NAN_API_KEY` at load: media server NOT registered (console.warn).
+  - **`nan-search` was REMOVED in 1.2.1.** NaN's official remote MCP server
+    (`https://api.nan.builders/mcp`) now exposes ZERO tools: `initialize` returns an
+    empty `capabilities.tools` and `tools/list` returns `{"tools":[]}` (verified with a
+    valid key on 2026-10-15), and NaN deleted every MCP mention from its docs (the old
+    `/docs/mcp` redirects to `/docs/agent-setup`). The `web_search` tool no longer
+    exists anywhere in NaN's surface. Users must bring their own `web_search`/fetch MCP
+    server in `mcp.json` (README documents this). `NAN_MCP_TOOLS` is gone with it.
   NaN integration facts remain:
   - pi >=0.99.2 sanitizes MCP tool/namespace names by replacing every character except
-    `[A-Za-z0-9_]` with `"_"` (0.99.0–0.99.1 kept `-`). So `mcp__nan-search__web_search`
-    became `mcp__nan_search__web_search` and `mcp__nan-media__*` became
-    `mcp__nan_media__*`. Server names differing only in `-`/`_` now collide
-    (`nan-search` and `nan-media` do not collide, they differ in more than one character).
+    `[A-Za-z0-9_]` with `"_"` (0.99.0–0.99.1 kept `-`). So `mcp__nan-media__*` keeps its
+    underscore form from 0.99.2 onward. (The removed `nan-search` server used to
+    demonstrate the hyphen→underscore rename; do not rely on it.)
   - pi 0.99.2+/1.0 accept `McpServerConfig.description` (system-prompt listing plus
     tool-search ranking); `validateMcpServerConfig` in 0.99.0–0.99.1 ignores unknown
     keys, so passing `description` stays compatible.
   - NaN's official remote MCP server: `https://api.nan.builders/mcp` (host
     root, NOT /v1; JSON-RPC 2.0 over streamable HTTP, stateless; same `sk-`
     key, shared rate limit/quota). Spec: https://nan.builders/openapi.json
-    (tag "MCP"). Currently exposes `web_search`.
+    (tag "MCP"). **Currently exposes no tools** (see the removal note above).
   - Community `nan-mcp-server` (https://github.com/luciferfran/nan-mcp-server):
     stdio MCP server, version-pinned via NAN_MEDIA_MCP_VERSION (default 1.3.0)
     or full command override via NAN_MEDIA_MCP_COMMAND. Tools (1.3.0): generate_image,

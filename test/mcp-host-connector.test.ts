@@ -10,8 +10,8 @@
  * sessions through `createAgentSessionServices` → `new DefaultResourceLoader(...)`
  * WITHOUT `extensionFactories`, so no `builtin:*` extension loads — including
  * `builtin:mcp`, the one that connects `pi.registerMcpServer()` registrations
- * and registers the `/mcp` command. Our extension still registers `nan-search`
- * / `nan-media`, and `AgentSession.bindExtensions()` calls
+ * and registers the `/mcp` command. Our extension still registers `nan-media`,
+ * and `AgentSession.bindExtensions()` calls
  * `runner.reportUnhandledMcpServers()` right after the `session_start` emit,
  * which reports every registration while no extension handles
  * `mcp_servers_change`.
@@ -103,7 +103,7 @@ function mockHost(commands: string[] | null) {
 const agentDir = mkdtempSync(join(tmpdir(), "mcp-host-connector-"));
 
 afterEach(() => {
-	for (const key of ["NAN_MEDIA_MCP", "NAN_MCP_TOOLS", "NAN_API_KEY"]) delete process.env[key];
+	for (const key of ["NAN_MEDIA_MCP", "NAN_API_KEY"]) delete process.env[key];
 	rmSync(join(agentDir, NAN_STATE_FILE), { force: true });
 });
 
@@ -126,7 +126,7 @@ describe("session_start guard (no MCP connector)", () => {
 	test("claims mcp_servers_change and warns when /mcp is missing", async () => {
 		const { pi, handlers, servers, notifications, emitSessionStart } = mockHost([]);
 		registerMcpHostGuard(pi);
-		servers.push({ name: "nan-media", config: {} }, { name: "nan-search", config: {} });
+		servers.push({ name: "nan-media", config: {} });
 
 		await emitSessionStart();
 
@@ -135,9 +135,8 @@ describe("session_start guard (no MCP connector)", () => {
 		expect(notifications[0]!.type).toBe("warning");
 		expect(notifications[0]!.message).toContain("/mcp");
 		expect(notifications[0]!.message).toContain("nan-media");
-		expect(notifications[0]!.message).toContain("nan-search");
 		// Servers stay registered: the guard only claims the event and explains.
-		expect(servers.map((server) => server.name)).toEqual(["nan-media", "nan-search"]);
+		expect(servers.map((server) => server.name)).toEqual(["nan-media"]);
 	});
 
 	test("keeps servers and stays silent when the built-in /mcp is loaded", async () => {
@@ -257,6 +256,6 @@ describe("/nan-mcp status and enable without a connector", () => {
 
 		await command!.handler("enable", ctx);
 
-		expect(host.servers.map((server) => server.name).sort()).toEqual(["nan-media", "nan-search"]);
+		expect(host.servers.map((server) => server.name).sort()).toEqual(["nan-media"]);
 	});
 });
