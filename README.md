@@ -1,11 +1,10 @@
-[![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://cloud.nan.builders/r/7GK06FX8)
-
 # @gtrabanco/pi-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Version](https://img.shields.io/badge/version-1.2.1-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://cloud.nan.builders/r/7GK06FX8)
 
-[NaN Builders](https://nan.builders) model provider + a native MCP server for [pi](https://github.com/earendil-works/pi). 
+[NaN Builders](https://cloud.nan.builders/r/7GK06FX8) model provider + a native MCP server for [pi](https://github.com/earendil-works/pi). 
 
 Registers the `nan` provider via `pi.registerProvider()` using NaN's OpenAI-compatible API (`https://api.nan.builders/v1`), and registers the community media MCP server via pi's native `pi.registerMcpServer()`.
 
