@@ -27,13 +27,52 @@
  * provider stream). It therefore sees the original `thinking` blocks and can
  * remove them before they become text.
  *
- * This is a bounded mitigation, not the fix: the unbounded conversion (and pi
- * not re-checking the context size on a model switch) belongs upstream. See
- * https://github.com/gtrabanco/pi-nan-provider/issues/3.
+ * UPSTREAM UPDATE (pi-ai 1.3.0, verified 2026-10-15): `transformMessages` now
+ * drops cross-model `thinking` blocks itself (`if (!isSameModel) return []`),
+ * which is the upstream fix this guard was mitigating. The guard is therefore
+ * GATED BY VERSION: it only registers when the host's pi-ai is older than
+ * {@link CROSS_MODEL_GUARD_PI_AI_CEILING} (1.3.0). An unknown host version
+ * keeps the guard on — the conservative default, since the guard is harmless
+ * where pi-ai already drops the blocks and essential where it still replays
+ * them.
+ *
+ * DEPRECATED — REMOVE THIS MODULE when the peer range floor rises to
+ * `>=1.3.0`: at that point every supported pi ships the upstream drop and this
+ * file (plus the `NAN_THINKING_GUARD` opt-out) is dead code. Users on
+ * pi < 1.3.0 should update pi to keep getting the mitigation for free.
  */
+
+import { parsePiAiVersion } from "./pi-ai-version.ts";
 
 /** Env var that opts out of the guard (`0`, `false`, `no` or `off`). Default: enabled. */
 export const NAN_THINKING_GUARD_ENV = "NAN_THINKING_GUARD";
+
+/**
+ * Exclusive pi-ai version ceiling for this guard: it registers only while the
+ * host's pi-ai is OLDER than this version. pi-ai 1.3.0 drops cross-model
+ * thinking in `transformMessages` (upstream fix for issue #3), so from 1.3.0
+ * on the guard is redundant. Remove this constant together with the module
+ * once the peer range floor reaches this version.
+ */
+export const CROSS_MODEL_GUARD_PI_AI_CEILING = "1.3.0";
+
+/**
+ * Whether the guard still applies to a host running the given pi-ai version.
+ * `undefined`/`null` (unknown host version) and unparseable versions return
+ * `true` — the conservative older-pi default. `false` means the host's pi-ai
+ * already drops cross-model thinking itself and the guard must not register.
+ */
+export function crossModelThinkingGuardCovers(piAiVersion: string | null | undefined): boolean {
+	if (piAiVersion === null || piAiVersion === undefined) return true;
+	const parsed = parsePiAiVersion(piAiVersion);
+	if (!parsed) return true;
+	const ceiling = parsePiAiVersion(CROSS_MODEL_GUARD_PI_AI_CEILING);
+	if (!ceiling) return true;
+	return (
+		parsed.major < ceiling.major ||
+		(parsed.major === ceiling.major && parsed.minor < ceiling.minor)
+	);
+}
 
 export interface CrossModelThinkingGuardOptions {
 	/** Provider ids this guard applies to (the caller's registered providers). */

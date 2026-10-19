@@ -16,13 +16,17 @@ on:
           - fail
 
 permissions:
-  contents: read
+  contents: write
   issues: write
+  pull-requests: write
 
 jobs:
-  check-pi-sdk-versions:
+  check:
     name: Check PI SDK versions
     runs-on: ubuntu-latest
+    outputs:
+      updates: ${{ steps.check.outputs.updates }}
+      report: ${{ steps.check.outputs.report }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,53 +36,62 @@ jobs:
         with:
           node-version: 24
 
-      - name: Check PI SDK versions (report)
-        id: check-report
+      - name: Check PI SDK versions
+        id: check
         run: |
           set -euo pipefail
-          node scripts/check-pi-sdk-versions.mjs --report 2>&1 || true
+          node scripts/check-pi-sdk-versions.mjs --report || true
+          JSON="$(node scripts/check-pi-sdk-versions.mjs || true)"
+          echo "$JSON"
+          # Updates worth a PR/issue: any minor/major bump or a peer-range warning.
+          UPDATES="$(printf '%s' "$JSON" | node -e '
+            let data = "";
+            process.stdin.on("data", (chunk) => (data += chunk));
+            process.stdin.on("end", () => {
+              const rows = JSON.parse(data);
+              const interesting = rows.some((r) =>
+                ["minor", "major", "BREAKING", "WARNING"].includes(r.status),
+              );
+              console.log(interesting ? "true" : "false");
+            });
+          ')"
+          echo "updates=$UPDATES" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<REPORT_EOF"
+            echo "$JSON"
+            echo "REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Check PI SDK versions (CI JSON)
-        run: |
-          set -euo pipefail
-          node scripts/check-pi-sdk-versions.mjs
-
-      - name: Create/update issue on breaking change
-        if: failure() && github.event_name == 'schedule'
+  issue:
+    name: File/update the sdk-monitor issue
+    needs: check
+    if: needs.check.outputs.updates == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create/update issue on updates
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            const rows = JSON.parse(`${{ needs.check.outputs.report }}`);
+            const bumps = rows
+              .filter((r) => r.status && r.status !== "up-to-date")
+              .map((r) => `- \`${r.packageName}\`: ${r.constrainedVersion} → **${r.latestVersion}** (${r.status}) — ${r.message}`)
+              .join("\n");
             const body = `## PI SDK version check detected updates
 
-            The weekly PI SDK version check found updates that may require attention:
+            The weekly PI SDK version check found updates that may require attention.
+            A PR with the devDependencies bump is prepared automatically by the
+            \`prepare-pr\` job (review it instead of bumping by hand):
 
-            ### Affected packages
-
-            The following packages have version bumps available:
-
-            - \`@earendil-works/pi-ai\`
-            - \`@earendil-works/pi-coding-agent\`
+            ${bumps}
 
             ### Next steps
-            1. Review the changelog / release notes for the affected packages
-            2. Check if the new versions affect pi-nan-provider (API changes, new dependencies, etc.)
-            3. Update devDependencies and run \`bun test\` to verify
-            4. Update peerDependencies range if needed
-
-            ## Previous run output
-
-            <details><summary>Click to view</summary>
-
-            \`\`\`
-            See CI logs for full output
-            \`\`\`
-
-            </details>`;
+            1. Review the automated PR (upstream changelog, type-surface diff, tests)
+            2. Merge it — this issue is closed on merge
+            `;
 
             const title = 'PI SDK version check: updates available';
-
-            // Check if a similar issue already exists
             const existing = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -87,7 +100,6 @@ jobs:
             });
 
             if (existing.data.length > 0) {
-              // Update existing issue
               await github.rest.issues.update({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -104,3 +116,158 @@ jobs:
                 labels: ['sdk-monitor', 'dependencies'],
               });
             }
+
+  prepare-pr:
+    name: Prepare SDK update PR
+    needs: check
+    if: needs.check.outputs.updates == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Skip if the update branch already exists
+        id: guard
+        run: |
+          set -euo pipefail
+          # The branch name derives from the latest versions; compute it from the
+          # report without touching package.json.
+          BRANCH="$(printf '%s' '${{ needs.check.outputs.report }}' | node -e '
+            let data = "";
+            process.stdin.on("data", (chunk) => (data += chunk));
+            process.stdin.on("end", () => {
+              const rows = JSON.parse(data).filter(
+                (r) => ["minor", "major", "BREAKING", "WARNING"].includes(r.status),
+              );
+              console.log("chore/pi-sdk-" + [...new Set(rows.map((r) => r.latestVersion))].join("-"));
+            });
+          ')"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Branch $BRANCH already exists on origin — a PR is already open or in flight."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump devDependencies (prepare-sdk-update-pr)
+        if: steps.guard.outputs.exists == 'false'
+        id: prepare
+        run: |
+          set -euo pipefail
+          node scripts/prepare-sdk-update-pr.mjs --body-file /tmp/sdk-pr-body.md | tee /tmp/sdk-prepare.json
+
+      - name: Install, test, typecheck
+        if: steps.guard.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          bun install
+          bun test
+          bun run typecheck
+
+      - name: Type-surface diff (previous → new)
+        if: steps.guard.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/surface/old /tmp/surface/new
+          OLD_JSON="$(git show HEAD:package.json)"
+          fetch_extract() { # $1 = version, $2 = dest dir, $3 = package name
+            local pkg="$3" ver="$1" dir="$2"
+            local base="${pkg##*/}"
+            curl -sSLf "https://registry.npmjs.org/${pkg}/-/${base}-${ver}.tgz" -o "/tmp/${base}-${ver}.tgz"
+            tar -xzf "/tmp/${base}-${ver}.tgz" -C "$dir"
+          }
+          {
+            echo "## Verification"
+            echo ""
+            echo '```'
+            echo "bun install: ok"
+            echo "bun test: ok"
+            echo "bun run typecheck: ok"
+            echo '```'
+            echo ""
+          } > /tmp/sdk-verification.md
+          {
+            for row in $(echo "$OLD_JSON" | node -e '
+              let data = "";
+              process.stdin.on("data", (chunk) => (data += chunk));
+              process.stdin.on("end", () => {
+                const pkg = JSON.parse(data);
+                for (const name of ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent"]) {
+                  console.log(`${name} ${pkg.devDependencies[name]}`);
+                }
+              });
+            '); do
+              set -- $row
+              name="$1"; oldver="$2"
+              newver="$(printf '%s' "$(cat /tmp/sdk-prepare.json)" | node -e '
+                let data = "";
+                process.stdin.on("data", (chunk) => (data += chunk));
+                process.stdin.on("end", () => {
+                  const p = JSON.parse(data);
+                  const b = p.bumps.find((x) => x.name === process.argv[1]);
+                  console.log(b ? b.to : "");
+                });
+              ' "$name")"
+              [ -z "$newver" ] && continue
+              rm -rf /tmp/surface/old /tmp/surface/new
+              mkdir -p /tmp/surface/old /tmp/surface/new
+              fetch_extract "$oldver" /tmp/surface/old "$name"
+              fetch_extract "$newver" /tmp/surface/new "$name"
+              echo "### $name: $oldver → $newver"
+              echo ""
+              echo '```diff'
+              for f in dist/index.d.ts dist/compat.d.ts dist/api/openai-completions.d.ts; do
+                diff -u "/tmp/surface/old/package/$f" "/tmp/surface/new/package/$f" \
+                  | sed "s|^| |" || true
+              done
+              echo '```'
+            done
+          } > /tmp/sdk-surface.md
+
+      - name: Assemble PR body
+        if: steps.guard.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          body = open("/tmp/sdk-pr-body.md").read()
+          verification = open("/tmp/sdk-verification.md").read().strip()
+          surface = open("/tmp/sdk-surface.md").read().strip()
+          body = body.replace("<!-- VERIFICATION -->", verification)
+          body = body.replace("<!-- SURFACE_DIFF -->", surface)
+          open("/tmp/sdk-pr-body.md", "w").write(body)
+          PY
+
+      - name: Commit and push the branch
+        if: steps.guard.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          BRANCH="${{ steps.guard.outputs.branch }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add package.json bun.lock
+          git commit -m "chore: bump PI SDK devDependencies (${BRANCH#chore/pi-sdk-})"
+          git push origin "$BRANCH"
+
+      - name: Open the PR
+        if: steps.guard.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BRANCH="${{ steps.guard.outputs.branch }}"
+          if gh pr list --head "$BRANCH" --state open --json number --jq 'length' | grep -q '^1$'; then
+            echo "PR for $BRANCH already exists."
+            exit 0
+          fi
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "$(node -e 'console.log(JSON.parse(require("fs").readFileSync("/tmp/sdk-prepare.json","utf8")).title)')" \
+            --body-file /tmp/sdk-pr-body.md

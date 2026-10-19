@@ -41,22 +41,45 @@ El workflow `.github/workflows/check-pi-sdk-versions.yml` se ejecuta:
 1. Ejecuta el script de monitorización
 2. Compara las versiones de devDependencies con las últimas en npm
 3. Verifica compatibilidad con peerDependencies
-4. **Si es modo `schedule`**: crea/actualiza un issue con label `sdk-monitor`
-5. **Si es modo `workflow_dispatch`**: ejecuta con `--fail` para CI
+4. Si hay actualización minor/major (o WARNING de peer range):
+   - crea/actualiza un issue con label `sdk-monitor` que lista los bumps concretos,
+   - prepara y abre un PR con el bump de devDependencies (ver "PR automático" abajo).
+5. Si todo está al día: no hace nada.
 
 ## Paquetes monitorizados
 
-- `@earendil-works/pi-ai` → peerDep: `>=0.83.0 <1`
-- `@earendil-works/pi-coding-agent` → peerDep: `>=0.83.0 <1`
+- `@earendil-works/pi-ai` → peerDep: `>=0.99.0 <2`
+- `@earendil-works/pi-coding-agent` → peerDep: `>=0.99.0 <2`
 
 ## Niveles de alerta
 
 | Nivel | Significado | Acción |
 |-------|-------------|--------|
 | 🟢 up-to-date | Ya en la última versión | Ninguna |
-| 🟡 minor | Actualización menor disponible | Revisar changelog, actualizar si es seguro |
+| 🟡 minor | Actualización menor disponible | Revisar el PR automático (ver abajo) |
 | 🔴 BREAKING | Actualización mayor disponible | Revisar changelog cuidadosamente, posible breaking change |
 | ❗ WARNING | Versión actual no satisface peerDep | **URGENTE**: actualizar devDependencies |
+
+## PR automático de actualización
+
+Desde el realineamiento con pi 1.3.0 (issue #25), el workflow no solo abre el issue:
+cuando detecta una actualización minor/major (o un WARNING de peer range), el job
+`prepare-pr` prepara un PR automáticamente:
+
+1. `scripts/prepare-sdk-update-pr.mjs` sube las versiones en `devDependencies` de
+   `package.json` (reemplazo exacto de strings; el resto del fichero no se toca) y
+   escribe el cuerpo del PR.
+2. El workflow ejecuta `bun install && bun test && bun run typecheck` sobre el bump.
+3. Genera un **diff de superficie de tipos** (`dist/index.d.ts`, `dist/compat.d.ts`,
+   `dist/api/openai-completions.d.ts`) entre la versión anterior y la nueva, descargando
+   ambos tarballs de npm, y lo incrusta en el PR.
+4. Crea la rama `chore/pi-sdk-<version>` y abre el PR con `gh pr create`.
+
+El proceso es idempotente: si la rama ya existe en `origin` o ya hay un PR abierto para
+ella, el job se salta el resto de pasos. El cuerpo del PR incluye un checklist de
+revisión: un bump minor de pi puede cambiar comportamiento relevante para el proveedor
+(ver `AGENTS.md`, "Verified API facts"), así que la revisión humana del changelog
+upstream sigue siendo obligatoria antes del merge.
 
 ## Troubleshooting
 

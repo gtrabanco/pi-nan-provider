@@ -5,6 +5,67 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-10-15
+
+Minor realigns with the pi release line (pi 1.3.0). Resolves the SDK version-check
+issue #25: `@earendil-works/pi-ai` and `@earendil-works/pi-coding-agent` devDependencies
+move from 1.2.0 to 1.3.0; the peer range stays `>=0.99.0 <2`.
+
+### Compatibility with pi 1.3.0 (verified 2026-10-15)
+
+- The pi-ai 1.3.0 type surface this package consumes is unchanged: `compat.d.ts` and
+  `api/openai-completions.d.ts` are byte-identical to 1.2.0, the `thinkingLevelMap.off`
+  branch in `buildRequest` still fires, and the only removed export
+  (`utils/assistant-message-frame`) is unused here. All 318 tests and typecheck pass
+  against 1.3.0.
+- **pi-ai 1.3.0 implements the upstream fix for issue #3**: `transformMessages` now
+  DROPS thinking blocks produced by a different model instead of downgrading them to
+  unbounded plain text (`if (!isSameModel) return []`). The replayed cross-model
+  reasoning can therefore no longer overflow the destination window on pi >= 1.3.0.
+- pi-ai 1.3.0's `RETRYABLE_PROVIDER_ERROR_PATTERN` expands with gateway/upstream wording
+  ("The service is temporarily unavailable" #10965, upstream-provider wrapper text
+  #10842) and pi fixed OpenAI-compatible streams where a proxy such as LiteLLM sends
+  reasoning and content in the same chunk (#10926) — both directly relevant to NaN's
+  LiteLLM gateway. These are upstream-side; no package code rides on them.
+
+### Changed
+
+- **The cross-model thinking guard is now VERSION-GATED and deprecated.** pi-ai 1.3.0
+  drops cross-model thinking itself, so the guard only registers when the host's resolved
+  pi-ai is older than 1.3.0 (new `src/pi-ai-version.ts` resolves the host's instance with
+  the same host-anchored strategy as the loader; an undeterminable version keeps the
+  guard on as the conservative older-pi default). The guard is scheduled for **removal in
+  the next package release** — users on pi < 1.3.0 should update pi. New
+  `crossModelThinkingGuardCovers()` and `registerCrossModelThinkingGuard(pi, { piAiVersion })`
+  are tested in `test/cross-model-thinking-guard.test.ts` and `test/pi-ai-version.test.ts`.
+- `test/issue-3-model-switch-overflow.test.ts` acceptance criteria updated to the new
+  upstream reality (not weakened): the replayed-thinking scenario now pins pi-ai 1.3.0's
+  own drop behavior (turn succeeds with the guard disabled), and the opaque-400 →
+  context-overflow reclassification contract is still exercised end-to-end through an
+  over-window request pi-ai cannot shrink (oversized user content).
+- Both READMEs note the guard's version gating and the update recommendation for
+  pi < 1.3.0 users.
+
+### Added
+
+- **Automated SDK update PRs** (completes the issue #25 automation): the weekly
+  `check-pi-sdk-versions` workflow now prepares a branch + PR when a minor/major bump (or
+  a peer-range warning) is detected — `scripts/prepare-sdk-update-pr.mjs` bumps the
+  devDependencies, the workflow runs `bun install && bun test && bun run typecheck`,
+  attaches a type-surface diff (`index.d.ts` / `compat.d.ts` / `openai-completions.d.ts`)
+  between the old and new tarballs, and opens the PR idempotently (`chore/pi-sdk-<version>`).
+  The `sdk-monitor` issue now lists the concrete bumps instead of static package names.
+  Documented in `docs/sdk-version-monitoring.md` (whose stale peer-range lines were also
+  corrected to `>=0.99.0 <2`).
+- **pi-ai contract tests** (`test/pi-ai-contract.test.ts`): pin the upstream behaviors
+  this package relies on — `transformMessages` drops cross-model thinking (including
+  signed/redacted blocks) while same-model thinking survives, and a LiteLLM-style chunk
+  carrying reasoning + content together (upstream #10926) yields a thinking block that
+  precedes the text block. Focused failure messages point at the recorded facts in
+  `AGENTS.md` instead of surfacing as unrelated acceptance failures.
+
+---
+
 ## [1.2.1] - 2026-10-15
 
 Patch: removes the dead official web-search bridge.

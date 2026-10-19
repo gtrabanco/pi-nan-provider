@@ -52,6 +52,8 @@ Al cambiar de modelo, pi-ai reenvía el razonamiento del modelo anterior como te
 
 Este paquete **elimina todos los bloques de razonamiento cross-model reenviados**, de modo que cambiar de un modelo de 1M de contexto a uno de 262K (`qwen3.6`) ya no desborda la ventana. Las respuestas y los tool results de los modelos no se tocan — solo se quitan sus trazas internas de razonamiento, así que `qwen3.6` puede seguir respondiendo sobre lo que hizo otro modelo. El razonamiento del mismo modelo no se toca nunca, y el guard solo actúa sobre peticiones dirigidas a los proveedores de este paquete. Pon `NAN_THINKING_GUARD=0` para desactivarlo.
 
+> **pi 1.3.0+: este guard ya no se registra.** pi-ai 1.3.0 elimina el thinking cross-model por sí mismo (el fix upstream ya está publicado), así que el guard solo se activa en pi < 1.3.0 y está **deprecado — se eliminará en la próxima versión del paquete**. Si usas pi < 1.3.0, actualiza pi para mantener la mitigación; en pi ≥ 1.3.0 no hay que hacer nada.
+
 Si una petición sigue desbordando — guard desactivado, inflado que no es un bloque de razonamiento (tool outputs grandes, imágenes) o una ventana de destino más pequeña — NaN responde con el mismo 400 genérico en lugar de nombrar el desbordamiento, y la auto-compactación de pi no lo reconoce, así que la sesión se queda atascada en el techo. Por eso el proveedor **vuelve a comprobar el tamaño de la petición a la salida**: cuando llega ese 400 genérico para una petición estimada por encima de la ventana del modelo, el error se reescribe como un mensaje de context overflow que pi reconoce, de modo que compacta y reintenta en vez de bloquearse. Un 400 genérico en una petición dentro de la ventana no se toca, así que nunca se etiquetan mal errores no relacionados.
 
 ### ⏱️ Streams truncados intermitentes (auto-retry, sin stall silencioso)
@@ -238,6 +240,12 @@ bun run check-nan-mcp-server            # reporte legible
 bun run check-nan-mcp-server --json     # JSON para máquinas
 bun run check-nan-mcp-server --issue    # crea/refresca el issue
 ```
+
+Las actualizaciones del SDK de pi (`@earendil-works/pi-ai` / `@earendil-works/pi-coding-agent`)
+también están automatizadas: el workflow semanal `check-pi-sdk-versions` abre el issue
+`sdk-monitor` **y** prepara un PR con el bump de devDependencies (`bun test` +
+`bun run typecheck` + diff de superficie de tipos incluidos) para revisión humana — ver
+`docs/sdk-version-monitoring.md`.
 
 ---
 
