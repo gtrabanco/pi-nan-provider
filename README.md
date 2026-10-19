@@ -53,6 +53,8 @@ When you switch models, pi-ai replays the previous model's reasoning as plain as
 
 This package **drops every replayed cross-model reasoning block**, so switching from a 1M-context model to a 262K one (`qwen3.6`) no longer overflows the window. The models' answers and tool results are untouched — only their internal reasoning traces are removed, so `qwen3.6` can still answer about what another model did. Same-model reasoning is never altered, and the guard only acts on requests targeting this package's providers. Set `NAN_THINKING_GUARD=0` to disable it.
 
+> **pi 1.3.0+: this guard no longer registers.** pi-ai 1.3.0 drops cross-model thinking itself (the upstream fix landed), so the guard only activates on pi < 1.3.0 and is **deprecated — it will be removed in the next package release**. If you run pi < 1.3.0, update pi to keep the mitigation; no action is needed on pi ≥ 1.3.0.
+
 If a request still overflows — the guard is disabled, the inflation is not a reasoning block (large tool outputs, images), or the destination window is simply smaller — NaN answers the same generic 400 instead of naming the overflow, and pi's auto-compaction does not recognize it, so the session wedges at the ceiling. The provider therefore **re-checks the request size on the way out**: when that generic 400 arrives for a request estimated over the model's window, the error is rewritten into a context-overflow message pi recognizes, so it compacts and retries instead of stalling. A generic 400 on a within-window request is left untouched, so unrelated errors are never mislabelled.
 
 ### ⏱️ Intermittent truncated streams (auto-retry, no silent stall)
@@ -236,6 +238,11 @@ bun run check-nan-mcp-server            # human-readable report
 bun run check-nan-mcp-server --json     # machine-readable JSON
 bun run check-nan-mcp-server --issue    # create/refresh the issue
 ```
+
+PI SDK updates (`@earendil-works/pi-ai` / `@earendil-works/pi-coding-agent`) are automated
+too: the weekly `check-pi-sdk-versions` workflow files the `sdk-monitor` issue **and**
+prepares a devDependencies-bump PR (`bun test` + `bun run typecheck` + type-surface diff
+included) for human review — see `docs/sdk-version-monitoring.md`.
 
 ---
 

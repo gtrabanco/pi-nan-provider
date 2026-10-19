@@ -30,9 +30,11 @@ import type { Provider } from "@earendil-works/pi-ai";
 import { registerNanMcpCommand } from "./commands.ts";
 import { registerNanUsageCommand } from "./usage.ts";
 import {
+	crossModelThinkingGuardCovers,
 	crossModelThinkingGuardEnabled,
 	stripCrossModelThinking,
 } from "./cross-model-thinking-guard.ts";
+import { resolvePiAiVersion } from "./pi-ai-version.ts";
 import { baselineModels } from "./fetch-models.ts";
 import { createNanCompatibleProvider, type OpenAICompatibleProviderConfig } from "./provider-factory.ts";
 import { PROVIDERS } from "./providers.ts";
@@ -146,21 +148,34 @@ async function registerMcpServersNative(pi: ExtensionAPI): Promise<void> {
 /**
  * Drop the reasoning pi-ai replays across a model switch.
  *
- * pi-ai's `transformMessages` downgrades a previous model's `thinking` blocks
- * to plain text with no size bound (verified on 0.87.1), and nothing
- * bounds the sum across messages — measured at 30–60% of the whole context on
- * real sessions. Switching from a 1M-context model to a 262K one (`qwen3.6`)
- * then overflows the window, and NaN's gateway answers a generic
+ * On pi-ai < 1.3.0, `transformMessages` downgrades a previous model's
+ * `thinking` blocks to plain text with no size bound (verified on 0.87.1), and
+ * nothing bounds the sum across messages — measured at 30–60% of the whole
+ * context on real sessions. Switching from a 1M-context model to a 262K one
+ * (`qwen3.6`) then overflows the window, and NaN's gateway answers a generic
  * `400 Invalid request. Check your request parameters.` This hook runs before
  * pi-ai converts the blocks, so removing the cross-model reasoning here keeps
  * the replayed context small. Answers and tool results are untouched. See
  * src/cross-model-thinking-guard.ts.
  *
+ * VERSION-GATED: pi-ai 1.3.0 drops cross-model thinking itself (upstream fix
+ * for issue #3), so the guard only registers when the host's resolved pi-ai is
+ * older than 1.3.0; an undeterminable host version keeps it on (conservative
+ * older-pi default). DEPRECATED — remove this whole guard once the peer range
+ * floor rises to `>=1.3.0`; users on pi < 1.3.0 should update pi.
+ *
  * Scope: only requests targeting this package's providers are touched, and
  * only messages from a DIFFERENT model — same-model reasoning is never removed.
  */
-export function registerCrossModelThinkingGuard(pi: ExtensionAPI): void {
+export function registerCrossModelThinkingGuard(
+	pi: ExtensionAPI,
+	options: { piAiVersion?: string | null } = {},
+): void {
 	if (typeof pi.on !== "function") return; // old pi without the context hook
+	// `null` forces the unknown-version path (guard on); omitted resolves the
+	// host's pi-ai version at runtime; a string pins the version (tests).
+	const piAiVersion = options.piAiVersion !== undefined ? options.piAiVersion : resolvePiAiVersion();
+	if (!crossModelThinkingGuardCovers(piAiVersion)) return;
 	const providerIds = new Set(PROVIDERS.map((provider) => provider.id));
 	pi.on("context", (event, ctx) => {
 		if (!crossModelThinkingGuardEnabled()) return;

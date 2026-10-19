@@ -344,8 +344,26 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   `src/reasoning-only-stream-guard.ts` (issue #21) keys on that marker;
   earlier comment/message text said "60,000 characters" and was corrected to
   the documented figures.
-- **pi 1.2.0 / pi-ai 1.2.0 compat** (verified 2026-10-14, the current verified
-  baseline): the peer range stays `">=0.99.0 <2"` (1.2.0 is inside it). The pi-ai
+- **pi 1.3.0 / pi-ai 1.3.0 compat** (verified 2026-10-15, the current verified
+  baseline): devDependencies bumped 1.2.0 → 1.3.0; the peer range stays
+  `">=0.99.0 <2"`. The pi-ai 1.3.0 `compat.d.ts` and `api/openai-completions.d.ts`
+  surfaces are byte-identical to 1.2.0; `index.d.ts` only drops the
+  `utils/assistant-message-frame` re-export (unused here), and the
+  `thinkingLevelMap.off` branch in `buildRequest` still fires. **pi-ai 1.3.0 lands
+  the upstream fix for issue #3**: `transformMessages` now DROPS cross-model
+  `thinking` blocks (`if (!isSameModel) return []`) instead of downgrading them to
+  unbounded text — the cross-model-thinking guard is therefore VERSION-GATED
+  (`CROSS_MODEL_GUARD_PI_AI_CEILING = "1.3.0"`; registers only on hosts older than
+  that, unknown version keeps it on) and is DEPRECATED for removal in the next
+  package release once the peer floor reaches `>=1.3.0`. `RETRYABLE_PROVIDER_ERROR_PATTERN`
+  expands with gateway/upstream wording ("service is temporarily unavailable" #10965,
+  upstream wrapper text #10842) and #10926 fixes OpenAI-compatible streams where
+  LiteLLM sends reasoning and content in the same chunk — both relevant to NaN's
+  LiteLLM gateway, both upstream-side. Package tests (319) and typecheck pass against
+  1.3.0; the issue-3 acceptance tests were re-pointed at the new upstream reality
+  (thinking scenario pins pi-ai's drop; the opaque-400 reclassification contract is
+  exercised via oversized user content pi-ai cannot shrink).
+- **pi 1.2.0 / pi-ai 1.2.0 compat** (verified 2026-10-14): the peer range stays `">=0.99.0 <2"` (1.2.0 is inside it). The pi-ai
   1.2.0 index/compat type surface is byte-identical to 1.0.0 (`index.d.ts` diff is
   empty); the only additions are `KnownProvider` gaining `"azure"` (renamed from
   `"azure-openai-responses"` in pi 1.0.3 — not used here), a new

@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+	crossModelThinkingGuardCovers,
 	crossModelThinkingGuardEnabled,
+	CROSS_MODEL_GUARD_PI_AI_CEILING,
 	NAN_THINKING_GUARD_ENV,
 	stripCrossModelThinking,
 } from "../src/cross-model-thinking-guard.ts";
@@ -175,6 +177,60 @@ describe("crossModelThinkingGuardEnabled", () => {
 	});
 });
 
+describe("crossModelThinkingGuardCovers (version gate)", () => {
+	test("covers pi-ai versions older than the ceiling", () => {
+		for (const version of ["0.87.1", "0.99.2", "1.0.0", "1.2.0", "1.2.9"]) {
+			expect(crossModelThinkingGuardCovers(version)).toBe(true);
+		}
+	});
+
+	test("does not cover pi-ai >= 1.3.0 — transformMessages drops cross-model thinking itself", () => {
+		for (const version of ["1.3.0", "1.3.1", "1.4.0", "2.0.0"]) {
+			expect(crossModelThinkingGuardCovers(version)).toBe(false);
+		}
+	});
+
+	test("an unknown or unparseable host version keeps the guard (conservative older-pi default)", () => {
+		expect(crossModelThinkingGuardCovers(undefined)).toBe(true);
+		expect(crossModelThinkingGuardCovers(null)).toBe(true);
+		expect(crossModelThinkingGuardCovers("not-a-version")).toBe(true);
+		expect(crossModelThinkingGuardCovers("")).toBe(true);
+	});
+
+	test("prerelease of the ceiling still counts as covered (parses below 1.3.0 release)", () => {
+		expect(crossModelThinkingGuardCovers("1.3.0-beta.1")).toBe(false);
+	});
+});
+
+describe("registerCrossModelThinkingGuard version gating", () => {
+	type GatingHandler = (event: { type: "context"; messages: TestMessage[] }, ctx: { model?: unknown }) => { messages?: TestMessage[] } | undefined;
+
+	function captureWithVersion(piAiVersion: string | null | undefined): GatingHandler | undefined {
+		let handler: GatingHandler | undefined;
+		const pi = {
+			on: (name: string, fn: GatingHandler) => {
+				if (name === "context") handler = fn;
+			},
+		} as unknown as ExtensionAPI;
+		registerCrossModelThinkingGuard(pi, piAiVersion === undefined ? {} : { piAiVersion });
+		return handler;
+	}
+
+	test("registers when the host's pi-ai is older than the ceiling", () => {
+		expect(captureWithVersion("1.2.0")).toBeDefined();
+		expect(captureWithVersion("0.99.2")).toBeDefined();
+	});
+
+	test("does NOT register when the host's pi-ai already drops cross-model thinking (>= ceiling)", () => {
+		expect(captureWithVersion(CROSS_MODEL_GUARD_PI_AI_CEILING)).toBeUndefined();
+		expect(captureWithVersion("2.0.0")).toBeUndefined();
+	});
+
+	test("registers when the host version is unknown (null)", () => {
+		expect(captureWithVersion(null)).toBeDefined();
+	});
+});
+
 describe("registerCrossModelThinkingGuard (extension wiring)", () => {
 	type Handler = (event: { type: "context"; messages: TestMessage[] }, ctx: { model?: unknown }) => { messages?: TestMessage[] } | undefined;
 
@@ -185,7 +241,9 @@ describe("registerCrossModelThinkingGuard (extension wiring)", () => {
 				if (name === "context") handler = fn;
 			},
 		} as unknown as ExtensionAPI;
-		registerCrossModelThinkingGuard(pi);
+		// Pinned to the guard's supported pi-ai era so the wiring tests stay
+		// deterministic regardless of which pi-ai the devDependencies resolve.
+		registerCrossModelThinkingGuard(pi, { piAiVersion: "1.2.0" });
 		return handler!;
 	}
 

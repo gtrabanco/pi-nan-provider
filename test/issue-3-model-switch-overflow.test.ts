@@ -27,6 +27,16 @@
  *     earendil-works/pi#9409, listed by the issue). Reclassifying the error lets
  *     pi compact and retry instead of stalling.
  *
+ * UPSTREAM UPDATE (pi-ai 1.3.0, verified 2026-10-15): `transformMessages` now
+ * DROPS thinking blocks produced by a different model instead of downgrading
+ * them to text (`if (!isSameModel) return []`), which is exactly the fix this
+ * issue asked for. The replayed-thinking scenario can therefore no longer
+ * overflow on pi >= 1.3.0 — the first test below pins that upstream behavior.
+ * Layer 2 stays mandatory and is tested with an over-window request pi-ai
+ * cannot shrink (oversized USER content): users legitimately paste hundreds of
+ * thousands of tokens into a 262K window, the gateway still answers the opaque
+ * generic 400, and pi must still be able to recognize it as an overflow.
+ *
  * These tests are FROZEN acceptance criteria. They drive the real pi-ai
  * `openai-completions` adapter end-to-end through the real provider and a mock
  * NaN gateway (no network; fetch is injected). The gateway mimics NaN exactly:
@@ -131,6 +141,18 @@ function crossModelReasoningSession(reasoningChars: number): TestMessage[] {
 			timestamp: 3,
 		},
 		{ role: "user", content: "now summarize what you found", timestamp: 4 },
+	];
+}
+
+/**
+ * A session whose USER content alone exceeds the destination window — the
+ * over-window case pi-ai cannot mitigate, so only the provider's own size
+ * re-check (layer 2) can rescue it from the opaque 400.
+ */
+function overWindowUserSession(contentChars: number): TestMessage[] {
+	return [
+		{ role: "user", content: "U".repeat(contentChars), timestamp: 1 },
+		{ role: "user", content: "summarize the above", timestamp: 2 },
 	];
 }
 
@@ -241,7 +263,10 @@ function applyGuard(messages: TestMessage[], enabled: boolean, model = TARGET): 
 			if (name === "context") handler = fn;
 		},
 	} as unknown as ExtensionAPI;
-	registerCrossModelThinkingGuard(pi);
+	// Pinned to the guard's supported pi-ai era (< 1.3.0): the guard is
+	// version-gated since pi-ai 1.3.0 drops cross-model thinking itself, and
+	// these tests exercise the guard, not the gate.
+	registerCrossModelThinkingGuard(pi, { piAiVersion: "1.2.0" });
 
 	const previous = process.env[NAN_THINKING_GUARD_ENV];
 	if (enabled) delete process.env[NAN_THINKING_GUARD_ENV];
@@ -255,9 +280,13 @@ function applyGuard(messages: TestMessage[], enabled: boolean, model = TARGET): 
 }
 
 describe("issue #3 — an over-window replay must not wedge the session on NaN's generic 400", () => {
-	test("guard disabled: the opaque 400 is classified as a context overflow so pi can compact and retry", async () => {
-		// The reasoning trace alone is ~2.5x qwen3.6's window, so this request can
-		// never fit — the exact situation the issue documents with NAN_THINKING_GUARD=0.
+	test("pi-ai >= 1.3.0 drops the cross-model reasoning itself: the replayed session fits even with the guard disabled", async () => {
+		// The reasoning trace alone is ~2.5x qwen3.6's window — the exact situation
+		// the issue documents. With NAN_THINKING_GUARD=0 the extension does nothing,
+		// so whatever happens here is pi-ai's own behavior: since 1.3.0,
+		// `transformMessages` drops thinking blocks from another model outright
+		// (upstream fix for this issue), so the replayed prefix fits and the turn
+		// succeeds. This pins the upstream fix the package's guard mirrors.
 		const messages = crossModelReasoningSession(1_200_000);
 		const guarded = applyGuard(messages, /* enabled */ false);
 		expect(guarded).toBe(messages); // opt-out honoured: nothing was dropped.
@@ -265,14 +294,29 @@ describe("issue #3 — an over-window replay must not wedge the session on NaN's
 		const gateway = createGateway(TARGET);
 		const { final } = await runTurn(guarded, gateway);
 
-		// The mock gateway really did see an over-window body and returned NaN's generic 400.
+		// pi-ai dropped the cross-model thinking before serializing: the gateway
+		// saw a body that fits qwen3.6's window and the turn completes.
+		expect(gateway.lastBodyChars() / CHARS_PER_TOKEN).toBeLessThan(TARGET.contextWindow);
+		expect(final.stopReason).toBe("stop");
+		expect((final.content ?? []).map((block) => block.text).join("")).toContain("done");
+	});
+
+	test("a genuinely over-window request pi-ai cannot shrink still gets the opaque 400 reclassified as a context overflow", async () => {
+		// Oversized USER content (~2.5x qwen3.6's window) — pi-ai never drops user
+		// text, so the request really goes out over the window and the gateway
+		// answers NaN's opaque generic 400. The provider's own re-check (layer 2,
+		// `src/context-overflow-classifier.ts`) must surface it as a recognizable
+		// context overflow so pi can compact and retry instead of wedging.
+		const messages = overWindowUserSession(1_200_000);
+		const gateway = createGateway(TARGET);
+		const { final } = await runTurn(messages as never, gateway);
+
 		expect(gateway.lastBodyChars() / CHARS_PER_TOKEN).toBeGreaterThan(TARGET.contextWindow);
 		expect(final.stopReason).toBe("error");
 		expect(final.errorMessage ?? "").toContain(GENERIC_NAN_400);
 
 		// The decisive contract: pi must be able to recognize this as a context
-		// overflow. Today the generic text matches no overflow pattern, so the
-		// session wedges (this assertion fails first).
+		// overflow so auto-compaction can rescue the session.
 		expect(isContextOverflow(final as never, TARGET.contextWindow)).toBe(true);
 	});
 
