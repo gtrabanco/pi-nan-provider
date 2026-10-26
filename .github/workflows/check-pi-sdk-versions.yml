@@ -2,8 +2,13 @@ name: PI SDK Version Check
 
 on:
   schedule:
-    # Check every Monday at 09:00 UTC
-    - cron: "0 9 * * 1"
+    # Measured pi release cadence (61 npm publishes, 2026-05-07 → 2026-10-21):
+    #   days:  Tue 12, Mon 11, Thu 13, Wed 6, Fri 8, Sat 8, Sun 3 (weekends ≈ 18%)
+    #   hours: 43% land 19:00–23:59 UTC (10 of them at 22:00 sharp), mornings are quieter.
+    # 00:00 UTC Mon–Sat (maintainer decision): catches the previous evening's
+    # release within ~1h. Sunday is explicitly excluded — releases published
+    # that day are caught by the Monday 00:00 run.
+    - cron: "0 0 * * 1-6"
   workflow_dispatch:
     inputs:
       check-mode:

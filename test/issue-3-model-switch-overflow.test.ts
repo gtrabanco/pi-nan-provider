@@ -13,29 +13,28 @@
  *   HTTP 400 `Invalid request. Check your request parameters.`
  * instead of naming the context overflow.
  *
- * Two layers are required to actually fix the user-visible failure:
+ * Two layers were required to actually fix the user-visible failure:
  *
- *  1. `src/cross-model-thinking-guard.ts` drops the replayed cross-model
- *     reasoning before pi-ai converts it (the primary mitigation), so the
- *     request usually fits.
- *  2. The provider must **re-check the request size on the way out**: when a
+ *  1. pi-ai >= 1.3.0 DROPS thinking blocks produced by a different model in
+ *     `transformMessages` (`if (!isSameModel) return []`) — the upstream fix
+ *     this issue asked for. The package's own extension-side guard
+ *     (`src/cross-model-thinking-guard.ts`, the pre-1.3.0 mitigation) was
+ *     REMOVED in package 1.4.0 together with the `>=1.3.0` peer floor: every
+ *     supported pi now ships the upstream drop, so the replayed-thinking
+ *     scenario can no longer overflow. The first test below pins that
+ *     upstream behavior through the real adapter.
+ *  2. The provider **re-checks the request size on the way out**: when a
  *     request still exceeds the target model's context window and the gateway
  *     answers the generic 400, that error has to be surfaced as a recognizable
  *     context overflow. pi's auto-compaction keys on pi-ai's
  *     `isContextOverflow()`; the generic text does not match it, so today the
  *     session wedges permanently at the ceiling (upstream
  *     earendil-works/pi#9409, listed by the issue). Reclassifying the error lets
- *     pi compact and retry instead of stalling.
- *
- * UPSTREAM UPDATE (pi-ai 1.3.0, verified 2026-10-15): `transformMessages` now
- * DROPS thinking blocks produced by a different model instead of downgrading
- * them to text (`if (!isSameModel) return []`), which is exactly the fix this
- * issue asked for. The replayed-thinking scenario can therefore no longer
- * overflow on pi >= 1.3.0 — the first test below pins that upstream behavior.
- * Layer 2 stays mandatory and is tested with an over-window request pi-ai
- * cannot shrink (oversized USER content): users legitimately paste hundreds of
- * thousands of tokens into a 262K window, the gateway still answers the opaque
- * generic 400, and pi must still be able to recognize it as an overflow.
+ *     pi compact and retry instead of stalling. This layer stays mandatory and
+ *     is tested with an over-window request pi-ai cannot shrink (oversized USER
+ *     content): users legitimately paste hundreds of thousands of tokens into
+ *     a 262K window, the gateway still answers the opaque generic 400, and pi
+ *     must still be able to recognize it as an overflow.
  *
  * These tests are FROZEN acceptance criteria. They drive the real pi-ai
  * `openai-completions` adapter end-to-end through the real provider and a mock
@@ -45,10 +44,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { isContextOverflow, normalizeContext } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { NAN_THINKING_GUARD_ENV } from "../src/cross-model-thinking-guard.ts";
 import { baselineModels } from "../src/fetch-models.ts";
-import { registerCrossModelThinkingGuard } from "../src/index.ts";
 import { createNanCompatibleProvider } from "../src/provider-factory.ts";
 import { NAN_PROVIDER } from "../src/providers.ts";
 
@@ -247,52 +243,18 @@ async function runTurn(
 	return { final, events };
 }
 
-/**
- * Apply the extension's `context` hook exactly as pi does, honouring the
- * `NAN_THINKING_GUARD` opt-out so the guard-disabled scenario is the real one.
- */
-type ContextHandler = (
-	event: { type: "context"; messages: TestMessage[] },
-	ctx: { model?: unknown },
-) => { messages?: TestMessage[] } | undefined;
-
-function applyGuard(messages: TestMessage[], enabled: boolean, model = TARGET): TestMessage[] {
-	let handler: ContextHandler | undefined;
-	const pi = {
-		on: (name: string, fn: ContextHandler) => {
-			if (name === "context") handler = fn;
-		},
-	} as unknown as ExtensionAPI;
-	// Pinned to the guard's supported pi-ai era (< 1.3.0): the guard is
-	// version-gated since pi-ai 1.3.0 drops cross-model thinking itself, and
-	// these tests exercise the guard, not the gate.
-	registerCrossModelThinkingGuard(pi, { piAiVersion: "1.2.0" });
-
-	const previous = process.env[NAN_THINKING_GUARD_ENV];
-	if (enabled) delete process.env[NAN_THINKING_GUARD_ENV];
-	else process.env[NAN_THINKING_GUARD_ENV] = "0";
-	try {
-		return handler!({ type: "context", messages }, { model })?.messages ?? messages;
-	} finally {
-		if (previous === undefined) delete process.env[NAN_THINKING_GUARD_ENV];
-		else process.env[NAN_THINKING_GUARD_ENV] = previous;
-	}
-}
-
 describe("issue #3 — an over-window replay must not wedge the session on NaN's generic 400", () => {
-	test("pi-ai >= 1.3.0 drops the cross-model reasoning itself: the replayed session fits even with the guard disabled", async () => {
+	test("pi-ai >= 1.3.0 drops the cross-model reasoning itself: the replayed session fits", async () => {
 		// The reasoning trace alone is ~2.5x qwen3.6's window — the exact situation
-		// the issue documents. With NAN_THINKING_GUARD=0 the extension does nothing,
-		// so whatever happens here is pi-ai's own behavior: since 1.3.0,
+		// the issue documents. No extension-side guard exists anymore (removed in
+		// package 1.4.0): what happens here is pi-ai's own behavior — since 1.3.0,
 		// `transformMessages` drops thinking blocks from another model outright
 		// (upstream fix for this issue), so the replayed prefix fits and the turn
-		// succeeds. This pins the upstream fix the package's guard mirrors.
+		// succeeds. This pins the upstream fix the removed guard used to mirror.
 		const messages = crossModelReasoningSession(1_200_000);
-		const guarded = applyGuard(messages, /* enabled */ false);
-		expect(guarded).toBe(messages); // opt-out honoured: nothing was dropped.
 
 		const gateway = createGateway(TARGET);
-		const { final } = await runTurn(guarded, gateway);
+		const { final } = await runTurn(messages, gateway);
 
 		// pi-ai dropped the cross-model thinking before serializing: the gateway
 		// saw a body that fits qwen3.6's window and the turn completes.
@@ -319,27 +281,12 @@ describe("issue #3 — an over-window replay must not wedge the session on NaN's
 		// overflow so auto-compaction can rescue the session.
 		expect(isContextOverflow(final as never, TARGET.contextWindow)).toBe(true);
 	});
-
-	test("guard enabled: the same session is replayed without the reasoning and the turn succeeds", async () => {
-		const messages = crossModelReasoningSession(1_200_000);
-		const guarded = applyGuard(messages, /* enabled */ true);
-		// The guard dropped the reasoning: the replayed prefix no longer carries it.
-		expect(JSON.stringify(guarded)).not.toContain("R".repeat(1_000));
-
-		const gateway = createGateway(TARGET);
-		const { final } = await runTurn(guarded, gateway);
-
-		expect(gateway.lastBodyChars() / CHARS_PER_TOKEN).toBeLessThan(TARGET.contextWindow);
-		expect(final.stopReason).toBe("stop");
-		expect((final.content ?? []).map((block) => block.text).join("")).toContain("done");
-	});
 });
 
 describe("issue #3 — reclassification is conservative", () => {
 	test("a generic 400 on a within-window request stays a generic error, never a false overflow", async () => {
-		const messages = applyGuard(WITHIN_WINDOW_SESSION, /* enabled */ true);
 		const gateway = createGateway(TARGET, { alwaysFail: true });
-		const { final } = await runTurn(messages, gateway);
+		const { final } = await runTurn(WITHIN_WINDOW_SESSION, gateway);
 
 		expect(gateway.lastBodyChars() / CHARS_PER_TOKEN).toBeLessThan(TARGET.contextWindow);
 		expect(final.stopReason).toBe("error");

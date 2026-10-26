@@ -5,6 +5,70 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-10-26
+
+Minor realigns with the pi release line (pi 1.4.0, released 2026-10-21) and adds a
+provider attribution header. `@earendil-works/pi-ai` and `@earendil-works/pi-coding-agent`
+devDependencies move from 1.3.0 to 1.4.0; **the peer range floor rises from `>=0.99.0` to
+`1.3.0`** (now expressed as `^1.3.0`).
+
+### Compatibility with pi 1.4.0 (verified 2026-10-24)
+
+- The pi-ai 1.4.0 type surface this package consumes only ADDS exports
+  (`utils/identity.ts`: `ClientIdentity`/`UserAgentMode`/`PI_ATTRIBUTION`, plus
+  `PI_AI_VERSION`); `compat.d.ts` and `api/openai-completions.d.ts` are byte-identical to
+  1.3.0. All tests and typecheck pass against 1.4.0.
+- `transform-messages.js` is identical to 1.3.0 — the cross-model thinking drop is intact,
+  so `CROSS_MODEL_GUARD_PI_AI_CEILING` stays `1.3.0` (the guard still only registers on
+  older hosts and remains deprecated).
+- The `thinkingLevelMap.off` branch in `buildRequest` still fires (~line 665).
+- pi-ai 1.4.0 routes provider attribution headers through `options.identity`
+  (`getIdentityHeaders`); extensions' `before_provider_headers` no longer see the
+  OpenRouter/NVIDIA/OpenCode headers. This package never used that hook — unaffected.
+- `RETRYABLE_PROVIDER_ERROR_PATTERN` now wraps status codes in `(?<![a-z0-9])…(?![a-z0-9])`
+  lookarounds (no more false retries on digits inside request ids) and adds more gateway
+  upstream-failure wordings (`upstream.?request.?failed`, `stream disconnected before
+  completion`, …) — directly relevant to NaN's LiteLLM gateway, upstream-side.
+- Upstream fixes benefiting NaN users (OpenAI Completions API): whitespace-only tool output
+  no longer produces a 400 (#8720), and sessions no longer break after recovery from an
+  output-limit cutoff (#11227 — relevant to NaN's reasoning-only stream truncations).
+- pi 1.4.0 fixes loading extensions that import `@earendil-works/pi-ai/models` (#11156):
+  `clampThinkingLevel` becomes usable on pi >= 1.4.0 hosts (would require version-gating;
+  the peer floor stays >= 0.99.0, so subpath imports remain avoided).
+
+### Removed
+
+- **The cross-model thinking guard** (`src/cross-model-thinking-guard.ts`, the
+  `NAN_THINKING_GUARD` opt-out and `src/pi-ai-version.ts`), as scheduled in 1.3.0: pi-ai
+  1.3.0 drops cross-model thinking in `transformMessages` itself, and the peer floor now
+  guarantees every supported host ships that fix. The version gate, the env opt-out and
+  their tests (`test/cross-model-thinking-guard.test.ts`, `test/pi-ai-version.test.ts`)
+  are gone with it. The opaque-400 → context-overflow reclassification (issue #3 layer 2)
+  stays — oversized tool outputs and images are not thinking blocks and pi-ai cannot
+  shrink them.
+
+### Added
+
+- **Provider attribution header**: every model registered by this package's providers now
+  carries `X-Pi-Provider: gtrabanco/pi-nan-provider@<version>` (new `src/attribution.ts`),
+  attached at model level so pi-ai merges it over its identity headers on every supported
+  host (verified on pi-ai 0.99.1 and 1.4.0 alike). It covers the generated baseline, the
+  live merge (matched, live-only and unknown-id placeholders), the stale-catalog overlay,
+  image models and the `/nan-usage` quota fetch. pi's own `User-Agent` is never rewritten;
+  the header is silently omitted when the package version cannot be resolved.
+  **Privacy gate**: the extension wires the header to pi's `enableInstallTelemetry`
+  setting — with telemetry disabled the header is stripped from every read (evaluated
+  live, so a mid-session change applies on the next request); the gate is installed at
+  `src/index.ts` and consumed by `withProviderAttribution`, the stale-catalog overlay
+  wrappers and the usage fetch.
+
+### Changed
+
+- The SDK version-check workflow now runs daily at 00:00 UTC **Monday through Saturday**
+  (maintainer decision): it catches the measured evening release cluster (43% of pi
+  publishes land 19:00–23:59 UTC) within about an hour. Sunday is excluded; a release
+  published that day is caught by the Monday 00:00 run.
+
 ## [1.3.0] - 2026-10-15
 
 Minor realigns with the pi release line (pi 1.3.0). Resolves the SDK version-check

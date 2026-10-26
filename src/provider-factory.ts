@@ -36,6 +36,7 @@ import type {
 	ProviderStreams,
 	RefreshModelsContext,
 } from "@earendil-works/pi-ai";
+import { providerAttributionEnabled, stripProviderAttribution } from "./attribution.ts";
 import { withContextOverflowClassification } from "./context-overflow-classifier.ts";
 import { withReasoningOnlyStreamGuard } from "./reasoning-only-stream-guard.ts";
 import { NAN_IMAGE_API, baselineImageModels, createNanImagesApi } from "./images.ts";
@@ -174,16 +175,22 @@ function withStaleCatalogOverlay(
 	provider: Provider<"openai-completions">,
 	overlayMap: Map<string, OverlayEntry>,
 ): Provider<"openai-completions"> {
+	// Attribution is evaluated at READ time, not only factory time: entries
+	// built while the privacy gate was enabled carry the baked header, and a
+	// mid-session `enableInstallTelemetry: false` must strip it on the next
+	// read without rebuilding the catalog.
+	const policy = <T extends { headers?: Record<string, string> }>(m: T): T =>
+		providerAttributionEnabled() ? m : stripProviderAttribution(m);
 	return {
 		...provider,
 		getModels: () => {
 			const models = provider.getModels();
-			return models.map((m) => applyOverlay(m, overlayMap)) as typeof models;
+			return models.map((m) => policy(applyOverlay(m, overlayMap))) as typeof models;
 		},
 		getAllModels: () => {
 			const all = provider.getAllModels?.();
 			if (!all) return [];
-			return all.map((m) => applyOverlay(m, overlayMap));
+			return all.map((m) => policy(applyOverlay(m, overlayMap)));
 		},
 	};
 }

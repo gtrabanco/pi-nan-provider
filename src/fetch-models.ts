@@ -25,6 +25,7 @@
 
 import type { ImageModel, Model } from "@earendil-works/pi-ai";
 import type { ThinkingLevelMap, OpenAICompletionsCompat } from "@earendil-works/pi-ai";
+import { withProviderAttribution } from "./attribution.ts";
 import { GENERATED_CATALOG_META, NAN_GENERATED_MODELS } from "../scripts/models.generated.ts";
 
 export { NAN_GENERATED_MODELS };
@@ -155,7 +156,7 @@ export interface CatalogSource {
 
 /** Convert a generated catalog entry into a pi-ai Model for the given provider. */
 export function toModel(entry: GeneratedModelEntry, source: CatalogSource): Model<"openai-completions"> {
-	return {
+	const model: Model<"openai-completions"> = {
 		id: entry.id,
 		name: entry.name,
 		api: NAN_COMPAT_API,
@@ -169,6 +170,7 @@ export function toModel(entry: GeneratedModelEntry, source: CatalogSource): Mode
 		...(entry.compat ? { compat: { ...entry.compat } } : {}),
 		...(entry.thinkingLevelMap ? { thinkingLevelMap: { ...entry.thinkingLevelMap } } : {}),
 	};
+	return withProviderAttribution(model);
 }
 
 /** The generated fallback catalog as pi-ai Models for the given provider. */
@@ -296,7 +298,7 @@ export function mergeLiveWithGenerated(
 			// silent (issue #7, measured 2026-09-16): the sanitizer forwards the
 			// field and pi reports real token counts. A model can still opt out
 			// with a models.json override of false.
-			models.push({
+			const placeholder: Model<"openai-completions"> = {
 				id,
 				name: id,
 				api: NAN_COMPAT_API,
@@ -308,7 +310,8 @@ export function mergeLiveWithGenerated(
 				contextWindow: UNKNOWN_MODEL_LIMITS.contextWindow,
 				maxTokens: UNKNOWN_MODEL_LIMITS.maxTokens,
 				compat: { supportsFinishReason: true, supportsUsageInStreaming: true },
-			});
+			};
+			models.push(withProviderAttribution(placeholder));
 			unknown.push(id);
 		}
 	}

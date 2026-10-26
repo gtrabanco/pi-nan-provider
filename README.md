@@ -1,7 +1,7 @@
 # @gtrabanco/𝜋-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.2.1-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-1.4.0-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 [![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://cloud.nan.builders/r/7GK06FX8)
 
 [NaN Builders](https://cloud.nan.builders/r/7GK06FX8) model provider + a native MCP server for [pi](https://github.com/earendil-works/pi). 
@@ -46,15 +46,17 @@ NaN's live `/models` also returns non-chat endpoint ids (embedding, rerank, TTS,
 
 The registration is synchronous on purpose: the generated fallback catalog is available immediately, and pi's Models runtime drives the live refresh (network refresh at interactive startup and periodically, cache-only at registration), persisting the overlay between runs.
 
-### 🧠 Model-switch safety (cross-model reasoning guard)
+### 🏷️ Attribution header
 
-When you switch models, pi-ai replays the previous model's reasoning as plain assistant text — with **no size bound**. A single long or degenerate reasoning trace can therefore overflow a 262K-context model's window, and NaN answers with a generic `400 Invalid request. Check your request parameters.` that looks like a provider bug (upstream tracking: [pi-nan-provider#3](https://github.com/gtrabanco/pi-nan-provider/issues/3); open upstream issue: [pi#6167](https://github.com/earendil-works/pi/issues/6167)).
+Every model this package registers carries an `X-Pi-Provider: gtrabanco/pi-nan-provider@<version>` HTTP header, added on top of whatever identity headers pi-ai sends (pi's own `User-Agent` is never modified). It identifies the requests coming from this provider extension — including the `/nan-usage` quota fetch — and it is omitted silently when the package version cannot be resolved. User `models.json` overrides that replace a model entry replace its headers too.
 
-This package **drops every replayed cross-model reasoning block**, so switching from a 1M-context model to a 262K one (`qwen3.6`) no longer overflows the window. The models' answers and tool results are untouched — only their internal reasoning traces are removed, so `qwen3.6` can still answer about what another model did. Same-model reasoning is never altered, and the guard only acts on requests targeting this package's providers. Set `NAN_THINKING_GUARD=0` to disable it.
+The header **follows pi's telemetry setting**: with `enableInstallTelemetry: false` in `settings.json` the header disappears from every request (evaluated live, so toggling the setting applies on the next request without a restart) — the header identifies the package in use, and users who opted out of telemetry should not be identifiable by it.
 
-> **pi 1.3.0+: this guard no longer registers.** pi-ai 1.3.0 drops cross-model thinking itself (the upstream fix landed), so the guard only activates on pi < 1.3.0 and is **deprecated — it will be removed in the next package release**. If you run pi < 1.3.0, update pi to keep the mitigation; no action is needed on pi ≥ 1.3.0.
+### 🧠 Model-switch safety
 
-If a request still overflows — the guard is disabled, the inflation is not a reasoning block (large tool outputs, images), or the destination window is simply smaller — NaN answers the same generic 400 instead of naming the overflow, and pi's auto-compaction does not recognize it, so the session wedges at the ceiling. The provider therefore **re-checks the request size on the way out**: when that generic 400 arrives for a request estimated over the model's window, the error is rewritten into a context-overflow message pi recognizes, so it compacts and retries instead of stalling. A generic 400 on a within-window request is left untouched, so unrelated errors are never mislabelled.
+When you switch models, older pi-ai versions replayed the previous model's reasoning as plain assistant text with **no size bound**, which could overflow a 262K-context model's window; NaN answered with a generic `400 Invalid request. Check your request parameters.` that looked like a provider bug (upstream tracking: [pi-nan-provider#3](https://github.com/gtrabanco/pi-nan-provider/issues/3)). pi-ai 1.3.0 fixed this upstream (`transformMessages` now drops thinking blocks from a different model) and this package requires **pi ≥ 1.3.0** (peer range `^1.3.0`), so the extension-side guard that used to mitigate it was **removed in package 1.4.0** — no action is needed, upstream handles it.
+
+A request can still overflow on its own merits — oversized tool outputs, images, or a destination window simply smaller than the content — and NaN answers the same generic 400 instead of naming the overflow, while pi's auto-compaction does not recognize it, so the session would wedge at the ceiling. The provider therefore **re-checks the request size on the way out**: when that generic 400 arrives for a request estimated over the model's window, the error is rewritten into a context-overflow message pi recognizes, so it compacts and retries instead of stalling. A generic 400 on a within-window request is left untouched, so unrelated errors are never mislabelled.
 
 ### ⏱️ Intermittent truncated streams (auto-retry, no silent stall)
 
@@ -104,7 +106,7 @@ Get a key from the [NaN platform](https://cloud.nan.builders/r/7GK06FX8) (user s
 
 ## 🔌 Native MCP Server
 
-Since [pi 0.99.0 ships a built-in MCP client](https://github.com/earendil-works/pi/blob/main/docs/usage.md), this package bridges to native MCP (requires `pi >=0.99, <2` — pi 0.99 through 1.2 are supported; the peer range was widened to `<2` in 0.11.0).
+Since [pi 0.99.0 ships a built-in MCP client](https://github.com/earendil-works/pi/blob/main/docs/usage.md), this package bridges to native MCP (requires **pi >= 1.3.0**, the peer range floor since package 1.4.0).
 
 The media bridge is **enabled by default** (session-scoped, visible in `/mcp`). Use `/nan-mcp` to manage it.
 
@@ -166,8 +168,7 @@ registering a server that can never connect. To get MCP in the CLI, enable the c
 ### pi 0.99-1.0 features and NaN models
 
 - **Virtual models** — register a router under `nan` (`pi.registerVirtualModel({ provider: "nan", ... })`);
-  it routes to the physical NaN models with no provider-side configuration. The cross-model thinking
-  guard skips virtual selections, because the routed physical model is not visible to the `context` hook.
+  it routes to the physical NaN models with no provider-side configuration.
 - **Codemode** — works with any tool-calling NaN model. This package's MCP tools use
   `exposure: "direct"`, so codemode scripts can call them as well. Requires pi's built-in `codemode`
   extension (see the PI WEB note above).
@@ -216,8 +217,8 @@ registering a server that can never connect. To get MCP in the CLI, enable the c
 | `mcp__nan_media__get_quota` | Per-model token quota (used / cap / remaining / reset) |
 
 > pi 0.99.0–0.99.1 used the hyphenated form (`mcp__nan-media__*`); pi 0.99.2+ sanitizes tool
-> names to `[A-Za-z0-9_]` only, so hyphens became underscores. The underscore form applies from
-> 0.99.2 onward through pi 1.2.
+> names to `[A-Za-z0-9_]` only, so hyphens became underscores. The underscore form applies
+> on every supported version (pi >= 1.3.0).
 
 #### 🔧 Media Bridge Configuration
 

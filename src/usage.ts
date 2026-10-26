@@ -25,6 +25,11 @@
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import {
+	PROVIDER_ATTRIBUTION_HEADER,
+	providerAttributionEnabled,
+	providerAttributionHeaderValue,
+} from "./attribution.ts";
 import { NAN_API_KEY_ENV, resolveNanApiKey, tryResolveNanApiKeyViaRegistry } from "./mcp/api-key.ts";
 
 // ── Known quota limits per model (from NaN docs) ──────────────────────────
@@ -382,10 +387,15 @@ export async function fetchUsageReport(options: FetchUsageOptions): Promise<Fetc
 
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), timeoutMs);
+	const attribution = providerAttributionEnabled() ? providerAttributionHeaderValue() : undefined;
 	try {
 		const response = await fetchImpl(url, {
 			method: "GET",
-			headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+			headers: {
+				Authorization: `Bearer ${apiKey}`,
+				Accept: "application/json",
+				...(attribution ? { [PROVIDER_ATTRIBUTION_HEADER]: attribution } : {}),
+			},
 			cache: "no-store",
 			signal: controller.signal,
 		});
