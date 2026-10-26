@@ -29,6 +29,7 @@ import type {
 	ImageModel,
 	ProviderImages,
 } from "@earendil-works/pi-ai";
+import { withProviderAttribution } from "./attribution.ts";
 
 // ── Custom API id ──────────────────────────────────────────────────────────
 
@@ -121,8 +122,8 @@ interface ImageCatalogSource {
 export function baselineImageModels(
 	source: ImageCatalogSource,
 ): ImageModel<typeof NAN_IMAGE_API>[] {
-	return NAN_IMAGE_MODELS.map(
-		(model): ImageModel<typeof NAN_IMAGE_API> => ({
+	return NAN_IMAGE_MODELS.map((model) => {
+		const entry: ImageModel<typeof NAN_IMAGE_API> = {
 			id: model.id,
 			name: model.name,
 			type: "image",
@@ -132,8 +133,9 @@ export function baselineImageModels(
 			input: [...model.input],
 			output: [...model.output],
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		}),
-	);
+		};
+		return withProviderAttribution(entry);
+	});
 }
 
 // ── API implementation ─────────────────────────────────────────────────────

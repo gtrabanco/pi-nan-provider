@@ -2,18 +2,16 @@
  * NaN-aware context-overflow classification.
  *
  * Root cause (pi-ai, verified on 0.87.1): when history is replayed
- * into a DIFFERENT model, `transformMessages` downgrades every non-redacted
- * `thinking` block to plain `text` verbatim, with no size bound — and nothing
- * bounds the SUM across messages. Switching from a 1M-context model
- * (`glm5.3-flash`, `deepseek-v4-flash`) to a 262K one (`qwen3.6`) can therefore
- * push the request past the destination window (see
- * `src/cross-model-thinking-guard.ts` for the primary mitigation, which drops
- * that replayed reasoning before pi-ai converts it).
+ * into a DIFFERENT model, `transformMessages` downgraded every non-redacted
+ * `thinking` block to plain `text` verbatim, with no size bound. pi-ai 1.3.0
+ * landed the upstream fix (`if (!isSameModel) return []`: the blocks are now
+ * dropped on a model switch) and this package's peer floor is `>=1.3.0`, so
+ * the extension-side guard that used to mitigate it was REMOVED in package
+ * 1.4.0.
  *
- * When the request still overflows — the guard is disabled
- * (`NAN_THINKING_GUARD=0`), the trace is not a `thinking` block (large tool
- * outputs, images), or the destination window is simply smaller — NaN's LiteLLM
- * gateway answers the generic
+ * The request can still overflow — the inflation is not a `thinking` block
+ * (large tool outputs, images), or the destination window is simply smaller —
+ * and NaN's LiteLLM gateway answers the generic
  *   HTTP 400 `Invalid request. Check your request parameters.`
  * instead of naming the context overflow. pi's auto-compaction keys on pi-ai's
  * `isContextOverflow()`, whose documented patterns do NOT match that text, so

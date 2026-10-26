@@ -150,9 +150,11 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   `ctx.model` is the **selection** (the virtual entry), never the routed physical
   model (`core/virtual-models.js`; `agent-session.js` "The selection stays in
   agent state; only this request uses the routed model"), and the routed target is
-  not exposed to the hook. `stripCrossModelThinking` therefore skips virtual
+  not exposed to the hook. `stripCrossModelThinking` therefore skipped virtual
   selections (`src/cross-model-thinking-guard.ts`, `VIRTUAL_MODEL_API`); otherwise
-  its same-model check would strip reasoning on every continuation. Registered
+  its same-model check would strip reasoning on every continuation. (The guard
+  was REMOVED in package 1.4.0 — pi-ai >= 1.3.0 drops cross-model thinking
+  itself — so virtual selections now need no special handling.) Registered
   virtual models are otherwise transparent to the catalog/factory.
 - **Factory-time ExtensionAPI has NO `modelRegistry`** (verified pi 0.99.1):
   The `ExtensionAPI` interface does not include `modelRegistry`; it exists only on
@@ -344,18 +346,47 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   `src/reasoning-only-stream-guard.ts` (issue #21) keys on that marker;
   earlier comment/message text said "60,000 characters" and was corrected to
   the documented figures.
-- **pi 1.3.0 / pi-ai 1.3.0 compat** (verified 2026-10-15, the current verified
-  baseline): devDependencies bumped 1.2.0 → 1.3.0; the peer range stays
+- **pi 1.4.0 / pi-ai 1.4.0 compat** (verified 2026-10-24, the current verified
+  baseline): devDependencies bumped 1.3.0 → 1.4.0; **the peer range floor rose to
+  `"^1.3.0"`** and the version-gated cross-model thinking guard plus
+  `src/pi-ai-version.ts` were REMOVED as scheduled (pi-ai >= 1.3.0 drops
+  cross-model thinking itself). The pi-ai 1.4.0 type surface only ADDS exports
+  (`utils/identity.ts`: `ClientIdentity`/`UserAgentMode`/`PI_ATTRIBUTION`, and
+  `PI_AI_VERSION`); `compat.d.ts` and `api/openai-completions.d.ts` are
+  byte-identical to 1.3.0. `transform-messages.js` (cross-model thinking drop)
+  is identical to 1.3.0 → `CROSS_MODEL_GUARD_PI_AI_CEILING` stays `1.3.0`.
+  The `thinkingLevelMap.off` branch in `buildRequest` still fires (~line 665).
+  Attribution headers moved to `options.identity` (`getIdentityHeaders`);
+  `before_provider_headers` no longer sees OpenRouter/NVIDIA/OpenCode headers
+  (this package never used the hook). `RETRYABLE_PROVIDER_ERROR_PATTERN`:
+  status codes now wrapped in `(?<![a-z0-9])…(?![a-z0-9])` lookarounds plus
+  more upstream-failure wordings — upstream-side, relevant to the LiteLLM
+  gateway. Upstream fixes benefiting NaN users: whitespace-only tool output no
+  longer 400s on OpenAI Completions (#8720); sessions survive output-limit
+  cutoff recovery (#11227). pi 1.4.0 fixes extension imports of
+  `@earendil-works/pi-ai/models` (#11156) — `clampThinkingLevel` usable on
+  pi >= 1.4.0 hosts, subpath imports still avoided (peer floor >= 0.99.0).
+  All tests + typecheck pass against 1.4.0. **New in this release:**
+  `src/attribution.ts` attaches `X-Pi-Provider:
+  gtrabanco/pi-nan-provider@<version>` to every registered model (pi-ai
+  merges `model.headers` over identity headers on 0.99.1 and 1.4.0 alike),
+  covering baseline, live merge, placeholders, overlay, image models and the
+  `/nan-usage` fetch; omitted silently when the version is unreadable, and
+  GATED on pi's `enableInstallTelemetry` setting (privacy: the header
+  identifies the package; gate evaluated live on every read, installed by the
+  extension entrypoint via `configureProviderAttribution`, stripped on read
+  paths by the overlay wrappers when disabled).
+- **pi 1.3.0 / pi-ai 1.3.0 compat** (verified 2026-10-15): devDependencies bumped 1.2.0 → 1.3.0; the peer range stays
   `">=0.99.0 <2"`. The pi-ai 1.3.0 `compat.d.ts` and `api/openai-completions.d.ts`
   surfaces are byte-identical to 1.2.0; `index.d.ts` only drops the
   `utils/assistant-message-frame` re-export (unused here), and the
   `thinkingLevelMap.off` branch in `buildRequest` still fires. **pi-ai 1.3.0 lands
   the upstream fix for issue #3**: `transformMessages` now DROPS cross-model
   `thinking` blocks (`if (!isSameModel) return []`) instead of downgrading them to
-  unbounded text — the cross-model-thinking guard is therefore VERSION-GATED
+  unbounded text — the cross-model-thinking guard was therefore VERSION-GATED
   (`CROSS_MODEL_GUARD_PI_AI_CEILING = "1.3.0"`; registers only on hosts older than
-  that, unknown version keeps it on) and is DEPRECATED for removal in the next
-  package release once the peer floor reaches `>=1.3.0`. `RETRYABLE_PROVIDER_ERROR_PATTERN`
+  that, unknown version keeps it on) and was REMOVED in package 1.4.0 (peer floor
+  raised to `>=1.3.0`, as scheduled). `RETRYABLE_PROVIDER_ERROR_PATTERN`
   expands with gateway/upstream wording ("service is temporarily unavailable" #10965,
   upstream wrapper text #10842) and #10926 fixes OpenAI-compatible streams where
   LiteLLM sends reasoning and content in the same chunk — both relevant to NaN's

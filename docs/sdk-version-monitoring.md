@@ -48,8 +48,8 @@ El workflow `.github/workflows/check-pi-sdk-versions.yml` se ejecuta:
 
 ## Paquetes monitorizados
 
-- `@earendil-works/pi-ai` → peerDep: `>=0.99.0 <2`
-- `@earendil-works/pi-coding-agent` → peerDep: `>=0.99.0 <2`
+- `@earendil-works/pi-ai` → peerDep: `^1.3.0` (floor subido desde `>=0.99.0 <2` en la 1.4.0)
+- `@earendil-works/pi-coding-agent` → peerDep: `^1.3.0` (floor subido desde `>=0.99.0 <2` en la 1.4.0)
 
 ## Niveles de alerta
 

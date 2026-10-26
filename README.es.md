@@ -1,7 +1,7 @@
 # @gtrabanco/𝜋-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.2.1-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-1.4.0-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 [![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://cloud.nan.builders/r/7GK06FX8)
 
 [NaN Builders](https://cloud.nan.builders/r/7GK06FX8) model provider + MCP nativo para [pi](https://github.com/earendil-works/pi). 
@@ -46,15 +46,17 @@ Los ids no-chat que devuelve `/models` en vivo (embedding, rerank, TTS, STT, ima
 
 El registro es síncrono a propósito: el catálogo de fallback está disponible al instante, y el runtime de Models de pi dirige el refresco en vivo (refresco de red en el arranque interactivo y periódico, solo caché en el registro), persistiendo el overlay entre ejecuciones.
 
-### 🧠 Seguridad al cambiar de modelo (guard de razonamiento cross-model)
+### 🏷️ Cabecera de atribución
 
-Al cambiar de modelo, pi-ai reenvía el razonamiento del modelo anterior como texto plano de asistente — **sin límite de tamaño**. Un único razonamiento largo o degenerado puede desbordar la ventana de un modelo de 262K, y NaN responde con un `400 Invalid request. Check your request parameters.` genérico que parece un bug del proveedor (seguimiento upstream: [pi-nan-provider#3](https://github.com/gtrabanco/pi-nan-provider/issues/3); issue abierta upstream: [pi#6167](https://github.com/earendil-works/pi/issues/6167)).
+Cada modelo que este paquete registra lleva una cabecera HTTP `X-Pi-Provider: gtrabanco/pi-nan-provider@<version>`, añadida sobre las cabeceras de identidad que ya envíe pi-ai (el `User-Agent` de pi nunca se modifica). Identifica las peticiones que vienen de esta extensión de proveedor — incluida la consulta de cuota de `/nan-usage` — y se omite silenciosamente si no se puede resolver la versión del paquete. Los overrides de usuario en `models.json` que reemplacen un modelo reemplazan también sus cabeceras.
 
-Este paquete **elimina todos los bloques de razonamiento cross-model reenviados**, de modo que cambiar de un modelo de 1M de contexto a uno de 262K (`qwen3.6`) ya no desborda la ventana. Las respuestas y los tool results de los modelos no se tocan — solo se quitan sus trazas internas de razonamiento, así que `qwen3.6` puede seguir respondiendo sobre lo que hizo otro modelo. El razonamiento del mismo modelo no se toca nunca, y el guard solo actúa sobre peticiones dirigidas a los proveedores de este paquete. Pon `NAN_THINKING_GUARD=0` para desactivarlo.
+La cabecera **sigue la opción de telemetría de pi**: con `enableInstallTelemetry: false` en `settings.json` la cabecera desaparece de todas las peticiones (se evalúa en vivo, así que cambiar la opción aplica en la siguiente petición sin reiniciar) — la cabecera identifica el paquete en uso, y quien haya desactivado la telemetría no debería ser identificable por ella.
 
-> **pi 1.3.0+: este guard ya no se registra.** pi-ai 1.3.0 elimina el thinking cross-model por sí mismo (el fix upstream ya está publicado), así que el guard solo se activa en pi < 1.3.0 y está **deprecado — se eliminará en la próxima versión del paquete**. Si usas pi < 1.3.0, actualiza pi para mantener la mitigación; en pi ≥ 1.3.0 no hay que hacer nada.
+### 🧠 Seguridad al cambiar de modelo
 
-Si una petición sigue desbordando — guard desactivado, inflado que no es un bloque de razonamiento (tool outputs grandes, imágenes) o una ventana de destino más pequeña — NaN responde con el mismo 400 genérico en lugar de nombrar el desbordamiento, y la auto-compactación de pi no lo reconoce, así que la sesión se queda atascada en el techo. Por eso el proveedor **vuelve a comprobar el tamaño de la petición a la salida**: cuando llega ese 400 genérico para una petición estimada por encima de la ventana del modelo, el error se reescribe como un mensaje de context overflow que pi reconoce, de modo que compacta y reintenta en vez de bloquearse. Un 400 genérico en una petición dentro de la ventana no se toca, así que nunca se etiquetan mal errores no relacionados.
+Al cambiar de modelo, versiones antiguas de pi-ai reenviaban el razonamiento del modelo anterior como texto plano de asistente **sin límite de tamaño**, lo que podía desbordar la ventana de un modelo de 262K; NaN respondía con un `400 Invalid request. Check your request parameters.` genérico que parecía un bug del proveedor (seguimiento upstream: [pi-nan-provider#3](https://github.com/gtrabanco/pi-nan-provider/issues/3)). pi-ai 1.3.0 arregló esto upstream (`transformMessages` ahora descarta los bloques de thinking de otro modelo) y este paquete requiere **pi ≥ 1.3.0** (rango peer `^1.3.0`), así que el guard extension-side que lo mitigaba fue **eliminado en la versión 1.4.0 del paquete** — no hay que hacer nada, upstream lo gestiona.
+
+Una petición puede seguir desbordando por méritos propios — tool outputs enormes, imágenes o una ventana de destino simplemente más pequeña que el contenido — y NaN responde con el mismo 400 genérico en lugar de nombrar el desbordamiento, mientras que la auto-compactación de pi no lo reconoce, así que la sesión se quedaría atascada en el techo. Por eso el proveedor **vuelve a comprobar el tamaño de la petición a la salida**: cuando llega ese 400 genérico para una petición estimada por encima de la ventana del modelo, el error se reescribe como un mensaje de context overflow que pi reconoce, de modo que compacta y reintenta en vez de bloquearse. Un 400 genérico en una petición dentro de la ventana no se toca, así que nunca se etiquetan mal errores no relacionados.
 
 ### ⏱️ Streams truncados intermitentes (auto-retry, sin stall silencioso)
 
@@ -104,7 +106,7 @@ Consigue una clave en la [plataforma NaN](https://cloud.nan.builders/r/7GK06FX8)
 
 ## 🔌 MCP nativo
 
-Dado que [pi 0.99.0 incluye un cliente MCP integrado](https://github.com/earendil-works/pi/blob/main/docs/usage.md), este paquete usa MCP nativo (requiere `pi >=0.99, <2` — pi 0.99 hasta 1.2 son compatibles; el rango peer se amplió a `<2` en 0.11.0).
+Dado que [pi 0.99.0 incluye un cliente MCP integrado](https://github.com/earendil-works/pi/blob/main/docs/usage.md), este paquete usa MCP nativo (requiere **pi >= 1.3.0**, el floor del rango peer desde la versión 1.4.0 del paquete).
 
 El puente de media está **activado por defecto** (por sesión, visible en `/mcp`). Usa `/nan-mcp` para gestionarlo.
 
@@ -220,7 +222,7 @@ conector con `pi config` → Built-in extensions → `mcp`.
 
 > pi 0.99.0–0.99.1 usaba la forma con guiones (`mcp__nan-media__*`); pi 0.99.2+ sanitiza los
 > nombres de herramientas a solo `[A-Za-z0-9_]`, así que los guiones se convirtieron en guiones
-> bajos. La forma con guiones bajos aplica desde 0.99.2 hasta pi 1.2.
+> bajos. La forma con guiones bajos aplica en todas las versiones soportadas (pi >= 1.3.0).
 
 #### 🔧 Configuración del Puente de Media
 
