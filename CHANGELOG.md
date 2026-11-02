@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-11-02
+
+Minor realigns with the pi release line (pi 1.5.0, released 2026-11-02). The type surface
+consumed by this package is **byte-identical** to 1.4.0 in `compat.d.ts`, `index.d.ts`,
+and `api/openai-completions.d.ts`; devDependencies and peer range floor move from 1.4.0 to
+1.5.0 (expressed as `^1.4.0`).
+
+### Compatibility with pi 1.5.0 (verified 2026-11-02)
+
+- `compat.d.ts`, `index.d.ts`, and `api/openai-completions.d.ts` are **byte-identical**
+  to 1.4.0 — no type changes to the surface this package consumes.
+- pi-ai 1.5.0 drops TypeBox re-exports from the root index (TypeBox is now only on
+  compat), but this package never imports `Type`/`TSchema`/`Static` from the bare
+  pi-ai root — only from compat where it stays available. Unaffected.
+- Two new exports in 1.5.0 (`utils/streaming-json.ts`, `utils/string-enum.ts`) are not
+  consumed by this package.
+- pi-schema 1.5.0 replaces TypeBox for tool argument validation in pi itself; the
+  validation engine change is upstream-side and does not affect provider-side behavior.
+- All tests and typecheck pass against 1.5.0.
+- Peer range floor rises from `^1.3.0` to `^1.4.0`.
+
+### Added
+
+- **Extension changelog support**: the `pi` field in `package.json` now includes
+  `"changelogPath": "CHANGELOG.md"` so pi shows changelog entries to users on the
+  next fresh launch after an update (pi 1.5.0 feature).
+
 ## [1.4.0] - 2026-10-26
 
 Minor realigns with the pi release line (pi 1.4.0, released 2026-10-21) and adds a
