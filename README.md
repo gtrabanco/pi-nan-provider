@@ -78,6 +78,8 @@ You can override any model's `compat` per-model in `~/.pi/agent/models.json` (pi
 
 > Setting `supportsFinishReason: false` restores the old silent-stall behavior — not recommended.
 
+**pi-ai 1.5.1 compat escape hatches** (`~/.pi/agent/models.json`, per model): `compat.requiresToolsWithToolHistory: true` restores sending `tools: []` in conversations with tool history (pi-ai 1.5.1 omits it by default, fixing vLLM 0.20+ `tools must not be an empty array` rejections behind LiteLLM); `compat.requiresNonNullAssistantContent: true` sends `""` instead of `null` in assistant messages that only carry tool calls; `compat.promptCacheKeyMode: "disabled"` guarantees `prompt_cache_key` is never sent to the gateway (the default `auto` already never enables it for NaN).
+
 **Streaming token usage:** `supportsUsageInStreaming` is `true` by default. NaN's published schema does not document `stream_options`, but the live gateway honors it — measured 2026-09-16 ([#7](https://github.com/gtrabanco/pi-nan-provider/issues/7)): two identical streaming calls per model, 0 usage chunks without the flag and exactly 1 with it, on `deepseek-v4-flash`, `glm5.3-flash`, `qwen3.6`, `mimo-v2.5` and `gemma4`. pi therefore reports real input/output/reasoning/cache token counts instead of zeros. If a model turns out not to report streaming usage, opt out per model — the request sanitizer then strips `stream_options` and the payload stays strict:
 
 ```json

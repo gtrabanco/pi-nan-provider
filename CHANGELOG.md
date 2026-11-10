@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-11-10
+
+Patch release verified against pi 1.5.1 / pi-ai 1.5.1 (released 2026-11-09). devDependencies move
+from 1.5.0 to 1.5.1; the peer range stays `^1.4.0` (the floor only rises on pi minor realigns).
+
+### Compatibility with pi 1.5.1 (verified 2026-11-10)
+
+- `dist/compat.d.ts` and `dist/compat.js` are **byte-identical** to 1.5.0. `index.d.ts` only
+  adds a `cache-warming` re-export; `api/openai-completions.d.ts` adds the optional
+  `promptCacheKeyMode` compat field. The surface this package consumes is unchanged.
+- All 315 tests and typecheck pass against 1.5.1 unchanged.
+
+### Changed (pi-ai behavior, provider-side impact)
+
+- **`tools: []` is no longer sent by default** (pi-ai #11843): sessions with tool history and all
+  tools disabled previously carried an empty `tools` array, which vLLM 0.20+ (also behind
+  LiteLLM) rejects with `tools must not be an empty array`. NaN sits behind LiteLLM, so this
+  removes a potential 400 on NaN sessions where every tool is turned off mid-conversation. No
+  catalog change needed — NaN serves OpenAI-protocol models, so the removed default was never
+  required here; the new `compat.requiresToolsWithToolHistory` opt-in exists in `models.json`
+  should a proxy ever demand the field.
+- **`fitMaxTokens` reserves a proportional margin** (pi-ai #10497): the default `maxTokens` fit
+  now keeps 15% of the estimated input unused (instead of a small fixed token margin), capped so
+  a near-full window still allows up to 32,768 output tokens. This reduces the requests that
+  trigger NaN's generic 400 `Invalid request` near the declared window — the same failure mode
+  `src/context-overflow-classifier.ts` rescues downstream — and is pure pi-ai behavior: the
+  catalog's declared windows are untouched.
+- **Retry pattern gains "cut short after the reply had begun"** (pi-ai #11879): dropped upstream
+  streams phrased that way are now retried. Our issue #2 contract is intact — the pattern still
+  contains `"ended without"`, so NaN's missing-`finish_reason` truncations stay retryable
+  (`test/issue-2-truncated-stream.test.ts`, `test/generated-catalog.test.ts`).
+
+### Added (documented for NaN users; `models.json`-only, no code)
+
+- New OpenAI-completions compat escape hatches available per model in `~/.pi/agent/models.json`:
+  `compat.requiresToolsWithToolHistory` (send `tools: []` when history has tool calls — for
+  proxies that require the field), `compat.requiresNonNullAssistantContent` (send `""` instead of
+  `null` in assistant messages that only carry tool calls), and `compat.promptCacheKeyMode`
+  (`auto`/`enabled`/`disabled` — control `prompt_cache_key`; `auto` never enables it for NaN).
+
 ## [1.5.0] - 2026-11-02
 
 Minor realigns with the pi release line (pi 1.5.0, released 2026-11-02). The type surface
