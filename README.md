@@ -307,7 +307,7 @@ MiMo V2.5:
   [███░░░░░░░░░░░░░░░░░] 12.5% of monthly cap
   Used: 125.0M / 1.0B (875.0M remaining) · 840 requests
 
-GLM 5.3 👑:
+GLM 5.3:
   [████████░░░░░░░░░░░░] 40.0% of monthly cap
   Used: 1.2B / 3.0B (1.8B remaining) · 2,400 requests
   ↳ rolling window: 400.0M / 4h (daily granularity — /usage cannot break it down)
@@ -336,7 +336,7 @@ Qwen 3.6                     uncapped
 Gemma 4                      uncapped
 Qwen 3.8 Flash               500.0M
 GLM 5.3 Flash                2.0B
-GLM 5.3                      3.0B 👑 (rolling 400.0M/4h)
+GLM 5.3                      3.0B (rolling 400.0M/4h)
 
 💡 Set NAN_API_KEY or run `/login nan` to see real usage (GET /v1/usage).
 ```

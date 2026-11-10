@@ -45,18 +45,16 @@ export interface ModelQuota {
 	rollingWindowCap: number;
 	/** Rolling window duration in hours. */
 	rollingWindowHours: number;
-	/** Whether this model is premium-tier (glm5.3). */
-	premium: boolean;
 }
 
 export const MODEL_QUOTAS: readonly ModelQuota[] = [
-	{ model: "deepseek-v4-flash", label: "DeepSeek V4 Flash", monthlyCap: 3_000_000_000, rollingWindowCap: 0, rollingWindowHours: 0, premium: false },
-	{ model: "mimo-v2.6-flash", label: "MiMo V2.6 Flash", monthlyCap: 1_000_000_000, rollingWindowCap: 0, rollingWindowHours: 0, premium: false },
-	{ model: "qwen3.6", label: "Qwen 3.6", monthlyCap: 0, rollingWindowCap: 0, rollingWindowHours: 0, premium: false },
-	{ model: "gemma4", label: "Gemma 4", monthlyCap: 0, rollingWindowCap: 0, rollingWindowHours: 0, premium: false },
-	{ model: "qwen3.8-flash", label: "Qwen 3.8 Flash", monthlyCap: 500_000_000, rollingWindowCap: 0, rollingWindowHours: 0, premium: false },
-	{ model: "glm5.3-flash", label: "GLM 5.3 Flash", monthlyCap: 2_000_000_000, rollingWindowCap: 0, rollingWindowHours: 0, premium: false },
-	{ model: "glm5.3", label: "GLM 5.3", monthlyCap: 3_000_000_000, rollingWindowCap: 400_000_000, rollingWindowHours: 4, premium: true },
+	{ model: "deepseek-v4-flash", label: "DeepSeek V4 Flash", monthlyCap: 3_000_000_000, rollingWindowCap: 0, rollingWindowHours: 0 },
+	{ model: "mimo-v2.6-flash", label: "MiMo V2.6 Flash", monthlyCap: 1_000_000_000, rollingWindowCap: 0, rollingWindowHours: 0 },
+	{ model: "qwen3.6", label: "Qwen 3.6", monthlyCap: 0, rollingWindowCap: 0, rollingWindowHours: 0 },
+	{ model: "gemma4", label: "Gemma 4", monthlyCap: 0, rollingWindowCap: 0, rollingWindowHours: 0 },
+	{ model: "qwen3.8-flash", label: "Qwen 3.8 Flash", monthlyCap: 500_000_000, rollingWindowCap: 0, rollingWindowHours: 0 },
+	{ model: "glm5.3-flash", label: "GLM 5.3 Flash", monthlyCap: 2_000_000_000, rollingWindowCap: 0, rollingWindowHours: 0 },
+	{ model: "glm5.3", label: "GLM 5.3", monthlyCap: 3_000_000_000, rollingWindowCap: 400_000_000, rollingWindowHours: 4 },
 ];
 
 // ── GET /v1/usage types ───────────────────────────────────────────────────
@@ -254,12 +252,11 @@ export function buildStaticMessage(now = new Date()): string {
 
 	for (const quota of MODEL_QUOTAS) {
 		const capStr = quota.monthlyCap > 0 ? formatTokens(quota.monthlyCap) : "uncapped";
-		const premiumStr = quota.premium ? " 👑" : "";
 		const rollingStr = quota.rollingWindowCap > 0
 			? ` (rolling ${formatTokens(quota.rollingWindowCap)}/${quota.rollingWindowHours}h)`
 			: "";
 
-		lines.push(`${quota.label.padEnd(28)} ${capStr}${premiumStr}${rollingStr}`);
+		lines.push(`${quota.label.padEnd(28)} ${capStr}${rollingStr}`);
 	}
 
 	lines.push("", `💡 Set ${NAN_API_KEY_ENV} or run \`/login nan\` to see real usage (GET /v1/usage).`);
@@ -303,7 +300,7 @@ export function buildUsageMessage(report: UsageReport, now = new Date()): string
 			const percentage = (used / quota.monthlyCap) * 100;
 			const remaining = Math.max(quota.monthlyCap - used, 0);
 
-			lines.push(`${quota.label}${quota.premium ? " 👑" : ""}:`);
+			lines.push(`${quota.label}:`);
 			lines.push(`  ${progressBar(percentage)} ${percentage.toFixed(1)}% of monthly cap`);
 			lines.push(
 				`  Used: ${formatTokens(used)} / ${formatTokens(quota.monthlyCap)} (${formatTokens(remaining)} remaining) · ${requestsSuffix(used, requests)}`,

@@ -35,13 +35,18 @@ models. Patch release: the verified pi baseline stays 1.5.x; no runtime API surf
 - **`minimax-h3` is classified as non-chat** (`NON_CHAT_MODEL_IDS`): the live `/models`
   lists it with owned_by "nan" and models.dev reports a video output modality, so it is
   never registered as a chat model or placeholder.
-- README (EN/ES) model tables and AGENTS.md model facts updated.
+- **`/nan-usage` no longer flags any model as premium.** The `premium` field is removed from
+  the quota table (`src/usage.ts`) together with the 👑 marker it drew on `glm5.3`, since
+  NaN has no premium tier after the 2026-11-10 switch to credits. `glm5.3` keeps its
+  documented rolling window (400M/4h).
+- README (EN/ES) model tables, `/nan-usage` examples and AGENTS.md model facts updated.
 
 ### Known follow-ups
 
-- `src/usage.ts` still marks `glm5.3` premium with token windows although NaN moved to
-  credits.
+- `/nan-usage` still reports token windows (monthly caps, `glm5.3` rolling window) although
+  NaN moved to credits.
 - `reasoning_effort` behavior of the four external models needs a permission-gated live probe.
+
 Patch release verified against pi 1.5.1 / pi-ai 1.5.1 (released 2026-11-09). devDependencies move
 from 1.5.0 to 1.5.1; the peer range stays `^1.4.0` (the floor only rises on pi minor realigns).
 

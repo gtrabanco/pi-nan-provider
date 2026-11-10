@@ -228,8 +228,9 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   name "GLM 5.3") over the models.dev entry (text-only, 1,000,000). The
   overlay/merge paths now treat it like any catalogued id (issue #19's
   invariant is intact: the store decides which ids exist, the generated
-  catalog decides their capabilities). `src/usage.ts` still marks it `premium`
-  with token windows — a known follow-up, NaN moved to credits.
+  catalog decides their capabilities). `src/usage.ts` no longer has a `premium`
+  flag (removed in 1.5.1 at the maintainer's request); its token windows are a
+  known follow-up, NaN moved to credits.
   **2026-11-10 external models** (ZDR, "EXTERNAL PROVIDER" on NaN's pricing
   page): `kimi-k3.1-pro`, `qwen3.8-max`, `deepseek-v4-pro`, `hy4`. Not in
   models.dev provider `nan`, the docs, or openapi.json, but listed by the live
