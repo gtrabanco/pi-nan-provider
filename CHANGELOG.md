@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-11-10
+
+Catalog update for the models NaN launched on 2026-11-10 and its removal of tier-exclusive
+models. Patch release: the verified pi baseline stays 1.5.x; no runtime API surface changes.
+
+### Added
+
+- **Four external-provider (ZDR) chat models**: `kimi-k3.1-pro`, `qwen3.8-max`,
+  `deepseek-v4-pro` and `hy4`. NaN's docs and OpenAPI do not list them yet, but the live
+  `GET /v1/models` does (checked 2026-11-10), so they enter the generated catalog through
+  `MANUAL_ONLY_MODEL_IDS` with per-model provenance notes: contextWindow from NaN's pricing
+  page ("1M context": 1,048,576, and 1,000,000 for `qwen3.8-max` per its first-party vendor
+  value), maxTokens 32,768 per https://nan.builders/docs/pi, input from first-party vendor
+  modalities on models.dev (text for `deepseek-v4-pro`, text+image for the others),
+  reasoning on, cost 0. No `reasoning_effort` mapping is declared: how the gateway handles
+  it for external providers is unmeasured.
+
+### Changed
+
+- **`glm5.3` moves from premium live-only into the general catalog.** NaN removed
+  tier-exclusive models on 2026-11-10 and the live `/models` lists `glm5.3` for a
+  non-premium key. It keeps the capability values it carried (name "GLM 5.3", 1,048,576 /
+  131,072, text+image, reasoning effort low/medium/high/max, `thinkingLevelMap { off: "low" }`)
+  as a `MANUAL_OVERRIDES` entry over the models.dev data.
+- The dead live-only mechanism (`LIVE_ONLY_MODEL_IDS` in the generator,
+  `LIVE_ONLY_MODEL_DATA` in `src/fetch-models.ts`) is removed; the live merge and the stale
+  catalog overlay treat `glm5.3` like any catalogued id.
+- **`minimax-h3` is classified as non-chat** (`NON_CHAT_MODEL_IDS`): the live `/models`
+  lists it with owned_by "nan" and models.dev reports a video output modality, so it is
+  never registered as a chat model or placeholder.
+- README (EN/ES) model tables and AGENTS.md model facts updated.
+
+### Known follow-ups
+
+- `src/usage.ts` still marks `glm5.3` premium with token windows although NaN moved to
+  credits.
+- `reasoning_effort` behavior of the four external models needs a permission-gated live probe.
+
 ## [1.5.0] - 2026-11-02
 
 Minor realigns with the pi release line (pi 1.5.0, released 2026-11-02). The type surface

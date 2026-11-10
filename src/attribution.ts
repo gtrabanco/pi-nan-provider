@@ -5,8 +5,8 @@
  * pi-ai merges `model.headers` over its own identity headers in
  * `createClient` (`{ ...getIdentityHeaders(model, identity), ...model.headers }`,
  * the same shape since pi-ai 0.99.1), so attaching the header to every model
- * entry — generated catalog, live merge, unknown-id placeholders, live-only
- * documented entries, the stale-catalog overlay and image models — reaches
+ * entry — generated catalog, live merge, unknown-id placeholders, the
+ * stale-catalog overlay and image models — reaches
  * the gateway on every supported host without touching the request payload
  * or pi's own `User-Agent`.
  *

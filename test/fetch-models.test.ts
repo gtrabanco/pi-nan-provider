@@ -146,11 +146,11 @@ describe("mergeLiveWithGenerated", () => {
 		expect(merged.unknown).toEqual(["brand-new-model"]);
 	});
 
-	test("live-only glm5.3 gets documented capabilities, not the unknown placeholder", () => {
-		// Premium-tier model, deliberately out of the static baseline so a
-		// non-premium key never sees it. When a premium key discovers it live,
-		// LIVE_ONLY_MODEL_DATA supplies the documented capabilities instead of
-		// the blind 128K/4K placeholder.
+	test("glm5.3 resolves to its catalog capabilities, not the unknown placeholder", () => {
+		// NaN removed tier-exclusive models on 2026-11-10: glm5.3 is a general
+		// catalog model, so a live id match returns the generated entry (the
+		// values it carried as a premium live-only model) instead of the blind
+		// 128K/4K placeholder.
 		const merged = mergeLiveWithGenerated(["glm5.3"], SOURCE);
 		expect(merged.matched).toEqual(["glm5.3"]);
 		expect(merged.unknown).toEqual([]);
@@ -161,6 +161,21 @@ describe("mergeLiveWithGenerated", () => {
 		expect(model.input).toEqual(["text", "image"]);
 		expect(model.thinkingLevelMap?.off).toBe("low");
 		expect(model.compat?.supportsFinishReason).toBe(true);
+	});
+
+	test("the 2026-11-10 external models resolve to catalog capabilities, not the 128K placeholder", () => {
+		// Absent from models.dev and the NaN docs, present in the live /v1/models;
+		// without their manual-only catalog entries the merge would hand them
+		// UNKNOWN_MODEL_LIMITS and pi would compact around 100K of a 1M window.
+		const ids = ["kimi-k3.1-pro", "qwen3.8-max", "deepseek-v4-pro", "hy4"];
+		const merged = mergeLiveWithGenerated(ids, SOURCE);
+		expect(merged.matched).toEqual(ids);
+		expect(merged.unknown).toEqual([]);
+		for (const model of merged.models) {
+			expect(model.contextWindow, model.id).toBeGreaterThanOrEqual(1_000_000);
+			expect(model.maxTokens, model.id).toBe(32_768);
+			expect(model.reasoning, model.id).toBe(true);
+		}
 	});
 
 	test("mimo-v2.6-flash resolves to catalog capabilities, not the 128K placeholder (2026-09-25)", () => {
@@ -185,9 +200,9 @@ describe("finish-reason compat (retryable truncation)", () => {
 		}
 	});
 
-	test("uncatalogued live-only ids also carry supportsFinishReason: true", () => {
-		// glm5.3 (premium, kept out of the static catalog) must not silently stall either.
-		const merged = mergeLiveWithGenerated(["glm5.3"], SOURCE);
+	test("uncatalogued live ids also carry supportsFinishReason: true", () => {
+		// A model the catalog does not know yet must not silently stall either.
+		const merged = mergeLiveWithGenerated(["brand-new-model"], SOURCE);
 		expect(merged.models[0]!.compat?.supportsFinishReason).toBe(true);
 	});
 });
@@ -232,7 +247,7 @@ describe("fetchNanCompatibleModels", () => {
 		const qwen = models.find((model) => model.id === "qwen3.6")!;
 		expect(qwen.contextWindow).toBe(262_144); // generated data wins
 		const premium = models.find((model) => model.id === "glm5.3")!;
-		// Live-only premium id: documented capabilities, not the blind placeholder.
+		// Catalogued id: generated capabilities, not the blind placeholder.
 		expect(premium.contextWindow).toBe(1_048_576);
 		expect(premium.maxTokens).toBe(131_072);
 	});

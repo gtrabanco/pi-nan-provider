@@ -104,6 +104,85 @@ const MANUAL_ONLY_NOTE =
 	"omnimodal model (text, image, audio input) served by NaN; limits and modalities from https://nan.builders/docs/models#mimo-v2-6-flash (checked 2026-09-25, quotas re-checked 2026-09-29): 1,048,576 context / 131,072 max output / 1.0B monthly quota per member. Tool calling: yes. Streaming: yes. Input modalities (pi-representable): text, image (audio not representable in pi's Model type). Fallback entry: emitted only while models.dev provider nan does not list the model — models.dev started listing it on 2026-09-29, so the generator then keeps the models.dev values and attaches this note to that entry instead of emitting a second one.";
 
 /**
+ * NaN external-provider models launched 2026-11-10 (ZDR, served through
+ * external providers). models.dev provider nan does not list them, the NaN
+ * docs/openapi do not mention them yet, but the live `GET /v1/models` does
+ * (checked 2026-11-10, a non-premium key sees all four). Values per spec S2 of
+ * odd/tasks/nan-external-models-2026-11.md; nothing here is a guess:
+ * - contextWindow: NaN's pricing page card says "1M context" for each model
+ *   (maintainer screenshot, 2026-11-10); NaN's convention for 1M is 1,048,576
+ *   (https://nan.builders/docs/pi). qwen3.8-max uses the first-party vendor value
+ *   1,000,000 (models.dev provider alibaba), the smaller of the two.
+ * - maxTokens 32,768: https://nan.builders/docs/pi declares maxTokens 32768 for
+ *   every 1M-context NaN model; every vendor limit is >= 65,536 (models.dev
+ *   moonshotai / alibaba / deepseek / tencent-tokenhub), and NaN's gateway
+ *   already rejected a high max_tokens once (issue #20).
+ * - input: first-party vendor modalities on models.dev (moonshotai/kimi-k3.1-pro,
+ *   alibaba/qwen3.8-max, deepseek/deepseek-v4-pro, tencent-tokenhub/hy4)
+ *   restricted to pi's text/image.
+ * - reasoning true: all four are reasoning models per their vendors.
+ *   reasoningEffortValues [] and NO thinkingLevelMap: how NaN's gateway
+ *   translates reasoning_effort for external providers is unmeasured.
+ * - cost 0: maintainer decision (NaN is quota/credit based).
+ */
+const EXTERNAL_MODEL_NOTE_SUFFIX =
+	" Existence: live GET https://api.nan.builders/v1/models (checked 2026-11-10); the docs https://nan.builders/docs/models, https://nan.builders/docs/pi and https://nan.builders/openapi.json do not list it yet. reasoningEffortValues [] and no thinkingLevelMap: the gateway's reasoning_effort handling for external providers is unmeasured. cost 0 per maintainer decision.";
+
+const EXTERNAL_MODELS: Record<string, ManualModelOverride> = {
+	"kimi-k3.1-pro": {
+		name: "Kimi K3.1 Pro",
+		input: ["text", "image"],
+		reasoning: true,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 1_048_576,
+		maxTokens: 32_768,
+		reasoningEffortValues: [],
+		note:
+			"NaN external-provider model launched 2026-11-10. contextWindow 1,048,576: NaN pricing page card '1M context' (maintainer screenshot, 2026-11-10) with NaN's 1M = 1,048,576 convention (https://nan.builders/docs/pi). maxTokens 32,768: https://nan.builders/docs/pi declares 32768 for every 1M-context NaN model (vendor limit 1,048,576 on models.dev provider moonshotai). input text+image per models.dev provider moonshotai (kimi-k3.1-pro), reasoning model per the vendor." +
+			EXTERNAL_MODEL_NOTE_SUFFIX,
+	},
+	"qwen3.8-max": {
+		name: "Qwen3.8 Max",
+		input: ["text", "image"],
+		reasoning: true,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 1_000_000,
+		maxTokens: 32_768,
+		reasoningEffortValues: [],
+		note:
+			"NaN external-provider model launched 2026-11-10. contextWindow 1,000,000: NaN pricing page card says '1M context' (maintainer screenshot, 2026-11-10); the first-party vendor value on models.dev provider alibaba (qwen3.8-max) is 1,000,000, the smaller of it and NaN's 1M = 1,048,576 convention (https://nan.builders/docs/pi), so the vendor value is used. maxTokens 32,768: https://nan.builders/docs/pi declares 32768 for every 1M-context NaN model (vendor limit 131,072 on models.dev provider alibaba). input text+image per models.dev provider alibaba (qwen3.8-max), reasoning model per the vendor." +
+			EXTERNAL_MODEL_NOTE_SUFFIX,
+	},
+	"deepseek-v4-pro": {
+		name: "DeepSeek V4-Pro (0813 version)",
+		input: ["text"],
+		reasoning: true,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 1_048_576,
+		maxTokens: 32_768,
+		reasoningEffortValues: [],
+		note:
+			"NaN external-provider model launched 2026-11-10 (NaN pricing page name 'DeepSeek V4-Pro (0813 version)'). contextWindow 1,048,576: NaN pricing page card '1M context' (maintainer screenshot, 2026-11-10) with NaN's 1M = 1,048,576 convention (https://nan.builders/docs/pi). maxTokens 32,768: https://nan.builders/docs/pi declares 32768 for every 1M-context NaN model (vendor limit 393,216 on models.dev provider deepseek). input text only per models.dev provider deepseek (deepseek-v4-pro), reasoning model per the vendor." +
+			EXTERNAL_MODEL_NOTE_SUFFIX,
+	},
+	hy4: {
+		name: "Hy4",
+		input: ["text", "image"],
+		reasoning: true,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 1_048_576,
+		maxTokens: 32_768,
+		reasoningEffortValues: [],
+		note:
+			"NaN external-provider model launched 2026-11-10. contextWindow 1,048,576: NaN pricing page card '1M context' (maintainer screenshot, 2026-11-10) with NaN's 1M = 1,048,576 convention (https://nan.builders/docs/pi). maxTokens 32,768: https://nan.builders/docs/pi declares 32768 for every 1M-context NaN model (vendor limit 65,536 on models.dev provider tencent-tokenhub). input text+image per models.dev provider tencent-tokenhub (hy4), reasoning model per the vendor." +
+			EXTERNAL_MODEL_NOTE_SUFFIX,
+	},
+};
+
+const EXTERNAL_MODEL_DETAIL =
+	"NaN external-provider model launched 2026-11-10, listed by the live GET /v1/models but absent from models.dev provider nan and the NaN docs";
+
+/**
  * Models NaN serves that models.dev provider nan may not list. Mirrors the
  * generator's MANUAL_ONLY_MODEL_IDS — kept in sync so the generator and the
  * tests share the same source. An entry stops being emitted as soon as
@@ -112,6 +191,7 @@ const MANUAL_ONLY_NOTE =
  */
 export const MANUAL_ONLY_MODEL_IDS: Record<string, string> = {
 	"mimo-v2.6-flash": MANUAL_ONLY_NOTE,
+	...Object.fromEntries(Object.keys(EXTERNAL_MODELS).map((id) => [id, EXTERNAL_MODEL_DETAIL])),
 };
 
 /**
@@ -128,6 +208,7 @@ export const MANUAL_ONLY_MODELS: Record<string, ManualModelOverride> = {
 		maxTokens: 131_072,
 		note: MANUAL_ONLY_NOTE,
 	},
+	...EXTERNAL_MODELS,
 };
 
 /**
@@ -149,6 +230,17 @@ export const MANUAL_ONLY_MODELS: Record<string, ManualModelOverride> = {
  *   docs are explicit about both the default and the `none` behavior.
  */
 export const MANUAL_OVERRIDES: Record<string, ManualModelOverride> = {
+	...EXTERNAL_MODELS,
+	"glm5.3": {
+		name: "GLM 5.3",
+		input: ["text", "image"],
+		contextWindow: 1_048_576,
+		maxTokens: 131_072,
+		reasoningEffortValues: ["low", "medium", "high", "max"],
+		thinkingLevelMap: { off: "low" },
+		note:
+			"general catalog model since 2026-11-10: NaN announced it no longer has tier-exclusive models ('a partir de ahora ya NO habrá modelos exclusivos por tier'), and the live GET https://api.nan.builders/v1/models lists glm5.3 for a non-premium key (checked 2026-11-10); it used to be premium live-only. The values are the ones it carried as live-only, from https://nan.builders/docs/models (checked 2026-10-14; docs win over models.dev): contextWindow 1,048,576 ('1M token context'; models.dev lists the rounded 1,000,000); input text+image (multimodal; pi represents only text and image — models.dev lists text only, a stale divergence); maxTokens 131,072 (the confirmed maximum models.dev documents; the docs give the same 131K figure for glm5.3-flash and no lower bound); reasoningEffortValues low/medium/high/max per the docs' effort list; name 'GLM 5.3' per the docs (models.dev says 'GLM-5.3'). thinkingLevelMap { off: \"low\" }: the docs list low as the shallowest level, so `thinking: off` sends the shallowest supported effort; glm5.3 itself was never measured (issue #16 covered glm5.3-flash, whose shallowest effective value is 'minimal'), 'low' is the documented floor.",
+	},
 	"qwen3.8-flash": {
 		contextWindow: 1_048_576,
 		note:

@@ -61,7 +61,7 @@ describe("provider attribution header", () => {
 		}
 	});
 
-	test("every merged live model carries the header (matched, live-only and unknown)", async () => {
+	test("every merged live model carries the header (matched and unknown)", async () => {
 		const generated = baselineModels(SOURCE).map((m) => m.id);
 		const firstCatalogId = generated[0];
 		if (!firstCatalogId) throw new Error("generated catalog is empty");

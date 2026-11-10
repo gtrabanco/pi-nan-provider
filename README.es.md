@@ -1,7 +1,7 @@
 # @gtrabanco/𝜋-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.4.0-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-1.5.1-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 [![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://cloud.nan.builders/r/7GK06FX8)
 
 [NaN Builders](https://cloud.nan.builders/r/7GK06FX8) model provider + MCP nativo para [pi](https://github.com/earendil-works/pi). 
@@ -40,9 +40,9 @@ El proveedor utiliza un **catálogo de modelos de dos capas** para garantizar la
 | **2. Fetch en vivo de `/models`** | NaN Runtime API | Obtiene los modelos disponibles en tiempo real según el tier de tu API key. Se combina con los datos del fallback. |
 
 > [!IMPORTANT]
-> **Detección de Tier**: La lista en vivo es la autoridad. Si tu clave tiene acceso premium, esos modelos aparecerán automáticamente; de lo contrario, se filtran.
+> **Lista en vivo**: La lista en vivo es la autoridad. Desde el 2026-11-10 NaN ya no tiene modelos exclusivos por tier, así que todos los modelos del catálogo deben estar disponibles para cualquier clave; un modelo que `/models` en vivo no lista para tu clave sigue filtrándose.
 
-Los ids no-chat que devuelve `/models` en vivo (embedding, rerank, TTS, STT, imagen) **no se registran** como modelos de chat — la clasificación es el único `NON_CHAT_MODEL_IDS` exportado desde `src/fetch-models.ts` (la misma fuente que usa el generador en build-time). La fusión salta sus marcadores y los coloca en un bucket observable `nonChat`; `baselineModels` también los filtra como capa defensiva. Esto evita que el selector de chat de pi ofrezca endpoints que no pueden servir chat (las peticiones devolverían 404).
+Los ids no-chat que devuelve `/models` en vivo (embedding, rerank, TTS, STT, imagen, vídeo) **no se registran** como modelos de chat — la clasificación es el único `NON_CHAT_MODEL_IDS` exportado desde `src/fetch-models.ts` (la misma fuente que usa el generador en build-time). La fusión salta sus marcadores y los coloca en un bucket observable `nonChat`; `baselineModels` también los filtra como capa defensiva. Esto evita que el selector de chat de pi ofrezca endpoints que no pueden servir chat (las peticiones devolverían 404).
 
 El registro es síncrono a propósito: el catálogo de fallback está disponible al instante, y el runtime de Models de pi dirige el refresco en vivo (refresco de red en el arranque interactivo y periódico, solo caché en el registro), persistiendo el overlay entre ejecuciones.
 
@@ -362,8 +362,15 @@ Modelos de chat:
 | `mimo-v2.6-flash` | 1,048,576 | 131,072 | texto, imagen | ✅ |
 | `glm5.3-flash` | 1,048,576 | 131,072 | texto, imagen | ✅ |
 | `qwen3.8-flash` | 1,048,576 | 131,072 | texto, imagen | ✅ |
+| `glm5.3` | 1,048,576 | 131,072 | texto, imagen | ✅ |
+| `kimi-k3.1-pro` | 1,048,576 | 32,768 | texto, imagen | ✅ |
+| `qwen3.8-max` | 1,000,000 | 32,768 | texto, imagen | ✅ |
+| `deepseek-v4-pro` | 1,048,576 | 32,768 | texto | ✅ |
+| `hy4` | 1,048,576 | 32,768 | texto, imagen | ✅ |
 
-> Las ventanas de la tabla son las **documentadas** en [los docs de NaN](https://nan.builders/docs/models) (comprobado 2026-10-14), que son la fuente de verdad; models.dev es un espejo que un humano actualiza más tarde y puede ir por detrás. `glm5.3` (tier premium, fuera de la tabla estática) es 1,048,576 / 131,072 con entrada texto+imagen cuando una clave premium lo descubre en vivo.
+> Las ventanas de la tabla son las **documentadas** en [los docs de NaN](https://nan.builders/docs/models) (comprobado 2026-10-14), que son la fuente de verdad; models.dev es un espejo que un humano actualiza más tarde y puede ir por detrás. `glm5.3` fue solo-premium y solo-en-vivo hasta que NaN eliminó los modelos exclusivos por tier el 2026-11-10; ahora está en el catálogo estático con los valores que tenía (texto+imagen, 1,048,576 / 131,072).
+>
+> `kimi-k3.1-pro`, `qwen3.8-max`, `deepseek-v4-pro` y `hy4` son los modelos de proveedor externo (ZDR) que NaN lanzó el 2026-11-10. Los docs y el OpenAPI de NaN todavía no los listan, pero el `GET /v1/models` en vivo sí (comprobado 2026-11-10). Sus valores salen de la página de precios de NaN ("1M context"), los docs de NaN para pi (`maxTokens` 32,768 en todos los modelos de 1M de contexto) y las entradas de los proveedores originales en models.dev (modalidades; `qwen3.8-max` usa la ventana de 1,000,000 del proveedor); el coste es 0 y no se declara mapeo de `reasoning_effort`, porque no se ha medido cómo lo trata la pasarela con proveedores externos. Cada entrada lleva su nota de procedencia en `scripts/models.generated.ts`.
 >
 > `*` El límite de salida de 32,768 en `deepseek-v4-flash` es el techo de los docs oficiales de NaN para pi (https://nan.builders/docs/pi, "the same set the NaN CLI writes", issue #20, 2026-10-02); models.dev sigue listando 384,000, pero la pasarela rechaza `max_tokens` por encima de ~256k con 403.
 
@@ -377,6 +384,8 @@ Modelos de imagen no-chat (disponibles vía `models.generateImages()` /
 | :--- | :--- | :--- |
 | `flux-2-klein` | texto, imagen | Text-to-image + image-to-image |
 | `qwen-image-2.1` | texto | Text-to-image |
+
+`minimax-h3` (generación de vídeo, listado por `/models` en vivo desde el 2026-11-10) también se clasifica como no-chat: nunca se registra como modelo de chat.
 
 > [!NOTE]  
 > `mimo-v2.6-flash` está servido por NaN y desde el 2026-09-29 aparece también en models.dev (proveedor `nan`); la entrada manual que lo sostenía se conserva como fallback y su nota de procedencia sigue unida a la entrada generada.
@@ -397,6 +406,7 @@ El parámetro `reasoning_effort` de NaN controla cuánto piensa el modelo antes 
 | `qwen3.6`, `gemma4` | `none` · `minimal` · `low` · `medium` · `high` · `max` | `none`/`minimal` omiten el razonamiento por completo; otros valores limitan a 2K / 8K / 16K / 32K tokens. `thinking: "off"` envía `reasoning_effort: "none"` automáticamente vía el `thinkingLevelMap` del catálogo — los docs de NaN dicen que sin parámetro estos modelos razonan por defecto (presupuesto de 16,384 tokens), así que `off` debe ser explícito |
 | `deepseek-v4-flash` | `none` (el catálogo declara ["none"]) | `none` deshabilita el razonamiento (0 tokens de razonamiento, respuesta completa); cualquier otro valor — incluido `minimal` y omitir el parámetro — lo deja ENCENDIDO (57 / 63 / 109 tokens de razonamiento), así que el catálogo solo declara `none`. Re-sondado en vivo 2026-10-14: los docs de NaN afirman "any value (no effect)", pero gana la medición. `thinking: "off"` envía `reasoning_effort: "none"` automáticamente vía el `thinkingLevelMap` del catálogo — sin él el modelo se descontrola hasta `finish_reason: "length"` sin respuesta (issue #16) |
 | `qwen3.8-flash` | *(aceptado pero no ajustable)* | El parámetro es aceptado y nunca rechazado, pero el modelo gestiona su propia profundidad de razonamiento — nunca es un error enviar un valor que este modelo no ajusta |
+| `kimi-k3.1-pro`, `qwen3.8-max`, `deepseek-v4-pro`, `hy4` | *(sin mapeo declarado)* | Modelos de proveedor externo lanzados el 2026-11-10; no se ha medido cómo traduce la pasarela `reasoning_effort` para ellos, así que el catálogo no declara valores de effort ni `thinkingLevelMap` (`thinking: "off"` no envía ningún parámetro) |
 | `mimo-v2.6-flash` | `none` | Los docs lo llamaban "profundidad no ajustable", pero el gateway en vivo (2026-10-14) muestra que `none` da 0 tokens de razonamiento con respuesta completa mientras `low` da 22 y omitirlo 17 — así que `thinking: "off"` envía `reasoning_effort: "none"` vía el `thinkingLevelMap` del catálogo |
 
 > [!NOTE]  

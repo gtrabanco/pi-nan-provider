@@ -10,9 +10,10 @@
  *
  * Sources of truth (maintainer instruction, reaffirmed 2026-09-29):
  * - https://nan.builders/docs/models decides WHICH models exist — which ids
- *   belong in the chat catalog, which are premium/live-only, which were
- *   removed by the provider, which are not chat models at all. Every
- *   exclusion cites it.
+ *   belong in the chat catalog, which were removed by the provider, which
+ *   are not chat models at all. Every exclusion cites it. (Models NaN
+ *   launches before the docs catch up — e.g. the 2026-11-10 external
+ *   models — enter through MANUAL_ONLY_MODEL_IDS with their own provenance.)
  * - models.dev (provider "nan") supplies the numeric limits for the ids it
  *   documents; a divergence from the docs is recorded in MANUAL_OVERRIDES
  *   with a source note.
@@ -64,8 +65,7 @@ const FETCH_TIMEOUT_MS = 15_000;
 
 /**
  * Official community chat models per https://nan.builders/docs/models
- * (checked 2026-09-29; glm5.3 is premium-tier and deliberately live-only).
- * Each MUST reach the catalog — from models.dev or from a MANUAL_ONLY entry —
+ * (checked 2026-09-29). Each MUST reach the catalog — from models.dev or from a MANUAL_ONLY entry —
  * or generation fails. The docs decide this set, not models.dev: models.dev
  * dropped mimo-v2.5 together with the docs in 2026-09.
  */
@@ -101,21 +101,6 @@ const PROVIDER_REMOVED_MODEL_IDS: Record<string, string> = {
 // source of truth, `src/fetch-models.ts`, where the runtime live merge applies
 // the same classification. Here it feeds convertModel's exclusion and the
 // exclusion-note list in GENERATED_CATALOG_META.notes.
-
-/**
- * Premium/tier-gated models that models.dev documents but that are deliberately
- * kept OUT of the static fallback catalog. The static baseline is what pi
- * registers with zero network, and it must not advertise a premium model to a
- * key that cannot call it: NaN's live `/models` response is the tier
- * authority, so premium keys still receive these models through the live
- * refresh with conservative placeholder limits (UNKNOWN_MODEL_LIMITS).
- * Excluded at generation time with the recorded reason so a regeneration
- * cannot resurrect them into the baseline.
- */
-const LIVE_ONLY_MODEL_IDS: Record<string, string> = {
-	"glm5.3":
-		"premium-tier model (models.dev now documents it with 1M context / 131,072 max output; NaN docs https://nan.builders/docs/models + https://nan.builders/openapi.json, checked 2026-09-13) kept live-only so a non-premium key never sees a model it cannot call when the live /models fetch is unavailable; premium keys still get it via the /models refresh with conservative placeholder limits",
-};
 
 /**
  * LiteLLM compat confirmed against the live api.nan.builders gateway by the
@@ -251,10 +236,6 @@ function convertModel(modelId: string, m: ModelsDevModel): GeneratedModel | { sk
 	if (nonChatReason) {
 		return { skip: `non-chat: "${modelId}" excluded from the chat catalog (${nonChatReason})` };
 	}
-	const liveOnlyReason = LIVE_ONLY_MODEL_IDS[modelId];
-	if (liveOnlyReason) {
-		return { skip: `live-only: "${modelId}" kept out of the static catalog (${liveOnlyReason})` };
-	}
 	const contextWindow = m.limit?.context;
 	const maxTokens = m.limit?.output;
 	if (typeof contextWindow !== "number" || contextWindow <= 0) {
@@ -387,9 +368,6 @@ async function main(): Promise<void> {
 			),
 			...Object.entries(NON_CHAT_MODEL_IDS).map(
 				([id, reason]) => `non-chat: "${id}" excluded from the chat catalog (${reason})`,
-			),
-			...Object.entries(LIVE_ONLY_MODEL_IDS).map(
-				([id, reason]) => `live-only: "${id}" kept out of the static catalog (${reason})`,
 			),
 			...entries.flatMap((entry) => entry.notes ?? []),
 		]),

@@ -34,7 +34,6 @@ import { baselineModels, mergeLiveWithGenerated } from "../src/fetch-models.ts";
 import { sanitizeOpenAICompatPayload } from "../src/openai-compat-sanitizer.ts";
 import { createNanCompatibleProvider } from "../src/provider-factory.ts";
 import { NAN_PROVIDER } from "../src/providers.ts";
-import { NAN_GENERATED_MODELS } from "../scripts/models.generated.ts";
 
 type Json = Record<string, unknown>;
 
@@ -46,13 +45,6 @@ function modelFor(id: string, compat?: Model<"openai-completions">["compat"]): M
 	if (!model) throw new Error(`catalog model not found: ${id}`);
 	return compat ? { ...model, compat: { ...model.compat, ...compat } } : model;
 }
-
-/**
- * The generated catalog deliberately keeps glm5.3 live-only (premium tier), so
- * the placeholder path is reachable deterministically by filtering it out of
- * the generated entries.
- */
-const GENERATED_WITHOUT_GLM53 = NAN_GENERATED_MODELS.filter((entry) => entry.id !== "glm5.3");
 
 interface UsageGateway {
 	fetchImpl: typeof fetch;
@@ -143,10 +135,10 @@ describe("issue #4 — an opted-in model reports real token usage instead of zer
 		expect(final.usage?.totalTokens).toBe(49);
 	});
 
-	test("THE ISSUE (reported scenario): a glm5.3 models.json-style override also yields non-zero usage", async () => {
-		// The issue used exactly this: a live-only premium model with a user
-		// override of the streaming-usage compat flag.
-		const placeholder = mergeLiveWithGenerated(["glm5.3"], SOURCE, GENERATED_WITHOUT_GLM53).models[0]!;
+	test("THE ISSUE (reported scenario): an uncatalogued live model with a models.json-style override also yields non-zero usage", async () => {
+		// The issue used exactly this: a model outside the catalog (then the
+		// premium live-only glm5.3) with a user override of the streaming-usage compat flag.
+		const placeholder = mergeLiveWithGenerated(["brand-new-model"], SOURCE).models[0]!;
 		const model: Model<"openai-completions"> = {
 			...placeholder,
 			compat: { ...placeholder.compat, supportsUsageInStreaming: true },

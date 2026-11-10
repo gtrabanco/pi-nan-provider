@@ -20,8 +20,8 @@ function jsonFetch(body: unknown, status = 200): typeof fetch {
 
 // ---------------------------------------------------------------------------
 // Issue #15 — non-chat model IDs (kokoro/TTS, whisper/STT, rerank,
-// qwen3-embedding, flux-2-klein/image, qwen-image-2.1/image) must never
-// surface as chat models in the resolved catalog.
+// qwen3-embedding, flux-2-klein/image, qwen-image-2.1/image, minimax-h3/video)
+// must never surface as chat models in the resolved catalog.
 // ---------------------------------------------------------------------------
 
 describe("NON_CHAT_MODEL_IDS export", () => {
@@ -40,7 +40,7 @@ describe("NON_CHAT_MODEL_IDS export", () => {
 		}
 	});
 
-	test("NON_CHAT_MODEL_IDS contains exactly the six non-chat ids", () => {
+	test("NON_CHAT_MODEL_IDS contains exactly the seven non-chat ids", () => {
 		const expected = new Set([
 			"qwen3-embedding",
 			"rerank",
@@ -48,10 +48,11 @@ describe("NON_CHAT_MODEL_IDS export", () => {
 			"whisper",
 			"flux-2-klein",
 			"qwen-image-2.1",
+			"minimax-h3",
 		]);
 		const actual = new Set(Object.keys(NON_CHAT_MODEL_IDS));
 		expect(actual).toEqual(expected);
-		expect(Object.keys(NON_CHAT_MODEL_IDS).length).toBe(6);
+		expect(Object.keys(NON_CHAT_MODEL_IDS).length).toBe(7);
 	});
 });
 
@@ -76,14 +77,15 @@ describe("mergeLiveWithGenerated — non-chat ids", () => {
 			"flux-2-klein",
 			"qwen-image-2.1",
 			"minimax-h3",
+			"brand-new-model",
 		];
 		const merged = mergeLiveWithGenerated(liveIds, SOURCE);
 
 		// Chat ids that have generated data go to matched/models.
 		expect(merged.matched).toEqual(["qwen3.6"]);
 		// Non-catalogued chat ids go to unknown.
-		expect(merged.unknown).toEqual(["minimax-h3"]);
-		// nonChat gets the six non-chat ids in live order.
+		expect(merged.unknown).toEqual(["brand-new-model"]);
+		// nonChat gets the seven non-chat ids in live order.
 		expect(merged.nonChat).toEqual([
 			"kokoro",
 			"whisper",
@@ -91,15 +93,16 @@ describe("mergeLiveWithGenerated — non-chat ids", () => {
 			"qwen3-embedding",
 			"flux-2-klein",
 			"qwen-image-2.1",
+			"minimax-h3",
 		]);
 		// models: only the chat models.
 		const modelIds = merged.models.map((m) => m.id);
-		expect(modelIds).toEqual(["qwen3.6", "minimax-h3"]);
+		expect(modelIds).toEqual(["qwen3.6", "brand-new-model"]);
 	});
 
 	test("uncatalogued chat id still gets the placeholder with correct defaults", () => {
-		const merged = mergeLiveWithGenerated(["minimax-h3"], SOURCE);
-		expect(merged.unknown).toEqual(["minimax-h3"]);
+		const merged = mergeLiveWithGenerated(["brand-new-model"], SOURCE);
+		expect(merged.unknown).toEqual(["brand-new-model"]);
 		expect(merged.nonChat).toEqual([]);
 		const model = merged.models[0]!;
 		expect(model.contextWindow).toBe(UNKNOWN_MODEL_LIMITS.contextWindow); // 128_000
@@ -121,6 +124,7 @@ describe("resolveCatalog — non-chat ids", () => {
 				{ id: "flux-2-klein" },
 				{ id: "qwen-image-2.1" },
 				{ id: "minimax-h3" },
+				{ id: "brand-new-model" },
 			],
 		};
 		const catalog = await resolveCatalog(SOURCE, { fetchImpl: jsonFetch(liveResponse) });
@@ -132,9 +136,9 @@ describe("resolveCatalog — non-chat ids", () => {
 		}
 		// models contains the chat ids.
 		expect(modelIds).toContain("qwen3.6");
-		expect(modelIds).toContain("minimax-h3");
+		expect(modelIds).toContain("brand-new-model");
 
-		// nonChatIds must be the six non-chat ids.
+		// nonChatIds must be the seven non-chat ids.
 		expect(catalog.nonChatIds).toEqual([
 			"kokoro",
 			"whisper",
@@ -142,6 +146,7 @@ describe("resolveCatalog — non-chat ids", () => {
 			"qwen3-embedding",
 			"flux-2-klein",
 			"qwen-image-2.1",
+			"minimax-h3",
 		]);
 
 		// liveIds is the FULL live set, including non-chat ids (authoritative list).
