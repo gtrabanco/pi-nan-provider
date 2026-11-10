@@ -14,9 +14,11 @@
  *     #10926) yields a thinking block that PRECEDES the text block — otherwise
  *     NaN users see the model's reasoning pasted after its answer.
  *
- * The other two load-bearing contracts already have dedicated wire-level
- * tests: `stream_options.include_usage` (test/issue-7-streaming-usage-default.test.ts)
- * and `thinkingLevelMap.off` → `reasoning_effort` (test/issue-16-thinking-level-map.test.ts).
+ * The other three load-bearing contracts already have dedicated wire-level
+ * tests: `stream_options.include_usage` (test/issue-7-streaming-usage-default.test.ts),
+ * `thinkingLevelMap.off` → `reasoning_effort` (test/issue-16-thinking-level-map.test.ts),
+ * and the pi-ai 1.5.1 no-empty-tools/compat-defaults behavior for NaN
+ * (test/pi-ai-1-5-1-contract.test.ts).
  */
 
 import { describe, expect, test } from "bun:test";

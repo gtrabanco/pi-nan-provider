@@ -39,6 +39,10 @@ from 1.5.0 to 1.5.1; the peer range stays `^1.4.0` (the floor only rises on pi m
 
 ### Added (documented for NaN users; `models.json`-only, no code)
 
+- Contract tests pinning the 1.5.1 behavior for NaN (`test/pi-ai-1-5-1-contract.test.ts`):
+  no catalog model ever sends `tools: []` with tool history and all tools disabled, and no
+  catalog entry sets the new compat opt-outs — pi-ai's safe defaults govern NaN.
+
 - New OpenAI-completions compat escape hatches available per model in `~/.pi/agent/models.json`:
   `compat.requiresToolsWithToolHistory` (send `tools: []` when history has tool calls — for
   proxies that require the field), `compat.requiresNonNullAssistantContent` (send `""` instead of
