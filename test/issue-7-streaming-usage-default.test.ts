@@ -41,12 +41,6 @@ type Json = Record<string, unknown>;
 
 const SOURCE = { providerId: "nan", baseUrl: NAN_PROVIDER.baseUrl } as const;
 
-/**
- * The generated catalog keeps glm5.3 live-only (premium tier), so the
- * uncatalogued-placeholder path is reachable deterministically.
- */
-const GENERATED_WITHOUT_GLM53 = NAN_GENERATED_MODELS.filter((entry) => entry.id !== "glm5.3");
-
 /** A stock catalog model, optionally with a user-style `models.json` override. */
 function modelFor(id: string, compat?: Model<"openai-completions">["compat"]): Model<"openai-completions"> {
 	const model = baselineModels(SOURCE).find((candidate) => candidate.id === id);
@@ -123,7 +117,7 @@ describe("issue #7 — chat models opt in to streaming usage by default", () => 
 	});
 
 	test("catalog contract: the uncatalogued live-model placeholder also declares it true", () => {
-		const placeholder = mergeLiveWithGenerated(["glm5.3"], SOURCE, GENERATED_WITHOUT_GLM53).models[0]!;
+		const placeholder = mergeLiveWithGenerated(["brand-new-model"], SOURCE).models[0]!;
 		expect(placeholder.compat?.supportsUsageInStreaming).toBe(true);
 	});
 
@@ -156,7 +150,7 @@ describe("issue #7 — chat models opt in to streaming usage by default", () => 
 	});
 
 	test("an uncatalogued live chat model also reports real usage by default", async () => {
-		const placeholder = mergeLiveWithGenerated(["glm5.3"], SOURCE, GENERATED_WITHOUT_GLM53).models[0]!;
+		const placeholder = mergeLiveWithGenerated(["brand-new-model"], SOURCE).models[0]!;
 		const gateway = usageGateway();
 		const final = await runTurn(placeholder, gateway);
 

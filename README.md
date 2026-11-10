@@ -1,7 +1,7 @@
 # @gtrabanco/𝜋-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.4.0-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-1.5.1-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 [![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://cloud.nan.builders/r/7GK06FX8)
 
 [NaN Builders](https://cloud.nan.builders/r/7GK06FX8) model provider + a native MCP server for [pi](https://github.com/earendil-works/pi). 
@@ -40,9 +40,9 @@ The provider uses a **two-layer model catalog** to ensure reliability:
 | **2. Live `/models` Fetch** | NaN Runtime API | Fetches your real-time available models based on your API key's tier. Merged with fallback data. |
 
 > [!IMPORTANT]
-> **Tier Detection**: The live list is authoritative. If your key has premium access, those models will appear automatically; otherwise, they are filtered out.
+> **Live list**: The live list is authoritative. Since 2026-11-10 NaN no longer has tier-exclusive models, so every catalog model is meant to be available to every key; a model the live `/models` response does not list for your key is still filtered out.
 
-NaN's live `/models` also returns non-chat endpoint ids (embedding, rerank, TTS, STT, image). These are **not registered** as chat models — the classification is the single exported `NON_CHAT_MODEL_IDS` from `src/fetch-models.ts` (the same source used by the build-time generator). The merge skips their placeholders and places them in an observable `nonChat` bucket; `baselineModels` also filters them defensively. This prevents pi's chat picker from offering endpoints that cannot serve chat (requests would 404).
+NaN's live `/models` also returns non-chat endpoint ids (embedding, rerank, TTS, STT, image, video). These are **not registered** as chat models — the classification is the single exported `NON_CHAT_MODEL_IDS` from `src/fetch-models.ts` (the same source used by the build-time generator). The merge skips their placeholders and places them in an observable `nonChat` bucket; `baselineModels` also filters them defensively. This prevents pi's chat picker from offering endpoints that cannot serve chat (requests would 404).
 
 The registration is synchronous on purpose: the generated fallback catalog is available immediately, and pi's Models runtime drives the live refresh (network refresh at interactive startup and periodically, cache-only at registration), persisting the overlay between runs.
 
@@ -307,7 +307,7 @@ MiMo V2.5:
   [███░░░░░░░░░░░░░░░░░] 12.5% of monthly cap
   Used: 125.0M / 1.0B (875.0M remaining) · 840 requests
 
-GLM 5.3 👑:
+GLM 5.3:
   [████████░░░░░░░░░░░░] 40.0% of monthly cap
   Used: 1.2B / 3.0B (1.8B remaining) · 2,400 requests
   ↳ rolling window: 400.0M / 4h (daily granularity — /usage cannot break it down)
@@ -336,7 +336,7 @@ Qwen 3.6                     uncapped
 Gemma 4                      uncapped
 Qwen 3.8 Flash               500.0M
 GLM 5.3 Flash                2.0B
-GLM 5.3                      3.0B 👑 (rolling 400.0M/4h)
+GLM 5.3                      3.0B (rolling 400.0M/4h)
 
 💡 Set NAN_API_KEY or run `/login nan` to see real usage (GET /v1/usage).
 ```
@@ -359,9 +359,16 @@ Chat models:
 | `mimo-v2.6-flash` | 1,048,576 | 131,072 | text, image | ✅ |
 | `glm5.3-flash` | 1,048,576 | 131,072 | text, image | ✅ |
 | `qwen3.8-flash` | 1,048,576 | 131,072 | text, image | ✅ |
+| `glm5.3` | 1,048,576 | 131,072 | text, image | ✅ |
+| `kimi-k3.1-pro` | 1,048,576 | 32,768 | text, image | ✅ |
+| `qwen3.8-max` | 1,000,000 | 32,768 | text, image | ✅ |
+| `deepseek-v4-pro` | 1,048,576 | 32,768 | text | ✅ |
+| `hy4` | 1,048,576 | 32,768 | text, image | ✅ |
 
 > [!NOTE]
-> Context windows above are the **documented** windows from [the NaN docs](https://nan.builders/docs/models) (checked 2026-10-14), which are the source of truth; models.dev is a downstream mirror a human updates later and may lag. `glm5.3` (premium tier, not in the static table above) is 1,048,576 / 131,072 with text+image input when a premium key discovers it live.
+> Context windows above are the **documented** windows from [the NaN docs](https://nan.builders/docs/models) (checked 2026-10-14), which are the source of truth; models.dev is a downstream mirror a human updates later and may lag. `glm5.3` was premium-only and live-only until NaN removed tier-exclusive models on 2026-11-10; it now ships in the static catalog with the values it carried (text+image, 1,048,576 / 131,072).
+>
+> `kimi-k3.1-pro`, `qwen3.8-max`, `deepseek-v4-pro` and `hy4` are NaN's external-provider (ZDR) models launched on 2026-11-10. NaN's docs and OpenAPI do not list them yet, but the live `GET /v1/models` does (checked 2026-11-10). Their values come from NaN's pricing page ("1M context"), the NaN pi docs (`maxTokens` 32,768 for every 1M-context model) and the first-party vendor entries on models.dev (modalities; `qwen3.8-max` uses the vendor's 1,000,000 window); cost is 0 and no `reasoning_effort` mapping is declared, because how the gateway handles it for external providers is unmeasured. Each entry carries its provenance note in `scripts/models.generated.ts`.
 >
 > `*` deepseek-v4-flash max output 32,768 is the ceiling from the official NaN pi docs (https://nan.builders/docs/pi, "the same set the NaN CLI writes", issue #20, 2026-10-02); models.dev still lists 384,000 but the gateway rejects `max_tokens` above ~256k with 403.
 >
@@ -374,6 +381,8 @@ Non-chat image models (available through `models.generateImages()` /
 | :--- | :--- | :--- |
 | `flux-2-klein` | text, image | Text-to-image + image-to-image |
 | `qwen-image-2.1` | text | Text-to-image |
+
+`minimax-h3` (video generation, listed by the live `/models` since 2026-11-10) is classified as non-chat too: it is never registered as a chat model.
 
 > [!NOTE]  
 > `mimo-v2.6-flash` is served by NaN and has been listed by models.dev provider `nan` since 2026-09-29. Before that it entered the catalog through a manual-only entry; that entry is kept as a fallback (re-emitted automatically if models.dev drops the model again) and its provenance note stays attached to the generated entry.
@@ -392,6 +401,7 @@ NaN's `reasoning_effort` parameter controls how much the model thinks before ans
 | `qwen3.6`, `gemma4` | `none` · `minimal` · `low` · `medium` · `high` · `max` | `none`/`minimal` skip reasoning entirely; others cap at 2K / 8K / 16K / 32K tokens. `thinking: "off"` sends `reasoning_effort: "none"` automatically via the catalog's `thinkingLevelMap` — the NaN docs state that with no parameter these models reason by default (16,384-token budget), so off must be explicit |
 | `deepseek-v4-flash` | `none` (catalog declares ["none"]) | `none` disables reasoning (0 reasoning tokens, a full answer); every other value — including `minimal` and omitting the parameter — leaves it ON (57 / 63 / 109 reasoning tokens), so the catalog declares only `none`. Re-probed live 2026-10-14: the NaN docs claim "any value (no effect)", but the measurement wins. `thinking: "off"` sends `reasoning_effort: "none"` automatically via the catalog's `thinkingLevelMap` — without it the model runs away to `finish_reason: "length"` with no answer (issue #16) |
 | `qwen3.8-flash` | *(accepted but not adjustable)* | The parameter is accepted and never rejected, but the model manages its own reasoning depth — it is never an error to send a value this model doesn't adjust |
+| `kimi-k3.1-pro`, `qwen3.8-max`, `deepseek-v4-pro`, `hy4` | *(no mapping declared)* | External-provider models launched 2026-11-10; how the gateway translates `reasoning_effort` for them is unmeasured, so the catalog declares no effort values and no `thinkingLevelMap` (`thinking: "off"` sends no parameter) |
 | `mimo-v2.6-flash` | `none` | The docs called this "depth not adjustable", but the live gateway (2026-10-14) shows `none` gives 0 reasoning tokens with a full answer while `low` gives 22 and omitting the parameter 17 — so `thinking: "off"` sends `reasoning_effort: "none"` via the catalog's `thinkingLevelMap` |
 > [!NOTE]  
 > `maxTokens` does NOT bound the reasoning phase on NaN models. The reasoning phase runs to completion (or is cut at NaN's reasoning-only stream limit: 45,000 reasoning characters, or 420 s without visible output) regardless of `maxTokens` — measured: `max_tokens=512` on deepseek-v4-flash still consumed 13,376 completion tokens, all reasoning (26x the ceiling). This is gateway behavior confirmed by issue #16 (measured 2026-09-27).

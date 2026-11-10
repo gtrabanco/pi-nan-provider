@@ -204,8 +204,10 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
      wrong. Every divergence or exclusion is recorded with provenance.
 - **Which models exist**: https://nan.builders/docs/models is the source of
   truth (maintainer instruction, reaffirmed 2026-09-29), cross-checked against
-  the `model` param description in https://nan.builders/openapi.json. All seven
-  chat models declare 1M-token windows where the docs say so —
+  the `model` param description in https://nan.builders/openapi.json, plus
+  (since 2026-11-10) the live `GET /v1/models` for models NaN launches before
+  the docs catch up (see "2026-11-10 external models" below). The original
+  seven documented chat models declare 1M-token windows where the docs say so —
   `deepseek-v4-flash`, `glm5.3-flash`, `qwen3.8-flash` and `mimo-v2.6-flash` at
   **1,048,576**, `qwen3.6` and `gemma4` at **262,144** — and the first three
   carry a `MANUAL_OVERRIDES.contextWindow` because models.dev lagged (rounded
@@ -213,18 +215,36 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   2026-10-14).
   Official chat models (checked 2026-10-14): community `deepseek-v4-flash`,
   `mimo-v2.6-flash`, `qwen3.8-flash`, `glm5.3-flash`, `qwen3.6`, `gemma4`
-  (all text+image vision) + premium-tier `glm5.3`
-  (~753B MoE, multimodal text+image+audio+video input, 1M context, 400M
-  tokens/rolling 4h window).
-  glm5.3 stays out of the static catalog via `LIVE_ONLY_MODEL_IDS` (premium
-  tier) so a non-premium key never sees a model it cannot call when the live
-  `/models` fetch is unavailable. Premium keys receive it live with its
-  DOCUMENTED capabilities, not a blind placeholder: `LIVE_ONLY_MODEL_DATA` in
-  `src/fetch-models.ts` (1,048,576 / 131,072, text+image, `thinkingLevelMap
-  { off: "low" }`) is applied both by `mergeLiveWithGenerated` and by
-  `buildOverlayMap`, so a stored `glm5.3` entry is also corrected. The store
-  still decides which ids exist; the table only decides their capabilities
-  (issue #19's invariant is intact).
+  (all text+image vision) + `glm5.3`
+  (~753B MoE, multimodal text+image+audio+video input, 1M context).
+  **glm5.3 is a general catalog model since 2026-11-10** (NaN announced "a
+  partir de ahora ya NO habrá modelos exclusivos por tier"; the live
+  `GET /v1/models` lists it for a non-premium key, checked 2026-11-10). It was
+  premium live-only before (`LIVE_ONLY_MODEL_IDS` in the generator and
+  `LIVE_ONLY_MODEL_DATA` in `src/fetch-models.ts`); both were REMOVED in
+  package 1.5.1 as dead code once nothing was tier-gated. Its values live in
+  `MANUAL_OVERRIDES["glm5.3"]` (1,048,576 / 131,072, text+image,
+  reasoningEffortValues low/medium/high/max, `thinkingLevelMap { off: "low" }`,
+  name "GLM 5.3") over the models.dev entry (text-only, 1,000,000). The
+  overlay/merge paths now treat it like any catalogued id (issue #19's
+  invariant is intact: the store decides which ids exist, the generated
+  catalog decides their capabilities). `src/usage.ts` no longer has a `premium`
+  flag (removed in 1.5.1 at the maintainer's request); its token windows are a
+  known follow-up, NaN moved to credits.
+  **2026-11-10 external models** (ZDR, "EXTERNAL PROVIDER" on NaN's pricing
+  page): `kimi-k3.1-pro`, `qwen3.8-max`, `deepseek-v4-pro`, `hy4`. Not in
+  models.dev provider `nan`, the docs, or openapi.json, but listed by the live
+  `GET /v1/models` (checked 2026-11-10). They enter through
+  `MANUAL_ONLY_MODEL_IDS` with values in `scripts/manual-overrides.ts`
+  (`EXTERNAL_MODELS`), each with a provenance note: contextWindow from the
+  pricing page "1M context" (1,048,576 per the NaN pi docs convention;
+  `qwen3.8-max` uses the first-party 1,000,000), maxTokens 32,768 per
+  https://nan.builders/docs/pi, input from first-party vendor modalities on
+  models.dev restricted to text/image, reasoning true, cost 0 (maintainer
+  decision), `reasoningEffortValues: []` and NO `thinkingLevelMap` — how the
+  gateway handles `reasoning_effort` for external providers is unmeasured
+  (needs a permission-gated live probe). When the docs or models.dev list
+  them, re-verify the values (docs win).
   Removed by the provider: `glm5.2` (2026-09-05) and `mimo-v2.5` (checked
   2026-09-29 — zero mentions in the docs and in openapi.json, and models.dev
   dropped it too; superseded by `mimo-v2.6-flash`). models.dev may re-list a
@@ -238,7 +258,9 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   then skips the manual entry (attaching its note to the models.dev-derived
   entry) so the id is never emitted twice.
   Non-chat endpoints: qwen3-embedding, rerank, kokoro (TTS), whisper (STT),
-  flux-2-klein and qwen-image-2.1 (images) — MCP-bridge territory, not chat
+  flux-2-klein and qwen-image-2.1 (images) and `minimax-h3` (video; listed by
+  the live `/models` with owned_by "nan", models.dev output video, checked
+  2026-11-10) — MCP-bridge territory, not chat
   catalog models. The classification is now applied at RUNTIME too:
   `NON_CHAT_MODEL_IDS` is exported from `src/fetch-models.ts` (single source
   of truth: id → provenance reason), imported by `scripts/generate-models.ts`
@@ -247,7 +269,7 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   defensively by `baselineModels`. The generator excluded `qwen-image-2.1` via
   this constant before (it also sits on models.dev with `limit.output: 0`,
   excluded instead of being flagged "needs manual verification" forever); all
-  six ids are now under the same guard so they can never be emitted as chat
+  seven ids are now under the same guard so they can never be emitted as chat
   models or registered at runtime.
 - NaN can close an SSE stream **before** `finish_reason`. The catalog sets
   `supportsFinishReason: true` so pi-ai raises the retryable

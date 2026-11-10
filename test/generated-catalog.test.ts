@@ -18,25 +18,60 @@ import { GENERATED_CATALOG_META, NAN_GENERATED_MODELS } from "../scripts/models.
 const byId = new Map(NAN_GENERATED_MODELS.map((entry) => [entry.id, entry]));
 
 describe("manual overrides in the generated catalog", () => {
-	test("catalog matches the served community chat models (official model list minus premium glm5.3)", () => {
+	test("catalog matches the served NaN chat models (documented set plus the 2026-11-10 external models)", () => {
 		// Official chat models per https://nan.builders/docs/models and the model
 		// param description in https://nan.builders/openapi.json (checked
 		// 2026-09-29): deepseek-v4-flash, mimo-v2.6-flash, qwen3.8-flash,
 		// glm5.3-flash, qwen3.6, gemma4, glm5.3. mimo-v2.5 is gone from both
-		// sources (removed by NaN, replaced by mimo-v2.6-flash). glm5.3 is
-		// premium-tier and unemittable (no documented max output anywhere), so
-		// the static fallback holds the other six.
+		// sources (removed by NaN, replaced by mimo-v2.6-flash). NaN removed
+		// tier-exclusive models on 2026-11-10, so glm5.3 is a general catalog
+		// model, and the same day it launched four external-provider models
+		// the docs do not list yet (kimi-k3.1-pro, qwen3.8-max,
+		// deepseek-v4-pro, hy4).
 		expect([...byId.keys()].sort()).toEqual(
 			[
 				"deepseek-v4-flash",
+				"deepseek-v4-pro",
 				"gemma4",
+				"glm5.3",
 				"glm5.3-flash",
+				"hy4",
+				"kimi-k3.1-pro",
 				"mimo-v2.6-flash",
 				"qwen3.6",
 				"qwen3.8-flash",
+				"qwen3.8-max",
 			],
 		);
 	});
+
+	// S2 of odd/tasks/nan-external-models-2026-11.md: values come from NaN's pricing
+	// page ("1M context"), https://nan.builders/docs/pi (maxTokens 32768 for every
+	// 1M NaN model) and first-party vendor entries on models.dev; reasoning effort
+	// mapping for external providers is unmeasured, so none is declared.
+	const EXTERNAL_MODELS = [
+		{ id: "kimi-k3.1-pro", contextWindow: 1_048_576, input: ["text", "image"] },
+		{ id: "qwen3.8-max", contextWindow: 1_000_000, input: ["text", "image"] },
+		{ id: "deepseek-v4-pro", contextWindow: 1_048_576, input: ["text"] },
+		{ id: "hy4", contextWindow: 1_048_576, input: ["text", "image"] },
+	] as const;
+	for (const expected of EXTERNAL_MODELS) {
+		test(`${expected.id} ships its documented capabilities with provenance (2026-11-10)`, () => {
+			const entry = byId.get(expected.id);
+			expect(entry).toBeDefined();
+			expect(entry!.contextWindow).toBe(expected.contextWindow);
+			expect(entry!.maxTokens).toBe(32_768);
+			expect(entry!.input).toEqual([...expected.input]);
+			expect(entry!.reasoning).toBe(true);
+			expect(entry!.cost).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+			expect(entry!.reasoningEffortValues).toEqual([]);
+			expect(entry!.thinkingLevelMap).toBeUndefined();
+			expect(entry!.compat?.supportsFinishReason).toBe(true);
+			expect(entry!.compat?.supportsUsageInStreaming).toBe(true);
+			const provenance = entry!.notes?.filter((n) => n.includes("2026-11-10") && n.includes("https://")) ?? [];
+			expect(provenance.length, `${expected.id} provenance note`).toBeGreaterThan(0);
+		});
+	}
 
 	test("mimo-v2.5 stays excluded after NaN removed it from the docs", () => {
 		// Removed by the provider: zero mentions in https://nan.builders/docs/models
@@ -79,13 +114,15 @@ describe("manual overrides in the generated catalog", () => {
 				expect(entry.maxTokens, `${modelId}.maxTokens`).toBe(manual.maxTokens!);
 				expect(entry.input, `${modelId}.input`).toEqual(manual.input!);
 				expect(entry.reasoning, `${modelId}.reasoning`).toBe(manual.reasoning!);
-				// The generator prefixes the manual-only note with `manual-only:`
-				// and wraps the detail in parentheses, so we check for both the
-				// model ID and the manual note content as a substring.
+				// The generator records a `manual-only: "<id>"` line and carries the
+				// manual note either inside that line (as its detail) or as its own
+				// entry (the override note), so the provenance is never dropped.
 				expect(
-					entry.notes?.some((value) =>
-						value.includes(`manual-only: "${modelId}"`) && value.includes(manual.note),
-					),
+					entry.notes?.some((value) => value.includes(`manual-only: "${modelId}"`)),
+					`${modelId} manual-only line`,
+				).toBe(true);
+				expect(
+					entry.notes?.some((value) => value.includes(manual.note)),
 					`${modelId} note`,
 				).toBe(true);
 			} else {
@@ -138,18 +175,25 @@ describe("manual overrides in the generated catalog", () => {
 		).toBe(true);
 	});
 
-	test("glm5.3 premium model stays live-only (documented by models.dev, out of the static catalog)", () => {
-		// Served by NaN on the premium tier and now documented by models.dev
-		// (1M context / 131,072 max output, checked 2026-09-13), but deliberately
-		// kept out of the static fallback so a non-premium key never sees it when
-		// the live /models fetch is unavailable. Premium keys still get it live
-		// via the /models refresh (conservative placeholder limits).
-		expect(byId.get("glm5.3")).toBeUndefined();
+	test("glm5.3 is a general catalog model with its documented capabilities (no tier gating since 2026-11-10)", () => {
+		// NaN announced on 2026-11-10 that there are no tier-exclusive models any
+		// more, so glm5.3 left the premium live-only path and ships in the static
+		// catalog with the values it carried there (NaN docs, checked 2026-10-14):
+		// models.dev lists it text-only at 1,000,000 context, so the override pins
+		// the docs values.
+		const entry = byId.get("glm5.3");
+		expect(entry).toBeDefined();
+		expect(entry!.name).toBe("GLM 5.3");
+		expect(entry!.contextWindow).toBe(1_048_576);
+		expect(entry!.maxTokens).toBe(131_072);
+		expect(entry!.input).toEqual(["text", "image"]);
+		expect(entry!.reasoning).toBe(true);
+		expect(entry!.reasoningEffortValues).toEqual(["low", "medium", "high", "max"]);
+		expect(entry!.thinkingLevelMap).toEqual({ off: "low" });
 		expect(
-			GENERATED_CATALOG_META.notes.some(
-				(note) => note.includes("glm5.3") && note.includes("premium-tier") && note.includes("live-only"),
-			),
-		).toBe(true);
+			GENERATED_CATALOG_META.notes.some((note) => note.startsWith("live-only:")),
+			"no live-only exclusion is recorded any more",
+		).toBe(false);
 	});
 
 	test("glm5.3-flash context window follows the docs at 1M (1,048,576 tokens)", () => {

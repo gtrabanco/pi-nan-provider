@@ -225,9 +225,11 @@ export async function createNanCompatibleProvider(
 
 	// Last successful live /models result, shared between fetchModels (writes)
 	// and filterModels (reads). When set it is authoritative for what your key
-	// can use — tier detection: NaN lists exactly the models your membership
-	// can call, so models absent from the live list are filtered out of
-	// `available` (e.g. premium-tier models you are not subscribed to).
+	// can use: NaN lists exactly the models your key can call, so models
+	// absent from the live list are filtered out of `available` (e.g. a
+	// catalogued model NaN has retired or not yet enabled for your key).
+	// NaN removed tier-exclusive models on 2026-11-10 (credits system); the
+	// filter stays as the generic availability guard.
 	let liveIds: Set<string> | undefined;
 
 	const imageModels = baselineImageModels(source);

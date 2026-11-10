@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
 	MODEL_QUOTAS,
+	buildStaticMessage,
 	buildUsageMessage,
 	currentMonthWindow,
 	formatUsageError,
@@ -160,15 +161,27 @@ describe("/nan-usage command", () => {
 		const quota = MODEL_QUOTAS.find((q) => q.model === "mimo-v2.6-flash");
 		expect(quota).toBeDefined();
 		expect(quota!.monthlyCap).toBe(1_000_000_000);
-		expect(quota!.premium).toBe(false);
 	});
 
-	test("glm5.3 is marked as premium with rolling window", () => {
+	test("no model is marked premium: NaN removed tier-exclusive models on 2026-11-10", () => {
+		// NaN's credits system (2026-11-10) makes every catalog model available to
+		// every key, so /nan-usage must not flag glm5.3 (or any model) as premium.
+		// glm5.3 keeps its rolling window: the token windows are a separate follow-up.
 		const glm53 = MODEL_QUOTAS.find((q) => q.model === "glm5.3");
 		expect(glm53).toBeDefined();
-		expect(glm53!.premium).toBe(true);
 		expect(glm53!.rollingWindowCap).toBe(400_000_000);
 		expect(glm53!.rollingWindowHours).toBe(4);
+		expect(MODEL_QUOTAS.some((q) => "premium" in q)).toBe(false);
+
+		const staticMessage = buildStaticMessage();
+		expect(staticMessage).not.toContain("👑");
+		expect(staticMessage).toMatch(/GLM 5\.3 {2,}3\.0B \(rolling 400\.0M\/4h\)/);
+
+		const report = usageReportFixture();
+		report.totals!.by_model.push({ model: "glm5.3", prompt_tokens: 0, completion_tokens: 0, total_tokens: 1_000_000, api_requests: 2 });
+		const usageMessage = buildUsageMessage(report);
+		expect(usageMessage).not.toContain("👑");
+		expect(usageMessage).toContain("GLM 5.3:");
 	});
 
 	test("uncapped models have monthlyCap 0", () => {

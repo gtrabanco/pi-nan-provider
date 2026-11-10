@@ -218,12 +218,12 @@ describe("issue #19 — stale catalog overlay (chat models)", () => {
 
 describe("issue #19 — live-only / uncatalogued stored ids pass through", () => {
 	test(
-		"a stored premium glm5.3 gets the documented capabilities, not the stale store values",
+		"a stored glm5.3 entry written by an older version gets the catalog capabilities, not the stale store values",
 		async () => {
 			const provider = await createNanCompatibleProvider(NAN_PROVIDER);
 
 			const liveOnlyModel: Model<"openai-completions"> = {
-				id: "glm5.3", // premium tier — out of the static baseline
+				id: "glm5.3", // stale placeholder shape an older version persisted
 				name: "GLM 5.3",
 				api: "openai-completions",
 				provider: "nan",
@@ -251,9 +251,9 @@ describe("issue #19 — live-only / uncatalogued stored ids pass through", () =>
 			const models = provider.getModels() as Model<"openai-completions">[];
 			const glm53 = models.find((m) => m.id === "glm5.3");
 			expect(glm53).toBeDefined();
-			// The store decides which ids exist (issue #19); the live-only
-			// documented capability data decides their values, so a stale
-			// placeholder entry is corrected instead of passing through.
+			// The store decides which ids exist (issue #19); the generated
+			// catalog decides their values, so a stale placeholder entry is
+			// corrected instead of passing through.
 			expect(glm53!.contextWindow).toBe(1_048_576);
 			expect(glm53!.maxTokens).toBe(131_072);
 			expect(glm53!.input).toEqual(["text", "image"]);

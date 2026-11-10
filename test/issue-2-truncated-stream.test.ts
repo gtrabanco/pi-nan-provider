@@ -31,19 +31,11 @@
 
 import { describe, expect, test } from "bun:test";
 import { isRetryableAssistantError, normalizeContext } from "@earendil-works/pi-ai";
-import { NAN_GENERATED_MODELS } from "../scripts/models.generated.ts";
 import { baselineModels, mergeLiveWithGenerated } from "../src/fetch-models.ts";
 import { createNanCompatibleProvider } from "../src/provider-factory.ts";
 import { NAN_PROVIDER } from "../src/providers.ts";
 
 const SOURCE = { providerId: "nan", baseUrl: NAN_PROVIDER.baseUrl } as const;
-
-/**
- * live-only premium models (glm5.3) are deliberately absent from the generated
- * catalog, so this always resolves to the conservative placeholder path even
- * if a future catalog refresh changes the generated set.
- */
-const GENERATED_WITHOUT_GLM53 = NAN_GENERATED_MODELS.filter((entry) => entry.id !== "glm5.3");
 
 /**
  * A text/event-stream response that emits an assistant delta and then closes
@@ -107,7 +99,7 @@ describe("issue #2 — a truncated NaN stream is a retryable error, never a sile
 	});
 
 	test("end-to-end (uncatalogued placeholder model): the placeholder also errors + retries", async () => {
-		const placeholder = mergeLiveWithGenerated(["glm5.3"], SOURCE, GENERATED_WITHOUT_GLM53).models[0];
+		const placeholder = mergeLiveWithGenerated(["brand-new-model"], SOURCE).models[0];
 		expect(placeholder).toBeDefined();
 		assertRetryableTruncation(await runTruncatedStream(placeholder!));
 	});
@@ -120,8 +112,8 @@ describe("issue #2 — a truncated NaN stream is a retryable error, never a sile
 		}
 	});
 
-	test("catalog contract: the live-only placeholder declares supportsFinishReason true", () => {
-		const placeholder = mergeLiveWithGenerated(["glm5.3"], SOURCE, GENERATED_WITHOUT_GLM53).models[0]!;
+	test("catalog contract: the uncatalogued placeholder declares supportsFinishReason true", () => {
+		const placeholder = mergeLiveWithGenerated(["brand-new-model"], SOURCE).models[0]!;
 		expect(placeholder.compat?.supportsFinishReason).toBe(true);
 	});
 });
@@ -133,8 +125,8 @@ describe("issue #2 — the streaming-usage declaration matches the sanitizer", (
 		}
 	});
 
-	test("catalog contract: the live-only placeholder declares supportsUsageInStreaming true", () => {
-		const placeholder = mergeLiveWithGenerated(["glm5.3"], SOURCE, GENERATED_WITHOUT_GLM53).models[0]!;
+	test("catalog contract: the uncatalogued placeholder declares supportsUsageInStreaming true", () => {
+		const placeholder = mergeLiveWithGenerated(["brand-new-model"], SOURCE).models[0]!;
 		expect(placeholder.compat?.supportsUsageInStreaming).toBe(true);
 	});
 
