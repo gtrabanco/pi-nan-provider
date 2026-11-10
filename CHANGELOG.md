@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] - 2026-11-10
+
+Bugfix release: stale persisted catalogs from pre-#15 package versions no longer register
+NaN's non-chat endpoints as chat models. Verified against pi-ai 1.5.1 / pi 1.5.x.
+
+### Fixed
+
+- **Non-chat ids dropped from stale stores at read time (issue #32).** A
+  `models-store.json` written by a package version older than #15 persists `kokoro`,
+  `whisper`, `rerank`, `qwen3-embedding`, `flux-2-klein`, `qwen-image-2.1` and
+  `minimax-h3` as chat entries; pi-ai's cache-only restore surfaces them verbatim and
+  #15's live-merge filter never runs, so they registered as chat models and a
+  `pi update --models` refresh did not clear them. The #19 read-time overlay
+  (`withStaleCatalogOverlay`) now drops chat-type entries whose id is in
+  `NON_CHAT_MODEL_IDS` on both `getModels()` and `getAllModels()`. Image models are
+  untouched: `flux-2-klein` / `qwen-image-2.1` survive as `type: "image"` entries.
+  Healthy paths are unaffected — the baseline catalog and the live merge already
+  exclude non-chat ids, so the filter only acts on stale-store restores.
+
 ## [1.5.1] - 2026-11-10
 
 Catalog update for the models NaN launched on 2026-11-10 and its removal of tier-exclusive

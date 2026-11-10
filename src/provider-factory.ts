@@ -50,6 +50,7 @@ import {
 	applyOverlay,
 	type OverlayEntry,
 	NAN_GENERATED_MODELS,
+	NON_CHAT_MODEL_IDS,
 } from "./fetch-models.ts";
 import { resolveOpenAICompletionsApi } from "./pi-ai-loader.ts";
 import { sanitizeOpenAICompatPayload } from "./openai-compat-sanitizer.ts";
@@ -181,16 +182,31 @@ function withStaleCatalogOverlay(
 	// read without rebuilding the catalog.
 	const policy = <T extends { headers?: Record<string, string> }>(m: T): T =>
 		providerAttributionEnabled() ? m : stripProviderAttribution(m);
+	// Issue #32: a pre-#15 models-store.json persists non-chat endpoint ids
+	// (kokoro, whisper, rerank, …) as CHAT entries. The #19 overlay corrects
+	// capabilities but cannot drop ids, so those entries surfaced as chat models
+	// and a catalog refresh did not clear them. Drop them on the read paths,
+	// keyed on the runtime source of truth (NON_CHAT_MODEL_IDS), but ONLY for
+	// chat-type entries: flux-2-klein / qwen-image-2.1 are legitimate baseline
+	// IMAGE models (type: "image") and must survive. Healthy paths are already
+	// clean (baselineModels and mergeLiveWithGenerated exclude non-chat ids),
+	// so this filter is a no-op outside the stale-restore scenario.
+	const isStoredNonChatChatEntry = <T extends { id: string; type?: string }>(m: T): boolean =>
+		m.type !== "image" && NON_CHAT_MODEL_IDS[m.id] !== undefined;
 	return {
 		...provider,
 		getModels: () => {
 			const models = provider.getModels();
-			return models.map((m) => policy(applyOverlay(m, overlayMap))) as typeof models;
+			return models
+				.filter((m) => !isStoredNonChatChatEntry(m))
+				.map((m) => policy(applyOverlay(m, overlayMap))) as typeof models;
 		},
 		getAllModels: () => {
 			const all = provider.getAllModels?.();
 			if (!all) return [];
-			return all.map((m) => policy(applyOverlay(m, overlayMap)));
+			return all
+				.filter((m) => !isStoredNonChatChatEntry(m))
+				.map((m) => policy(applyOverlay(m, overlayMap)));
 		},
 	};
 }
