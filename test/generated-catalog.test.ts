@@ -213,7 +213,14 @@ describe("manual overrides in the generated catalog", () => {
 			expect(entry, `generated catalog is missing overridden model "${modelId}"`).toBeDefined();
 			const { note, ...fields } = override;
 			for (const [field, value] of Object.entries(fields)) {
-				expect((entry as unknown as Record<string, unknown>)[field], `${modelId}.${field}`).toEqual(value);
+				if (field === "maxTokensField") {
+					// compat-scoped field (issue #34): ManualModelOverride.maxTokensField
+					// is applied to the generated entry's compat by the generator's
+					// buildCompat, not to the entry itself.
+					expect(entry!.compat?.maxTokensField, `${modelId}.compat.maxTokensField`).toEqual(override.maxTokensField);
+				} else {
+					expect((entry as unknown as Record<string, unknown>)[field], `${modelId}.${field}`).toEqual(value);
+				}
 			}
 			expect(entry!.notes?.some((value) => value === note), `${modelId} note`).toBe(true);
 		}

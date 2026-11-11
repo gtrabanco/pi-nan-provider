@@ -44,6 +44,18 @@ export interface ManualModelOverride {
 	 * supplies the effort value that NaN understands (e.g. "none" or "minimal").
 	 */
 	thinkingLevelMap?: Partial<Record<string, string | null>>;
+	/**
+	 * Compat max-tokens request field override, applied over NAN_COMPAT.
+	 * The default for every NaN model is the classic `max_tokens` field
+	 * (LiteLLM-confirmed); a model where `max_tokens` does not bound the
+	 * reasoning phase sends `max_completion_tokens` instead. The strict-schema
+	 * sanitizer renames `max_completion_tokens` back to `max_tokens` by default
+	 * (NaN's published OpenAPI schema only documents `max_tokens`), so a model
+	 * carrying `"max_completion_tokens"` here is also exempted from that rename
+	 * at request time (SanitizerOptions.preserveMaxCompletionTokens, wired from
+	 * the model's effective compat in src/provider-factory.ts).
+	 */
+	maxTokensField?: "max_tokens" | "max_completion_tokens";
 	/** Required provenance note; emitted verbatim onto the generated entry. */
 	note: string;
 }
@@ -243,8 +255,10 @@ export const MANUAL_OVERRIDES: Record<string, ManualModelOverride> = {
 	},
 	"qwen3.8-flash": {
 		contextWindow: 1_048_576,
+		maxTokensField: "max_completion_tokens",
 		note:
-			"contextWindow 1,048,576: NaN docs state '1M token context (1,048,576 tokens)' and 'Max answer 131K tokens' (https://nan.builders/docs/models, checked 2026-10-14) — models.dev still lists 262,144. The earlier override was withdrawn 2026-09-07 when the docs read '262K token context, the model's native window'; the docs now state 1M and they are the source of truth (maintainer instruction: docs win over models.dev, which a user updates later). maxTokens stays 131,072, which models.dev already matches and the docs confirm as the 131K max answer.",
+			"contextWindow 1,048,576: NaN docs state '1M token context (1,048,576 tokens)' and 'Max answer 131K tokens' (https://nan.builders/docs/models, checked 2026-10-14) — models.dev still lists 262,144. The earlier override was withdrawn 2026-09-07 when the docs read '262K token context, the model's native window'; the docs now state 1M and they are the source of truth (maintainer instruction: docs win over models.dev, which a user updates later). maxTokens stays 131,072, which models.dev already matches and the docs confirm as the 131K max answer. " +
+			"maxTokensField 'max_completion_tokens' (issue #34, NaN maintainer confirmation received 2026-11-11, quoted verbatim in the issue): on this model max_tokens does NOT bound the reasoning phase, the excess bills against the quota (it explained the 796M tokens against the 500M cap in the 2026-09-27 /v1/usage survey), and max_completion_tokens IS respected as the interim bound. The published OpenAPI schema still documents only max_tokens, so the strict-schema sanitizer exempts this model from its max_completion_tokens→max_tokens rename at request time (SanitizerOptions.preserveMaxCompletionTokens, wired from compat.maxTokensField in src/provider-factory.ts). REVERT: once NaN ships their prepared gateway fix, remove this override — test/issue-34-max-completion-tokens.test.ts fails on purpose until it is removed; accepting max_completion_tokens on the other flash models is unverified live (permission-gated probe needed), so the scope stays this one model.",
 	},
 	"deepseek-v4-flash": {
 		input: ["text", "image"],
