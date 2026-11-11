@@ -64,6 +64,17 @@ const SOURCE_PROVIDER_ID = "nan";
 const FETCH_TIMEOUT_MS = 15_000;
 
 /**
+ * Per-entry compat: the LiteLLM-confirmed NAN_COMPAT shared by every NaN
+ * model, with any per-model MANUAL_OVERRIDES.maxTokensField applied. The
+ * strict-schema sanitizer reads `compat.maxTokensField` at request time to
+ * decide whether `max_completion_tokens` survives to the wire (issue #34),
+ * so the generated entry is the single place that value can come from.
+ */
+function buildCompat(override: ManualModelOverride | undefined): typeof NAN_COMPAT {
+	return override?.maxTokensField ? { ...NAN_COMPAT, maxTokensField: override.maxTokensField } : { ...NAN_COMPAT };
+}
+
+/**
  * Official community chat models per https://nan.builders/docs/models
  * (checked 2026-09-29). Each MUST reach the catalog — from models.dev or from a MANUAL_ONLY entry —
  * or generation fails. The docs decide this set, not models.dev: models.dev
@@ -131,7 +142,12 @@ const NAN_COMPAT = {
 	// silently synthesizes stop/toolUse and the turn stalls mid-answer
 	// (observed 2026-09-13 on glm5.3-flash; issue #2).
 	supportsFinishReason: true,
-	maxTokensField: "max_tokens" as const,
+	// The request field is the classic `max_tokens` for every model by default.
+	// Typed as the `"max_tokens" | "max_completion_tokens"` union so a per-model
+	// MANUAL_OVERRIDES entry (issue #34: qwen3.8-flash sends
+	// `max_completion_tokens`) can override it without widening the value away
+	// from the confirmed string.
+	maxTokensField: "max_tokens" as "max_tokens" | "max_completion_tokens",
 };
 
 const NAN_COMPAT_NOTE =
@@ -216,7 +232,7 @@ function buildManualOnlyModelEntry(
 			maxTokens: override?.maxTokens ?? 131_072,
 			reasoningEffortValues,
 			...(override?.thinkingLevelMap ? { thinkingLevelMap: { ...override.thinkingLevelMap } } : {}),
-			compat: { ...NAN_COMPAT },
+			compat: buildCompat(override),
 			notes: [
 				NAN_COMPAT_NOTE,
 				`manual-only: "${modelId}" not yet on models.dev provider nan (${detail}).`,
@@ -276,7 +292,7 @@ function convertModel(modelId: string, m: ModelsDevModel): GeneratedModel | { sk
 			maxTokens: override?.maxTokens ?? maxTokens,
 			reasoningEffortValues,
 			...(override?.thinkingLevelMap ? { thinkingLevelMap: { ...override.thinkingLevelMap } } : {}),
-			compat: { ...NAN_COMPAT },
+			compat: buildCompat(override),
 			notes: [
 				NAN_COMPAT_NOTE,
 				...(override ? [override.note] : []),

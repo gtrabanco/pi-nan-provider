@@ -116,6 +116,19 @@ function modelSupportsUsageInStreaming(model: unknown): boolean {
 	return isObject(compat) && compat.supportsUsageInStreaming === true;
 }
 
+/**
+ * Whether the model's effective compat sends the `max_completion_tokens`
+ * request field instead of the classic `max_tokens` (issue #34). The model
+ * object here is pi-ai's post-registry view — baseline catalog, live-merge
+ * refresh, `models.json` override and the #19 stale-store overlay all flow
+ * through `compat`, so this reads the value the user actually runs with.
+ */
+function modelSendsMaxCompletionTokens(model: unknown): boolean {
+	if (!isObject(model)) return false;
+	const compat = model.compat;
+	return isObject(compat) && compat.maxTokensField === "max_completion_tokens";
+}
+
 export function wrapApiForStrictSanitization(api: ProviderStreams): ProviderStreams {
 	const withSanitizer = <TOptions extends object | undefined>(options: TOptions): TOptions => {
 		const userOnPayload = isObject(options) ? (options.onPayload as unknown) : undefined;
@@ -124,6 +137,7 @@ export function wrapApiForStrictSanitization(api: ProviderStreams): ProviderStre
 			onPayload: async (payload: unknown, model: unknown) => {
 				const sanitized = sanitizeOpenAICompatPayload(payload, {
 					preserveStreamOptions: modelSupportsUsageInStreaming(model),
+					preserveMaxCompletionTokens: modelSendsMaxCompletionTokens(model),
 				});
 				if (typeof userOnPayload === "function") {
 					const userResult = await (userOnPayload as (p: unknown, m: unknown) => unknown)(sanitized, model);

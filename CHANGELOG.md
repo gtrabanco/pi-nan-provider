@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.3] - 2026-11-11
+
+Bugfix release: `qwen3.8-flash` requests are bounded by `max_completion_tokens` so the
+reasoning phase stops billing the quota unchecked. Verified against pi-ai 1.5.1 / pi 1.5.x.
+
+### Fixed
+
+- **`qwen3.8-flash` sends `max_completion_tokens` instead of `max_tokens`
+  (issue #34).** NaN confirmed maintainer-side (2026-11-11, quoted in the
+  issue) that on this model `max_tokens` does not bound the reasoning phase,
+  the excess bills against the quota (explaining the 796M tokens against the
+  500M cap in the 2026-09-27 `/v1/usage` survey), and
+  `max_completion_tokens` IS respected as the interim bound until their
+  prepared gateway fix ships. `ManualModelOverride` gains a `maxTokensField`
+  override, applied per entry by the generator; the strict-schema sanitizer
+  keeps its `max_completion_tokens → max_tokens` rename as the default (NaN's
+  published OpenAPI schema still only documents `max_tokens`) but exempts
+  models whose effective `compat.maxTokensField` is
+  `max_completion_tokens`, so the field survives to the wire through the
+  baseline catalog, the live merge, `models.json` overrides and the #19
+  stale-store overlay alike. Scope is `qwen3.8-flash` only: accepting the
+  field on the other flash models is unverified live (permission-gated probe
+  needed before extending). The #21 reasoning-only-stream guard already
+  covers the caveat NaN attached to their answer, so no change was needed
+  there. The catalog override carries a provenance note and a revert plan:
+  once NaN ships their fix, remove it —
+  `test/issue-34-max-completion-tokens.test.ts` pins the override and fails
+  on purpose until it is removed.
+
 ## [1.5.2] - 2026-11-10
 
 Bugfix release: stale persisted catalogs from pre-#15 package versions no longer register
