@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.4] - 2026-11-11
+
+Feature release: cache-anomaly evidence capture and the deterministic `/nan-debug`
+collector. Patch version because the verified pi baseline is unchanged (pi-ai 1.5.1 /
+pi 1.5.x); no provider API surface changed.
+
+### Added
+
+- **`cf-ray` capture on the #17 cache signature (issue #35).** When two streams
+  for the same model return the same gateway `id` + `created`, the provider
+  appends one record to `<agentDir>/nan-cache-anomalies.jsonl` with the model,
+  both `cf-ray` values, ISO timestamps and a SHA-256 of the request payload.
+  Headers come from pi-ai's `onResponse`; the pair comes from raw
+  `onProviderStreamEvent` chunks because pi only persists `id`. Local-only: no
+  prompt/response content, no credentials, no paths, no upload; a write failure
+  never breaks a stream.
+- **`/nan-debug [topic] [--window N] [--out file] [--emit]`.** Deterministic,
+  no-LLM collector that reads session JSONL plus the anomaly capture and writes
+  a redacted report (`README.md`, `anonymized_usage.jsonl`, `turns.jsonl`,
+  `anomalies.jsonl`, `metadata.json`), prints a preview, and writes the
+  shareable zip only with `--emit`. `--window` additionally fetches
+  `GET /v1/usage` for the same period (permission-gated by the explicit flag).
+  Session/worktree labels are MD5-truncated to 12 chars, `errorMessage` is
+  reduced to a fixed class, and identical inputs produce byte-identical zip
+  bytes.
+
 ## [1.5.3] - 2026-11-11
 
 Bugfix release: `qwen3.8-flash` requests are bounded by `max_completion_tokens` so the

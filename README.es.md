@@ -350,6 +350,46 @@ Los errores siguen siendo accionables: `401` → ejecuta `/login nan` o corrige 
 
 ---
 
+---
+
+## 🧾 Evidencia de anomalías de caché: `/nan-debug`
+
+La caché de respuestas del gateway de NaN puede devolver el mismo `id` y
+`created` en peticiones seguidas (la firma del issue #17). NaN pidió el `model`
+y el `cf-ray` de un par de llamadas si vuelve a pasar; los transcripts de pi no
+guardan cabeceras de respuesta, así que el proveedor las captura.
+
+Cuando dos streams del mismo modelo devuelven el mismo `id` + `created`, se
+añade una línea JSON a `<agentDir>/nan-cache-anomalies.jsonl` — `model`, el par
+`id`/`created`, los dos `cf-ray`, timestamps ISO y un SHA-256 del payload de la
+petición. Es **solo local**: ni contenido de prompt/respuesta, ni credenciales,
+ni rutas, ni subida remota. Un fallo de escritura nunca rompe un stream.
+
+`/nan-debug` convierte ese fichero y tus transcripts en un paquete de evidencia
+redactado y reproducible para NaN:
+
+```text
+/nan-debug                          # últimos 7 días, escribe <agentDir>/nan-debug-report/
+/nan-debug cache --window 2         # etiqueta de tema + ventana de 2 días
+/nan-debug --window 2 --emit        # además escribe <agentDir>/nan-debug-report.zip
+/nan-debug cache --out ~/evidence --emit
+```
+
+- `--window N` (1–90 días) consulta además `GET /v1/usage` para el mismo periodo
+  con tu clave guardada y escribe `usage_window.json`; sin el flag no se hace
+  ninguna petición. Esa llamada en vivo consume el límite de peticiones.
+- El zip se escribe **solo** con `--emit`; la ejecución por defecto escribe el
+  informe local e imprime un resumen.
+- El informe contiene `README.md`, `anonymized_usage.jsonl` (totales por
+  fecha/sesión/modelo, conteo de `stopReason`, tasa de acierto de caché),
+  `turns.jsonl` (uso por turno, `stopReason`, clase de error, `responseId`),
+  `anomalies.jsonl` (par de `cf-ray`) y `metadata.json` (versiones de paquete,
+  pi-ai y pi; procedencia del catálogo).
+- Las etiquetas de sesión y worktree son MD5 truncado a 12 caracteres;
+  `errorMessage` se reduce a `overflow | rate_limited | invalid_request |
+  transport | other`; el contenido de prompt/respuesta y las credenciales nunca
+  se recogen. Entradas idénticas producen bytes de zip idénticos.
+
 ## 📊 Modelos
 
 Catálogo base (verificado contra [docs de NaN](https://nan.builders/docs/models) y [OpenAPI](https://nan.builders/openapi.json)).

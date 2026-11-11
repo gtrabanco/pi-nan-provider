@@ -490,3 +490,27 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   the network phase already persists correct merged data. Option (a) of the
   reporter (version-stamping persisted entries) is NOT implementable
   provider-side: the store write path belongs to pi-ai.
+
+- **Cache-anomaly evidence + `/nan-debug` (issue #35, verified 2026-11-11 on
+  pi-ai 1.5.1):** pi-ai's `StreamOptions.onResponse(response, model)` is the
+  only response-header surface (`ProviderResponse = { status, headers }`,
+  called by openai-completions right after the HTTP response). The gateway
+  `id`/`created` pair comes from raw `onProviderStreamEvent` chunks: pi-ai copies
+  only `chunk.id` into `AssistantMessage.responseId`, and `created` is never
+  persisted. `src/cache-anomaly.ts` wraps the provider api outermost
+  (`withCacheAnomalyCapture`), compares each completed stream against the
+  previous one **per model**, and on the #17 signature (same `id` + `created`)
+  appends one record to `<agentDir>/nan-cache-anomalies.jsonl`. Bursts record
+  the first pair once; a differing signature resets the baseline. The record is
+  local-only (model, id/created, both `cf-ray`, ISO timestamps, payload
+  SHA-256); no content, credentials or paths. `--window`'s usage fetch is the
+  only network path in `/nan-debug` and stays behind the explicit flag.
+  `src/debug-report.ts` reads `<agentDir>/sessions/**/*.jsonl` (filename date
+  prefix, else mtime), extracts only assistant `provider: "nan"` turns, and
+  renders the 2026-11-10 report shape plus `turns.jsonl`. The zip is built by
+  `src/zip.ts` (store method, sorted entries, fixed 1980-01-01 timestamps)
+  because `Bun.Archive` is Bun-only and pi also runs on Node. Session/worktree
+  labels are MD5[:12]; `errorMessage` maps to
+  `overflow|rate_limited|invalid_request|transport|other`.
+  Regression tests: `test/issue-35-cache-anomaly-capture.test.ts`,
+  `test/issue-35-debug-report.test.ts`, `test/issue-35-nan-debug-command.test.ts`.

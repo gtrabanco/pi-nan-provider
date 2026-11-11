@@ -345,6 +345,46 @@ Failures stay actionable: `401` → run `/login nan` or fix `NAN_API_KEY`, `404`
 
 ---
 
+---
+
+## 🧾 Cache anomaly evidence: `/nan-debug`
+
+NaN's gateway response cache can replay the same completion `id` and `created`
+timestamp for back-to-back requests (the issue #17 signature). NaN asked for the
+`model` and the `cf-ray` of a couple of calls when it recurs; pi transcripts do
+not keep response headers, so the provider captures them itself.
+
+When two streams for the same model return the same `id` + `created`, one JSON
+line is appended to `<agentDir>/nan-cache-anomalies.jsonl` —
+`model`, the `id`/`created` pair, both `cf-ray` values, ISO timestamps and a
+SHA-256 of the request payload. It is **local-only**: no prompt or response
+content, no credentials, no paths, no upload. A write failure never breaks a
+stream.
+
+`/nan-debug` turns that file plus your session transcripts into a redacted,
+reproducible evidence package for NaN:
+
+```text
+/nan-debug                          # last 7 days, writes <agentDir>/nan-debug-report/
+/nan-debug cache --window 2         # topic label + a 2-day window
+/nan-debug --window 2 --emit        # also writes <agentDir>/nan-debug-report.zip
+/nan-debug cache --out ~/evidence --emit
+```
+
+- `--window N` (1–90 days) also fetches `GET /v1/usage` for the same period with
+  your stored key and writes `usage_window.json`; without the flag nothing is
+  fetched. That live call counts against your quota's request rate.
+- The zip is written **only** with `--emit`; the default run writes the local
+  report and prints a preview.
+- The report contains `README.md`, `anonymized_usage.jsonl` (per date/session/
+  model totals, stop-reason counts, cache-hit rate), `turns.jsonl` (per-turn
+  usage, stop reason, error class, response id), `anomalies.jsonl` (`cf-ray`
+  pair) and `metadata.json` (package/pi-ai/pi versions, catalog provenance).
+- Session and worktree labels are MD5-truncated to 12 chars; `errorMessage` is
+  reduced to `overflow | rate_limited | invalid_request | transport | other`;
+  prompt/response content and credentials are never collected. Identical inputs
+  produce byte-identical zip bytes.
+
 ## 📊 Models
 
 Baseline catalog (verified against [NaN docs](https://nan.builders/docs/models) and [OpenAPI](https://nan.builders/openapi.json)).
