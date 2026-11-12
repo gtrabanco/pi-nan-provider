@@ -1,12 +1,42 @@
 # @gtrabanco/𝜋-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.5.1-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-1.5.4-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 [![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://cloud.nan.builders/r/7GK06FX8)
 
 [NaN Builders](https://cloud.nan.builders/r/7GK06FX8) model provider + a native MCP server for [pi](https://github.com/earendil-works/pi). 
 
 Registers the `nan` provider via `pi.registerProvider()` using NaN's OpenAI-compatible API (`https://api.nan.builders/v1`), and registers the community media MCP server via pi's native `pi.registerMcpServer()`.
+
+> [!NOTE]
+> **Requirements:** pi **≥ 1.4.0** (peer range `^1.4.0`). The package is verified against **pi 1.5.1 / pi-ai 1.5.1**; the peer floor only rises on pi minor realigns.
+
+## ✨ Features
+
+| Area | What you get |
+| :--- | :--- |
+| **Two-layer model catalog** | Build-time generated fallback (pi always starts, even offline) merged with the live `GET /v1/models` list; `filterModels` then hides whatever your key cannot call. |
+| **Read-time catalog overlay** | Capability data is re-applied from the generated catalog on every `getModels()` / `getAllModels()` read, so a `models-store.json` written by an older package version can neither shadow it ([#19](https://github.com/gtrabanco/pi-nan-provider/issues/19)) nor re-register non-chat ids as chat models ([#32](https://github.com/gtrabanco/pi-nan-provider/issues/32)). The store decides *which* ids exist; the generated catalog decides *what they can do*. |
+| **Non-chat endpoint guard** | `NON_CHAT_MODEL_IDS` keeps embedding / rerank / TTS / STT / image / video ids out of pi's chat picker. |
+| **Strict payload sanitizer** | Every `/chat/completions` body is rewritten to match [NaN's published schema](https://nan.builders/openapi.json) before it leaves pi, whatever pi-ai version is bundled. |
+| **Context-overflow rescue** | NaN's generic `400 Invalid request` is reclassified as an overflow when the request is estimated over the model's window ([#3](https://github.com/gtrabanco/pi-nan-provider/issues/3)), and a cold-cache `524` over `NAN_COLD_CACHE_CEILING_TOKENS` too ([#18](https://github.com/gtrabanco/pi-nan-provider/issues/18)) — pi compacts and retries instead of wedging. |
+| **Truncated-stream retry** | `supportsFinishReason: true` turns an SSE stream closed before `finish_reason` into a retryable error instead of a silent stall ([#2](https://github.com/gtrabanco/pi-nan-provider/issues/2)). |
+| **Streaming token usage** | `stream_options.include_usage` is on by default, so pi reports real input/output/reasoning/cache counts ([#4](https://github.com/gtrabanco/pi-nan-provider/issues/4), [#7](https://github.com/gtrabanco/pi-nan-provider/issues/7)). |
+| **Reasoning controls** | Per-model `reasoningEffortValues` + `thinkingLevelMap` ([#16](https://github.com/gtrabanco/pi-nan-provider/issues/16)), the reasoning-only stream guard ([#21](https://github.com/gtrabanco/pi-nan-provider/issues/21)) and the `max_completion_tokens` interim bound for `qwen3.8-flash` ([#34](https://github.com/gtrabanco/pi-nan-provider/issues/34)). |
+| **Attribution header** | `X-Pi-Provider: gtrabanco/pi-nan-provider@<version>` on every request, stripped when pi's install telemetry is disabled. |
+| **Native image models** | `flux-2-klein` and `qwen-image-2.1` registered as pi `type: "image"` models, reachable from codemode and extensions. |
+| **Native MCP media bridge** | The `nan-media` server (9 tools) registered through `pi.registerMcpServer()`, managed with `/nan-mcp`. |
+| **Quota reporting** | `/nan-usage` merges `GET /v1/usage` with the documented monthly caps. |
+| **Cache-anomaly evidence** | `cf-ray` capture on the repeated `id` + `created` gateway signature ([#17](https://github.com/gtrabanco/pi-nan-provider/issues/17)) plus the deterministic `/nan-debug` collector ([#35](https://github.com/gtrabanco/pi-nan-provider/issues/35)). |
+| **pi integration** | Model refresh driven by pi's Models runtime, per-model `models.json` overrides, and the extension changelog (`pi.changelogPath`) that pi shows after an update. |
+
+Commands:
+
+| Command | Purpose |
+| :--- | :--- |
+| `/nan-mcp` | Manage the media MCP bridge (`status` / `enable` / `disable`) |
+| `/nan-usage [1-90]` | Token usage per model vs. the documented caps |
+| `/nan-debug [topic] [--window N] [--out path] [--emit]` | Redacted, reproducible evidence package for NaN |
 
 ---
 
@@ -32,19 +62,31 @@ Registers the `nan` provider via `pi.registerProvider()` using NaN's OpenAI-comp
 
 ## ⚙️ How it works
 
-The provider uses a **two-layer model catalog** to ensure reliability:
+The provider uses a **two-layer model catalog plus a read-time overlay** to ensure reliability:
 
 | Layer | Source | Purpose |
 | :--- | :--- | :--- |
-| **1. Generated Fallback** | `scripts/models.generated.ts` | Build-time snapshot from [models.dev](https://models.dev). Ensures pi can always start, even if the network fails. |
-| **2. Live `/models` Fetch** | NaN Runtime API | Fetches your real-time available models based on your API key's tier. Merged with fallback data. |
+| **1. Generated Fallback** | `scripts/models.generated.ts` | Build-time snapshot from [models.dev](https://models.dev) plus manual overrides with provenance. Ensures pi can always start, even if the network fails. |
+| **2. Live `/models` Fetch** | NaN Runtime API | Fetches the models your key can actually call and merges them with the fallback; `filterModels` hides anything the live list does not return. |
+| **3. Read-time Overlay** | `withStaleCatalogOverlay` (`src/provider-factory.ts`) | Re-applies generated capability data on every `getModels()` / `getAllModels()` read, so a `models-store.json` written by an older package version cannot shadow it ([#19](https://github.com/gtrabanco/pi-nan-provider/issues/19)) nor re-register non-chat ids as chat models ([#32](https://github.com/gtrabanco/pi-nan-provider/issues/32)). |
 
 > [!IMPORTANT]
 > **Live list**: The live list is authoritative. Since 2026-11-10 NaN no longer has tier-exclusive models, so every catalog model is meant to be available to every key; a model the live `/models` response does not list for your key is still filtered out.
 
-NaN's live `/models` also returns non-chat endpoint ids (embedding, rerank, TTS, STT, image, video). These are **not registered** as chat models — the classification is the single exported `NON_CHAT_MODEL_IDS` from `src/fetch-models.ts` (the same source used by the build-time generator). The merge skips their placeholders and places them in an observable `nonChat` bucket; `baselineModels` also filters them defensively. This prevents pi's chat picker from offering endpoints that cannot serve chat (requests would 404).
+NaN's live `/models` also returns non-chat endpoint ids (embedding, rerank, TTS, STT, image, video). These are **not registered** as chat models — the classification is the single exported `NON_CHAT_MODEL_IDS` from `src/fetch-models.ts` (the same source used by the build-time generator). The merge skips their placeholders and places them in an observable `nonChat` bucket; `baselineModels` also filters them defensively, and the read-time overlay drops chat-type entries whose id is in that list — a stale store written before #15 (issue #32) cannot resurrect them. This prevents pi's chat picker from offering endpoints that cannot serve chat (requests would 404).
 
 The registration is synchronous on purpose: the generated fallback catalog is available immediately, and pi's Models runtime drives the live refresh (network refresh at interactive startup and periodically, cache-only at registration), persisting the overlay between runs.
+
+### 🧾 Strict request sanitizer
+
+NaN answers HTTP 400 `Invalid request. Check your request parameters.` for any body that does not match the schema it publishes at [nan.builders/openapi.json](https://nan.builders/openapi.json) — a schema stricter than what pi-ai emits in several places. `src/openai-compat-sanitizer.ts` rewrites every outgoing `/chat/completions` payload on the way out, so no pi-ai version or conversation shape can produce an invalid request:
+
+- an assistant `content` array carrying a tool call is moved into the top-level `tool_calls` field (NaN's `ContentPart` accepts only `text` and `image_url`);
+- `reasoning_details` is stripped, and unknown content parts (e.g. `thinking`) are folded into a `text` part so reasoning is not silently lost;
+- fields NaN's schema does not list are removed: `store` always, an empty `tools` array always, and `stream_options` unless the model's `compat.supportsUsageInStreaming` says the gateway reports it;
+- `max_completion_tokens` is renamed to `max_tokens` (the documented field) unless the model's `compat.maxTokensField` opts out ([#34](https://github.com/gtrabanco/pi-nan-provider/issues/34), `qwen3.8-flash`).
+
+A caller-supplied `onPayload` hook is preserved and chained after sanitization.
 
 ### 🏷️ Attribution header
 
@@ -54,7 +96,7 @@ The header **follows pi's telemetry setting**: with `enableInstallTelemetry: fal
 
 ### 🧠 Model-switch safety
 
-When you switch models, older pi-ai versions replayed the previous model's reasoning as plain assistant text with **no size bound**, which could overflow a 262K-context model's window; NaN answered with a generic `400 Invalid request. Check your request parameters.` that looked like a provider bug (upstream tracking: [pi-nan-provider#3](https://github.com/gtrabanco/pi-nan-provider/issues/3)). pi-ai 1.3.0 fixed this upstream (`transformMessages` now drops thinking blocks from a different model) and this package requires **pi ≥ 1.3.0** (peer range `^1.3.0`), so the extension-side guard that used to mitigate it was **removed in package 1.4.0** — no action is needed, upstream handles it.
+When you switch models, older pi-ai versions replayed the previous model's reasoning as plain assistant text with **no size bound**, which could overflow a 262K-context model's window; NaN answered with a generic `400 Invalid request. Check your request parameters.` that looked like a provider bug (upstream tracking: [pi-nan-provider#3](https://github.com/gtrabanco/pi-nan-provider/issues/3)). pi-ai 1.3.0 fixed this upstream (`transformMessages` now drops thinking blocks from a different model) and this package requires **pi ≥ 1.4.0** (peer range `^1.4.0`), so the extension-side guard that used to mitigate it was **removed in package 1.4.0** — no action is needed, upstream handles it.
 
 A request can still overflow on its own merits — oversized tool outputs, images, or a destination window simply smaller than the content — and NaN answers the same generic 400 instead of naming the overflow, while pi's auto-compaction does not recognize it, so the session would wedge at the ceiling. The provider therefore **re-checks the request size on the way out**: when that generic 400 arrives for a request estimated over the model's window, the error is rewritten into a context-overflow message pi recognizes, so it compacts and retries instead of stalling. A generic 400 on a within-window request is left untouched, so unrelated errors are never mislabelled.
 
@@ -80,7 +122,7 @@ You can override any model's `compat` per-model in `~/.pi/agent/models.json` (pi
 
 **pi-ai 1.5.1 compat escape hatches** (`~/.pi/agent/models.json`, per model): `compat.requiresToolsWithToolHistory: true` restores sending `tools: []` in conversations with tool history (pi-ai 1.5.1 omits it by default, fixing vLLM 0.20+ `tools must not be an empty array` rejections behind LiteLLM); `compat.requiresNonNullAssistantContent: true` sends `""` instead of `null` in assistant messages that only carry tool calls; `compat.promptCacheKeyMode: "disabled"` guarantees `prompt_cache_key` is never sent to the gateway (the default `auto` already never enables it for NaN).
 
-**Streaming token usage:** `supportsUsageInStreaming` is `true` by default. NaN's published schema does not document `stream_options`, but the live gateway honors it — measured 2026-09-16 ([#7](https://github.com/gtrabanco/pi-nan-provider/issues/7)): two identical streaming calls per model, 0 usage chunks without the flag and exactly 1 with it, on `deepseek-v4-flash`, `glm5.3-flash`, `qwen3.6`, `mimo-v2.5` and `gemma4`. pi therefore reports real input/output/reasoning/cache token counts instead of zeros. If a model turns out not to report streaming usage, opt out per model — the request sanitizer then strips `stream_options` and the payload stays strict:
+**Streaming token usage:** `supportsUsageInStreaming` is `true` by default. NaN's published schema does not document `stream_options`, but the live gateway honors it — measured 2026-09-16 ([#7](https://github.com/gtrabanco/pi-nan-provider/issues/7)): two identical streaming calls per model, 0 usage chunks without the flag and exactly 1 with it, on `deepseek-v4-flash`, `glm5.3-flash`, `qwen3.6`, `gemma4` and `mimo-v2.5` (since removed). pi therefore reports real input/output/reasoning/cache token counts instead of zeros. If a model turns out not to report streaming usage, opt out per model — the request sanitizer then strips `stream_options` and the payload stays strict:
 
 ```json
 {
@@ -108,7 +150,7 @@ Get a key from the [NaN platform](https://cloud.nan.builders/r/7GK06FX8) (user s
 
 ## 🔌 Native MCP Server
 
-Since [pi 0.99.0 ships a built-in MCP client](https://github.com/earendil-works/pi/blob/main/docs/usage.md), this package bridges to native MCP (requires **pi >= 1.3.0**, the peer range floor since package 1.4.0).
+Since [pi 0.99.0 ships a built-in MCP client](https://github.com/earendil-works/pi/blob/main/docs/usage.md), this package bridges to native MCP (requires **pi >= 1.4.0**, the peer range floor since package 1.5.0).
 
 The media bridge is **enabled by default** (session-scoped, visible in `/mcp`). Use `/nan-mcp` to manage it.
 
@@ -167,7 +209,7 @@ per session, keeps the registrations idle, and lets `/nan-mcp enable` persist th
 registering a server that can never connect. To get MCP in the CLI, enable the connector with
 `pi config` → Built-in extensions → `mcp`.
 
-### pi 0.99-1.0 features and NaN models
+### pi features and NaN models
 
 - **Virtual models** — register a router under `nan` (`pi.registerVirtualModel({ provider: "nan", ... })`);
   it routes to the physical NaN models with no provider-side configuration.
@@ -220,7 +262,7 @@ registering a server that can never connect. To get MCP in the CLI, enable the c
 
 > pi 0.99.0–0.99.1 used the hyphenated form (`mcp__nan-media__*`); pi 0.99.2+ sanitizes tool
 > names to `[A-Za-z0-9_]` only, so hyphens became underscores. The underscore form applies
-> on every supported version (pi >= 1.3.0).
+> on every supported version (pi >= 1.4.0).
 
 #### 🔧 Media Bridge Configuration
 
@@ -244,7 +286,7 @@ bun run check-nan-mcp-server --issue    # create/refresh the issue
 PI SDK updates (`@earendil-works/pi-ai` / `@earendil-works/pi-coding-agent`) are automated
 too: the weekly `check-pi-sdk-versions` workflow files the `sdk-monitor` issue **and**
 prepares a devDependencies-bump PR (`bun test` + `bun run typecheck` + type-surface diff
-included) for human review — see `docs/sdk-version-monitoring.md`.
+included) for human review — see `.github/workflows/check-pi-sdk-versions.yml` and `scripts/check-pi-sdk-versions.mjs`.
 
 ---
 
@@ -438,7 +480,8 @@ NaN's `reasoning_effort` parameter controls how much the model thinks before ans
 
 | Model | Reasoning effort | How it works |
 | :--- | :--- | :--- |
-| `glm5.3`, `glm5.3-flash` | `minimal` · `low` · `medium` · `high` · `max` | Fully controllable — higher values let the model reason longer; `minimal` yields ~38 reasoning tokens (issue #16, measured 2026-09-27); `none` does NOT suppress reasoning on glm5.3-flash (13,382 tokens) |
+| `glm5.3` | `low` · `medium` · `high` · `max` | Fully controllable — higher values let the model reason longer. `thinking: "off"` sends `low`, the shallowest level the NaN docs list, via the catalog's `thinkingLevelMap`. `minimal` is **not** in this model's declared values: issue #16 measured it on `glm5.3-flash` only, and `glm5.3` itself was never measured |
+| `glm5.3-flash` | `minimal` · `low` · `medium` · `high` · `max` | Fully controllable — higher values let the model reason longer; `minimal` yields ~38 reasoning tokens (issue #16, measured 2026-09-27). `none` does NOT suppress reasoning (13,382 tokens), so `thinking: "off"` sends `minimal`, the shallowest effective value, via the catalog's `thinkingLevelMap` |
 | `qwen3.6`, `gemma4` | `none` · `minimal` · `low` · `medium` · `high` · `max` | `none`/`minimal` skip reasoning entirely; others cap at 2K / 8K / 16K / 32K tokens. `thinking: "off"` sends `reasoning_effort: "none"` automatically via the catalog's `thinkingLevelMap` — the NaN docs state that with no parameter these models reason by default (16,384-token budget), so off must be explicit |
 | `deepseek-v4-flash` | `none` (catalog declares ["none"]) | `none` disables reasoning (0 reasoning tokens, a full answer); every other value — including `minimal` and omitting the parameter — leaves it ON (57 / 63 / 109 reasoning tokens), so the catalog declares only `none`. Re-probed live 2026-10-14: the NaN docs claim "any value (no effect)", but the measurement wins. `thinking: "off"` sends `reasoning_effort: "none"` automatically via the catalog's `thinkingLevelMap` — without it the model runs away to `finish_reason: "length"` with no answer (issue #16) |
 | `qwen3.8-flash` | *(accepted but not adjustable)* | The parameter is accepted and never rejected, but the model manages its own reasoning depth — it is never an error to send a value this model doesn't adjust |
@@ -457,6 +500,13 @@ bun install
 bun run generate-models   # Regenerate fallback catalog
 bun test                  # Run all tests
 bun run typecheck         # Run typechecking
+bun run check-nan-mcp-server            # Newer nan-mcp-server release?
+bun run check-pi-sdk-versions           # Newer pi / pi-ai release?
 ```
 
-*Releases follow strict semver. CI publishes automatically on merge to `main`.*
+Every code change must bump `package.json` in the same PR; capability values that diverge from
+models.dev belong in `scripts/manual-overrides.ts` with a provenance note, never hand-edited into
+the generated catalog.
+
+*Releases follow strict semver. CI publishes automatically on merge to `main`. After an update, pi
+shows this package's `CHANGELOG.md` (`pi.changelogPath`, pi 1.5.0+).*

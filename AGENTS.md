@@ -514,3 +514,55 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   `overflow|rate_limited|invalid_request|transport|other`.
   Regression tests: `test/issue-35-cache-anomaly-capture.test.ts`,
   `test/issue-35-debug-report.test.ts`, `test/issue-35-nan-debug-command.test.ts`.
+
+## README (EN/ES) — mantener sincronizado
+
+`README.md` y `README.es.md` son **espejos**: cada sección del inglés tiene contrapartida exacta
+en español. No se acepta que un README muestre una feature que el otro no documente, ni que
+uno cite una versión o requisito que el otro no lleve.
+
+**Regla de mantenimiento** (obligatoria al añadir/eliminar código):
+
+1. **Primero el código, después el README.** Si una feature se introduce en `src/`, `test/` o
+   `scripts/`, el PR debe contener también la actualización de ambos READMEs en el mismo commit.
+2. **La tabla `## ✨ Features` (y la tabla de `Commands`) son la fuente.**
+   Cada row corresponde a un bloque de código o un issue. Si añades código, comprueba que
+   la row existe; si eliminas código, borra la row.
+3. **El orden de los encabezados debe coincidir.** Verifica con:
+   ```bash
+   diff <(rg -o "^#{2,4} .*" README.md) <(rg -o "^#{2,4} .*" README.es.md)
+   ```
+   cualquier divergencia es un error.
+4. **El badge `[![Version]…)]` en cada README debe cuadrar con `package.json/version`.**
+   El badge es un escudo visual: si el README dice `1.5.3` y `package.json` va en `1.5.4`,
+   alguien lo verá desfasado.
+5. **Cita el peer floor real, no la historia.** El peer range se actualiza con cada
+   release de pi: lee `package.json` peerDependencies, no AGENTS.md (que documenta
+   releases históricos y puede quedar obsoleto). Para este paquete: el floor es
+   `^1.4.0` (desde package 1.5.0), verificado contra pi 1.5.1 / pi-ai 1.5.1.
+6. **Las cifras de catálogo van contra `scripts/models.generated.ts`, no contra AGENTS.md.**
+   AGENTS.md es documentación de releases y puede contener floor o ranges ya antiguos;
+   el catálogo generado es la fuente viva de `contextWindow`/`maxTokens`/`reasoningEffortValues`
+   / `thinkingLevelMap` / `compat` — cada valor tiene una nota de procedencia (`notes` en la
+   entry). Re-check: `bun run generate-models` (recarga desde models.dev + manual-overrides)
+   y diffa el resultado.
+7. **Modelos nuevos o eliminados:** si la feature añade/elimina un modelo del catálogo,
+   la tabla "## 📊 Models" de ambos READMEs debe actualizarse: la tabla de chat (id,
+   contextWindow, maxTokens, input, reasoning) y la tabla de imagen (id, input, purpose).
+   No inventes valores: usa `scripts/models.generated.ts` o `scripts/manual-overrides.ts`.
+8. **Algunas secciones solo existen en inglés.** `src/images.ts`, `src/fetch-models.ts`,
+   `src/reasoning-only-stream-guard.ts` y los tests correspondientes están documentados en
+   el README inglés; el español puede tener la sección omitida o truncada si no tiene
+   contrapartida real (especialmente con features internas como el sanitizer). Al añadir
+   código nuevo, comprueba que la sección correspondiente existe en ambos.
+9. **Al actualizar una sección, actualiza la contrapartida.** Si cambias la tabla de
+   `reasoning_effort` en inglés porque un modelo cambió su `reasoningEffortValues`,
+   aplica el mismo split/merge en español con los mismos datos y las mismas notas de
+   procedencia (el issue #16, la medición, las notas de `MANUAL_OVERRIDES`).
+
+**Checklist antes de push:**
+- [ ] `rg -o "^#{2,4} .*" README.md` ↔ `rg -o "^#{2,4} .*" README.es.md` (misma estructura)
+- [ ] Badge `version-X.Y.Z-blue` coincide con `package.json/version`
+- [ ] Peer range de README = `package.json` `peerDependencies`
+- [ ] Todas las filas de la tabla Features tienen código correspondiente
+- [ ] `bun test` pasa, `bun run typecheck` limpio
