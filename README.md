@@ -345,8 +345,6 @@ Failures stay actionable: `401` → run `/login nan` or fix `NAN_API_KEY`, `404`
 
 ---
 
----
-
 ## 🧾 Cache anomaly evidence: `/nan-debug`
 
 NaN's gateway response cache can replay the same completion `id` and `created`
@@ -376,6 +374,9 @@ reproducible evidence package for NaN:
   fetched. That live call counts against your quota's request rate.
 - The zip is written **only** with `--emit`; the default run writes the local
   report and prints a preview.
+- `--out <path>` writes the report anywhere you name it (and, with `--emit`,
+  `<path>.zip`); a leading `~/` expands to your home directory, so the examples
+  above write where they say. A flag token is never accepted as the path.
 - The report contains `README.md`, `anonymized_usage.jsonl` (per date/session/
   model totals, stop-reason counts, cache-hit rate), `turns.jsonl` (per-turn
   usage, stop reason, error class, response id), `anomalies.jsonl` (`cf-ray`

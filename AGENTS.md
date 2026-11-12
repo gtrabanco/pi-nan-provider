@@ -174,8 +174,8 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   The `ExtensionAPI` interface does not include `modelRegistry`; it exists only on
   `ExtensionContext` (the `ctx` passed to command/event handlers). At factory time,
   stored credentials are resolved via `readStoredCredential("nan")` from
-  `@earendil-works/pi-coding-agent`. Command-time paths (`/nan-mcp`, `/nan-usage`) use
-  `ctx.modelRegistry`.
+  `@earendil-works/pi-coding-agent`. Command-time paths (`/nan-mcp`, `/nan-usage`,
+  `/nan-debug`) use `ctx.modelRegistry`.
 - models.json overrides compose **above** registered native providers.
 - Capability values that diverge from models.dev are recorded as build-time
   `MANUAL_OVERRIDES` (mandatory provenance note) in `scripts/manual-overrides.ts`,

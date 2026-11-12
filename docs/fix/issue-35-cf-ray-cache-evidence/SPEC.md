@@ -104,6 +104,31 @@ One observable criterion per `S#`, each naming the check that proves it.
 - 2026-11-11 — P4: README/README.es guide sections, CHANGELOG 1.5.4, version
   bump, AGENTS.md verified-facts bullet; obligations closed against
   foreground validator runs.
+- 2026-11-12 — Correction batch opened from the `EXTERNAL VERIFY` receipt in
+  `external-verify.md` (0 blockers, 5 advisories; owner instruction: "triage
+  and fix those that deserve to fix …"). Triage: A1–A4 fix, A5 `wontfix`
+  (D-35-01 — the `MAJOR.MINOR ↔ pi release line` alignment is the stronger
+  invariant; npm latest 1.5.2, this branch carries unpublished 1.5.4). Ledgers
+  extended with O11–O13 before code; `decisions.md` cut with the
+  path-protection `justification` + `approval` records for the protected suite
+  edit (the gate's schema line is `path-protection-records@1`).
+- 2026-11-12 — P5 (RED): both reproducers failed as recorded —
+  `--out --emit` / `--out --window 2` parsed `ok`, and `--out ~/evidence`
+  wrote `<cwd>/~/evidence`. The red run therefore created a stray `~/`
+  directory inside the repo cwd: disclosed, removed, and absent after the fix.
+- 2026-11-12 — P6: `parseDebugArgs` rejects a `--`-prefixed `--out` value with
+  the usage message; `src/debug-command.ts` expands a leading `~/` (injectable
+  `homedir`) so the README example writes `<home>/evidence`.
+- 2026-11-12 — P7: gates green (`376 pass / 0 fail / 1664 expect() calls / 35
+  files`, typecheck exit 0); differential against a `369bb56` copy in `mktemp`
+  scratch is additive-only (base `374/0/1653/35` + exactly the two new cases,
+  zero deletions in the touched suite); sibling sweep clean except
+  `README.es.md:439`'s second duplicated `---`, which exists at `origin/main`
+  (base defect, reported not folded).
+- 2026-11-12 — Concurrent owner commit `d449261 chore(git): .gitignore` landed
+  mid-batch, adding `docs/` to `.gitignore`: the new `decisions.md` and
+  `external-verify.md` are git-ignored and stay untracked pending the owner's
+  decision — not force-added over a fresh owner commit.
 
 ## Evidence
 
@@ -116,3 +141,7 @@ One observable criterion per `S#`, each naming the check that proves it.
 | 2026-11-11 | O10 previous behavior | `bun test test/issue-21-reasoning-only-stream.test.ts test/issue-3-model-switch-overflow.test.ts test/issue-4-token-usage.test.ts` → `21 pass, 0 fail` | ok |
 | 2026-11-11 | O10 full gate | `bun test` → `374 pass, 0 fail, 1653 expect() calls, 35 files`; `bun run typecheck` → exit 0 | ok |
 | 2026-11-11 | §6 differential | base-vs-changed provider streams in `/tmp`: identical output, no anomaly file — `DIFFERENTIAL CLEAN`; zip verified with `unzip -t` → `No errors detected` | ok |
+| 2026-11-12 | correction-batch RED (O11, O12) | `bun test test/issue-35-nan-debug-command.test.ts` → `11 pass, 2 fail` — both new reproducers red (`--out --emit` parsed ok; `--out ~/...` wrote `<cwd>/~`) | ok |
+| 2026-11-12 | O11 + O12 | `bun test test/issue-35-nan-debug-command.test.ts` → `13 pass, 0 fail, 52 expect() calls` | ok |
+| 2026-11-12 | O13 differential | `mktemp` copy of `369bb56`: `bun test` → `374 pass, 0 fail, 1653 expect() calls, 35 files` + `bun run typecheck` exit 0; changed tree → `376 pass, 0 fail, 1664 expect() calls, 35 files` + typecheck exit 0 — delta is exactly the +2/+11 new corpus, zero deletions | ok |
+| 2026-11-12 | S4 sibling sweep | `rg` over README EN/ES, AGENTS, CHANGELOG, `src/`: command enumerations, `--out` mentions and tilde examples consistent; remaining `README.es.md:439` duplicated `---` traced to `origin/main:397` (base, reported) | ok |

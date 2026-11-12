@@ -27,7 +27,10 @@ pi 1.5.x); no provider API surface changed.
   `anomalies.jsonl`, `metadata.json`), prints a preview, and writes the
   shareable zip only with `--emit`. `--window` additionally fetches
   `GET /v1/usage` for the same period (permission-gated by the explicit flag).
-  Session/worktree labels are MD5-truncated to 12 chars, `errorMessage` is
+  `--out` rejects a flag token as its value (no silently dropped `--emit` or
+  `--window`) and expands a leading `~/` to the home directory, so the README
+  example writes where it says. Session/worktree labels are MD5-truncated to 12
+  chars, `errorMessage` is
   reduced to a fixed class, and identical inputs produce byte-identical zip
   bytes.
 

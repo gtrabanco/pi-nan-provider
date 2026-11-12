@@ -350,8 +350,6 @@ Los errores siguen siendo accionables: `401` → ejecuta `/login nan` o corrige 
 
 ---
 
----
-
 ## 🧾 Evidencia de anomalías de caché: `/nan-debug`
 
 La caché de respuestas del gateway de NaN puede devolver el mismo `id` y
@@ -380,6 +378,10 @@ redactado y reproducible para NaN:
   ninguna petición. Esa llamada en vivo consume el límite de peticiones.
 - El zip se escribe **solo** con `--emit`; la ejecución por defecto escribe el
   informe local e imprime un resumen.
+- `--out <ruta>` escribe el informe donde lo indiques (y, con `--emit`,
+  `<ruta>.zip`); un `~/` inicial se expande a tu directorio home, así que los
+  ejemplos de arriba escriben donde dicen. Un token de flag nunca se acepta
+  como ruta.
 - El informe contiene `README.md`, `anonymized_usage.jsonl` (totales por
   fecha/sesión/modelo, conteo de `stopReason`, tasa de acierto de caché),
   `turns.jsonl` (uso por turno, `stopReason`, clase de error, `responseId`),

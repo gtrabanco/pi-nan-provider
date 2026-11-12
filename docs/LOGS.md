@@ -37,3 +37,53 @@ the thread without re-reading git history.
 **Next**
 
 - External verifier verdict on the handoff; no open obligation rows.
+
+## 2026-11-12 — issue #35: fold the external-verify advisories (correction batch)
+
+**Done**
+
+- Read the `EXTERNAL VERIFY` receipt (`docs/fix/issue-35-cf-ray-cache-evidence/external-verify.md`,
+  2026-11-11: `VERIFIED`, 0 blockers, 5 advisories) and triaged under the
+  owner's "triage and fix those that deserve to fix":
+  - **A1 fixed** — `parseDebugArgs` now rejects a `--`-prefixed token as the
+    `--out` value (usage message), so `--out --emit` can no longer succeed with
+    `emit: false` nor `--out --window 2` parse as out=`--window`/topic=`2`.
+  - **A2 fixed** — `--out ~/…` (and bare `~`) expands to the home directory
+    (injectable `homedir`), so the README/README.es example writes
+    `<home>/evidence` instead of a literal `~` dir in the session cwd.
+  - **A3 fixed** — `AGENTS.md` command-time `ctx.modelRegistry` list gains
+    `/nan-debug`.
+  - **A4 fixed** — the duplicated `---` before the new section removed from
+    README.md and README.es.md.
+  - **A5 `wontfix`** — `MAJOR.MINOR ↔ pi release line` is the stronger
+    invariant (npm latest 1.5.2, branch carries unpublished 1.5.4); recorded as
+    `D-35-01` in the unit's `decisions.md`.
+- Ledgers: `planning-obligations.md` gained O11–O13 (cut `planned`, flipped on
+  foreground validators); `decisions.md` created with the
+  `path-protection-records@1` justification + approval rows for the protected
+  suite edit; SPEC `## Log`/`## Evidence` carry the batch.
+
+**Checks**
+
+- RED first: `bun test test/issue-35-nan-debug-command.test.ts` → 11 pass /
+  2 fail (both reproducers), then → 13 pass / 0 fail / 52 expect() calls.
+- `bun test` → 376 pass / 0 fail / 1664 expect() calls / 35 files;
+  `bun run typecheck` → exit 0.
+- Differential vs a `369bb56` copy in `mktemp` scratch: base 374/0/1653/35,
+  typecheck 0 → additive-only (+2 tests, +11 expects, zero deletions).
+
+**Disclosures**
+
+- The red run's `--out ~/…` reproducer created a stray `~/` directory inside
+  the repo cwd (the very bug under repair): removed, absent after the fix.
+- Concurrent owner commit `d449261 chore(git): .gitignore` added `docs/` to
+  `.gitignore` mid-batch; the new `decisions.md` / `external-verify.md` are
+  git-ignored and remain untracked pending the owner's decision (not
+  force-added over a fresh owner commit).
+- Out-of-batch base defect reported, not folded: `README.es.md:439` has a
+  second duplicated `---` (present at `origin/main:397`).
+
+**Next**
+
+- Owner decision: track or ignore `decisions.md` / `external-verify.md` under
+  the new `docs/` ignore rule; then external verdict on the handoff.
