@@ -30,6 +30,7 @@ import type { Provider } from "@earendil-works/pi-ai";
 import { configureProviderAttribution } from "./attribution.ts";
 import { registerNanMcpCommand } from "./commands.ts";
 import { registerNanUsageCommand } from "./usage.ts";
+import { registerNanDebugCommand } from "./debug-command.ts";
 import { baselineModels } from "./fetch-models.ts";
 import { createNanCompatibleProvider, type OpenAICompatibleProviderConfig } from "./provider-factory.ts";
 import { PROVIDERS } from "./providers.ts";
@@ -160,6 +161,7 @@ export default async function nanProviderExtension(pi: ExtensionAPI): Promise<vo
 	if (typeof pi.registerCommand === "function") {
 		registerNanMcpCommand(pi);
 		registerNanUsageCommand(pi);
+		registerNanDebugCommand(pi);
 	}
 }
 

@@ -39,6 +39,7 @@ import type {
 import { providerAttributionEnabled, stripProviderAttribution } from "./attribution.ts";
 import { withContextOverflowClassification } from "./context-overflow-classifier.ts";
 import { withReasoningOnlyStreamGuard } from "./reasoning-only-stream-guard.ts";
+import { createCacheAnomalyFileSink, withCacheAnomalyCapture, type CacheAnomalySink } from "./cache-anomaly.ts";
 import { NAN_IMAGE_API, baselineImageModels, createNanImagesApi } from "./images.ts";
 import {
 	baselineModels,
@@ -71,6 +72,8 @@ export interface NanCompatibleProviderOptions {
 	timeoutMs?: number;
 	/** Injectable for tests; defaults to global fetch. */
 	fetchImpl?: typeof fetch;
+	/** Sink for the issue #35 cache-anomaly evidence; defaults to the agent-dir JSONL file. */
+	cacheAnomalySink?: CacheAnomalySink;
 }
 
 /**
@@ -298,8 +301,14 @@ export async function createNanCompatibleProvider(
 			// middle → guard (marker detection), innermost → sanitizer (payload).
 			// The guard's onProviderStreamEvent hook sees the raw response chunks
 			// (NOT onPayload, which only receives the outgoing request params).
-			api: withContextOverflowClassification(
-				withReasoningOnlyStreamGuard(wrapApiForStrictSanitization(apiFactory())),
+			// Outermost: cache-anomaly evidence capture (issue #35). It only adds
+			// observation hooks (onResponse for `cf-ray`, onProviderStreamEvent for
+			// the raw id/created pair) and never rewrites the stream.
+			api: withCacheAnomalyCapture(
+				withContextOverflowClassification(
+					withReasoningOnlyStreamGuard(wrapApiForStrictSanitization(apiFactory())),
+				),
+				{ sink: options.cacheAnomalySink ?? createCacheAnomalyFileSink() },
 			),
 		}),
 		overlayMap,

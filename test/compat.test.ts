@@ -90,7 +90,7 @@ describe("pi version compatibility (one entrypoint, any runtime)", () => {
 		expect(recorded.native.length).toBe(PROVIDERS.length);
 		expect(recorded.legacy).toEqual([]);
 		expect(recorded.tools).toEqual([]);
-		expect(recorded.commands.map((c) => c.name)).toEqual(["nan-mcp", "nan-usage"]);
+		expect(recorded.commands.map((c) => c.name)).toEqual(["nan-mcp", "nan-usage", "nan-debug"]);
 		const names = recorded.mcpServers.map((s) => s.name);
 		expect(names).toEqual(["nan-media"]);
 		for (const server of recorded.mcpServers) {
