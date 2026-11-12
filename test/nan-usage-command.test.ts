@@ -90,13 +90,15 @@ function usageReportFixture(): UsageReport {
 		data: [],
 		totals: {
 			prompt_tokens: 2_450_000,
+			cached_tokens: 200_000,
 			completion_tokens: 890_000,
 			total_tokens: 3_340_000,
 			api_requests: 12_500,
+			credits: 45.3,
 			by_model: [
-				{ model: "deepseek-v4-flash", prompt_tokens: 900_000_000, completion_tokens: 300_000_000, total_tokens: 1_200_000_000, api_requests: 310 },
-				{ model: "qwen3.6", prompt_tokens: 700_000, completion_tokens: 190_500, total_tokens: 890_500, api_requests: 123 },
-				{ model: "brand-new-model", prompt_tokens: 4_000, completion_tokens: 1_000, total_tokens: 5_000, api_requests: 3 },
+				{ model: "deepseek-v4-flash", prompt_tokens: 900_000_000, cached_tokens: 150_000_000, completion_tokens: 300_000_000, total_tokens: 1_200_000_000, api_requests: 310, credits: 32.1 },
+				{ model: "qwen3.6", prompt_tokens: 700_000, cached_tokens: 10_000, completion_tokens: 190_500, total_tokens: 890_500, api_requests: 123, credits: 0 },
+				{ model: "brand-new-model", prompt_tokens: 4_000, cached_tokens: 0, completion_tokens: 1_000, total_tokens: 5_000, api_requests: 3, credits: 0.2 },
 			],
 		},
 		all_time: {
@@ -108,6 +110,16 @@ function usageReportFixture(): UsageReport {
 		},
 		has_more: false,
 		next_cursor: null,
+		credits: {
+			period_start: "2026-09-01T00:00:00Z",
+			period_end: "2026-10-01T00:00:00Z",
+			allowance: 7000,
+			used: 45.3,
+			remaining: 6954.7,
+			pack_credits: 0,
+			pack_expires_at: null,
+			frozen: false,
+		},
 	};
 }
 
@@ -178,10 +190,11 @@ describe("/nan-usage command", () => {
 		expect(staticMessage).toMatch(/GLM 5\.3 {2,}3\.0B \(rolling 400\.0M\/4h\)/);
 
 		const report = usageReportFixture();
-		report.totals!.by_model.push({ model: "glm5.3", prompt_tokens: 0, completion_tokens: 0, total_tokens: 1_000_000, api_requests: 2 });
+		report.totals!.by_model.push({ model: "glm5.3", prompt_tokens: 0, cached_tokens: 0, completion_tokens: 0, total_tokens: 1_000_000, api_requests: 2, credits: 0 });
 		const usageMessage = buildUsageMessage(report);
 		expect(usageMessage).not.toContain("👑");
-		expect(usageMessage).toContain("GLM 5.3:");
+		expect(usageMessage).toContain("glm5.3");
+		expect(usageMessage).toContain("💳 Credits");
 	});
 
 	test("uncapped models have monthlyCap 0", () => {
@@ -214,22 +227,21 @@ describe("/nan-usage against GET /v1/usage", () => {
 
 		const result = notifications.at(-1)!;
 		expect(result.level).toBe("info");
-		expect(result.message).toContain("NaN Usage");
-		// the header shows the window the endpoint actually served (fixture data)
-		expect(result.message).toContain("2026-09-01 → 2026-09-27");
-		// capped model, merged with the documented cap
-		expect(result.message).toContain("DeepSeek V4 Flash");
-		expect(result.message).toContain("1.2B / 3.0B");
-		expect(result.message).toContain("40.0%");
-		// uncapped model with usage
-		expect(result.message).toContain("Qwen 3.6");
-		expect(result.message).toContain("890.5K");
-		// unknown model still surfaces
-		expect(result.message).toContain("brand-new-model");
-		// window + all-time totals
-		expect(result.message).toContain("3.3M");
-		expect(result.message).toContain("13.2M");
+		expect(result.message).toContain("💳 Credits");
+		// credits banner shows allowance/used
+		expect(result.message).toContain("45.3 / 7000");
+		expect(result.message).toContain("0.6% used");
+		// credits period
+		expect(result.message).toContain("2026-09-01 → 2026-10-01");
 		expect(result.message).toContain("Next billing reset");
+		// Usage section with model rows (sorted by credits)
+		expect(result.message).toContain("⚡ Usage");
+		expect(result.message).toContain("deepseek-v4-flash · 900.0M in / 150.0M cached / 300.0M out · 32.1 (cr)");
+		expect(result.message).toContain("qwen3.6 · 0.7M in / 0.0M cached / 0.2M out · 0 (cr)");
+		expect(result.message).toContain("brand-new-model · 0.0M in / 0.0M cached / 0.0M out · 0.2 (cr)");
+		expect(result.message).toContain("Total credits consumed: 45.3 (cr)");
+		// all-time summary
+		expect(result.message).toContain("13.2M");
 	});
 
 	test("falls back to NAN_API_KEY when the registry has no credential", async () => {
@@ -243,7 +255,7 @@ describe("/nan-usage against GET /v1/usage", () => {
 		env.restore();
 
 		expect(captured[0]!.headers.authorization).toBe("Bearer sk-env");
-		expect(notifications.at(-1)!.message).toContain("NaN Usage");
+		expect(notifications.at(-1)!.message).toContain("💳 Credits");
 	});
 
 	test("a custom rolling window is requested as given (1–90 days)", async () => {
@@ -368,41 +380,44 @@ describe("usage rendering", () => {
 			start_date: "2026-09-01",
 			end_date: "2026-09-27",
 			data: [],
-			totals: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, api_requests: 0, by_model: [] },
+			totals: { prompt_tokens: 0, cached_tokens: 0, completion_tokens: 0, total_tokens: 0, api_requests: 0, credits: 0, by_model: [] },
 			all_time: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, api_requests: 0, cached_at: null },
 			has_more: false,
 			next_cursor: null,
+			credits: { period_start: "2026-09-01T00:00:00Z", period_end: "2026-10-01T00:00:00Z", allowance: 7000, used: 0, remaining: 7000, pack_credits: 0, pack_expires_at: null, frozen: false },
 		} as UsageReport);
-		expect(message).toContain("No usage");
-		expect(message).toContain("0 requests");
+		// with credits but no model usage → no Usage section
+		expect(message).toContain("💳 Credits");
+		expect(message).not.toContain("⚡ Usage");
 	});
 
-	test("percentages never exceed the bar width even when usage exceeds the cap", () => {
+	test("models with zero credits but large token counts still render", () => {
 		const message = buildUsageMessage({
 			object: "usage.report",
 			start_date: "2026-09-01",
 			end_date: "2026-09-27",
 			data: [],
 			totals: {
-				prompt_tokens: 0,
+				prompt_tokens: 4_000_000_000,
+				cached_tokens: 0,
 				completion_tokens: 0,
 				total_tokens: 4_000_000_000,
 				api_requests: 10,
+				credits: 0,
 				by_model: [
-					{ model: "deepseek-v4-flash", prompt_tokens: 0, completion_tokens: 0, total_tokens: 4_000_000_000, api_requests: 10 },
+					{ model: "deepseek-v4-flash", prompt_tokens: 4_000_000_000, cached_tokens: 0, completion_tokens: 0, total_tokens: 4_000_000_000, api_requests: 10, credits: 0 },
 				],
 			},
 			all_time: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, api_requests: 0, cached_at: null },
 			has_more: false,
 			next_cursor: null,
+			credits: { period_start: "2026-09-01T00:00:00Z", period_end: "2026-10-01T00:00:00Z", allowance: 7000, used: 0, remaining: 7000, pack_credits: 0, pack_expires_at: null, frozen: false },
 		} as UsageReport);
-		expect(message).toContain("133.3%");
-		const bar = message.match(/\[(█*░*)\]/)!;
-		expect(bar[1]!.length).toBe(20);
-		expect(bar[1]!.replace(/█/g, "").length).toBe(0);
+		expect(message).toContain("deepseek-v4-flash");
+		expect(message).toContain("4000.0M in");
 	});
 
-	test("models whose request count NaN does not report say so instead of 0 requests", () => {
+	test("models with zero requests show the count anyway", () => {
 		const message = buildUsageMessage({
 			object: "usage.report",
 			start_date: "2026-09-01",
@@ -410,22 +425,22 @@ describe("usage rendering", () => {
 			data: [],
 			totals: {
 				prompt_tokens: 796_041_831,
+				cached_tokens: 0,
 				completion_tokens: 0,
 				total_tokens: 796_041_831,
 				api_requests: 0,
+				credits: 12.5,
 				by_model: [
-					// live probe 2026-09-27: usage without a request count
-					{ model: "qwen3.8-flash", prompt_tokens: 796_041_831, completion_tokens: 0, total_tokens: 796_041_831, api_requests: 0 },
+					{ model: "qwen3.8-flash", prompt_tokens: 796_041_831, cached_tokens: 0, completion_tokens: 0, total_tokens: 796_041_831, api_requests: 0, credits: 12.5 },
 				],
 			},
 			all_time: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, api_requests: 0, cached_at: null },
 			has_more: false,
 			next_cursor: null,
+			credits: { period_start: "2026-09-01T00:00:00Z", period_end: "2026-10-01T00:00:00Z", allowance: 7000, used: 12.5, remaining: 6987.5, pack_credits: 0, pack_expires_at: null, frozen: false },
 		} as UsageReport);
-		expect(message).toContain("requests not reported");
-		const line = message.split("\n").find((l) => l.includes("796.0M / 500.0M"))!;
-		expect(line).toContain("requests not reported");
-		expect(line).not.toContain("0 requests");
+		// model row shows tokens and credits (requests no longer on individual lines)
+		expect(message).toContain("796.0M in / 0.0M cached / 0.0M out · 12.5 (cr)");
 	});
 
 	test("formatUsageError keeps every documented status actionable", () => {

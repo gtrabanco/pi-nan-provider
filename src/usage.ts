@@ -62,16 +62,24 @@ export const MODEL_QUOTAS: readonly ModelQuota[] = [
 export interface UsageModelTotals {
 	model: string;
 	prompt_tokens: number;
+	/** Cached input tokens (part of `prompt_tokens`, not added to `total_tokens`). 2026-11-11 onward. */
+	cached_tokens: number;
 	completion_tokens: number;
 	total_tokens: number;
 	api_requests: number;
+	/** Credits billed on this model in the window, one decimal. 2026-11-10 onward. */
+	credits: number;
 }
 
 export interface UsageTotals {
 	prompt_tokens: number;
+	/** Cached input tokens (part of `prompt_tokens`, not added to `total_tokens`). 2026-11-11 onward. */
+	cached_tokens: number;
 	completion_tokens: number;
 	total_tokens: number;
 	api_requests: number;
+	/** Credits billed in the window, one decimal. 2026-11-10 onward. */
+	credits: number;
 	by_model: UsageModelTotals[];
 }
 
@@ -80,7 +88,27 @@ export interface UsageAllTime {
 	completion_tokens: number;
 	total_tokens: number;
 	api_requests: number;
+	/** When the all-time summary was last computed, ISO 8601 UTC. */
 	cached_at: string | null;
+}
+
+export interface UsageCredits {
+	/** Start of the current billing period (UTC). */
+	period_start: string;
+	/** End of the current billing period (UTC), when the allowance renews. */
+	period_end: string;
+	/** Credits included in your plan for this period. */
+	allowance: number;
+	/** Credits used from the allowance this period. */
+	used: number;
+	/** Credits left in the allowance this period. Pack credits are not included. */
+	remaining: number;
+	/** Credits left in your purchased packs, used once the allowance runs out. */
+	pack_credits: number;
+	/** When your pack credits expire, or `null` without pack credits. */
+	pack_expires_at: string | null;
+	/** `true` while your subscription is not active (e.g. failed payment). */
+	frozen: boolean;
 }
 
 export interface UsageReport {
@@ -92,9 +120,12 @@ export interface UsageReport {
 	/** Daily (date, model) rows — paginated; unused here (totals cover the window). */
 	data: unknown[];
 	totals: UsageTotals;
+	/** Lifetime usage, always present. */
 	all_time: UsageAllTime;
 	has_more: boolean;
 	next_cursor: string | null;
+	/** Current billing period credits, or `null` if not billed in credits. */
+	credits: UsageCredits | null;
 }
 
 export interface UsageFetchError {
@@ -218,24 +249,7 @@ export function formatCount(n: number): string {
 	return String(Math.trunc(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-function progressBar(percentage: number, width = 20): string {
-	const clamped = Math.min(Math.max(percentage, 0), 100);
-	const filled = Math.round((clamped / 100) * width);
-	const empty = width - filled;
-	return `[${"█".repeat(filled)}${"░".repeat(empty)}]`;
-}
 
-/**
- * `api_requests` comes back as 0 for some models that do have usage (live
- * probe 2026-09-27: qwen3.8-flash 796M tokens / 0 requests, while the window
- * total still sums the other models exactly). Reporting a bare "0 requests"
- * next to real consumption would read as a bug in this command, so say what
- * the endpoint actually reported.
- */
-function requestsSuffix(tokens: number, requests: number): string {
-	if (tokens > 0 && requests === 0) return "requests not reported";
-	return `${formatCount(requests)} requests`;
-}
 
 // ── Message builders ──────────────────────────────────────────────────────
 
@@ -263,87 +277,84 @@ export function buildStaticMessage(now = new Date()): string {
 	return lines.join("\n");
 }
 
-/** Usage report merged with the documented caps. */
+/** Format a credit value — integer or one decimal. */
+function formatCredits(value: number): string {
+	return Number.isInteger(value) ? String(value) : `${value}`;
+}
+
+/** Credits progress bar: fills based on percentage, width N. */
+function creditsBar(pct: number, width = 20): string {
+	const clamped = Math.min(Math.max(pct, 0), 100);
+	const filled = Math.round((clamped / 100) * width);
+	const empty = width - filled;
+	return `[${"█".repeat(filled)}${"░".repeat(empty)}]`;
+}
+
+/** Format a model's usage row: "model · X.XM in / YM cached / Z.ZM out · W (cr)" */
+function modelRow(m: UsageModelTotals): string {
+	const inM = (m.prompt_tokens / 1_000_000).toFixed(1);
+	const cacheM = (m.cached_tokens / 1_000_000).toFixed(1);
+	const outM = (m.completion_tokens / 1_000_000).toFixed(1);
+	const cr = formatCredits(m.credits ?? 0);
+	return `  ${m.model} · ${inM}M in / ${cacheM}M cached / ${outM}M out · ${cr} (cr)`;
+}
+
+/** Usage report with credits-first layout. */
 export function buildUsageMessage(report: UsageReport, now = new Date()): string {
-	const start = report.start_date;
-	const end = report.end_date;
-	const days = daysBetween(start, end);
 	const totals = report.totals;
 	const byModel = totals?.by_model ?? [];
-	const totalTokens = totals?.total_tokens ?? 0;
-	const totalRequests = totals?.api_requests ?? 0;
+	const credits = report.credits;
 
-	const lines: string[] = [
-		"📊 NaN Usage",
-		"",
-		`🗓️  Window: ${start} → ${end} UTC (${days} day${days === 1 ? "" : "s"})`,
-		"",
-		resetLine(now),
-		"",
-	];
+	const lines: string[] = [];
 
-	const usageOf = (model: string): UsageModelTotals | undefined => byModel.find((m) => m.model === model);
+	// ── Credits banner ────────────────────────────────────────────────────
+	lines.push("💳 Credits");
+	if (credits) {
+		const total = credits.allowance;
+		const used = credits.used;
+		const remaining = credits.remaining;
+		const pct = total > 0 ? (used / total) * 100 : 0;
+		const packInfo = credits.pack_credits > 0
+			? ` · packs: ${formatCredits(credits.pack_credits)} cr${credits.pack_expires_at ? ` (exp ${credits.pack_expires_at.slice(0, 10)})` : ""}`
+			: "";
 
-	if (totalTokens === 0 && totalRequests === 0 && byModel.length === 0) {
-		lines.push("No usage in this window.");
+		lines.push(`  ${creditsBar(pct)} ${pct.toFixed(1)}% used · ${formatCredits(used)} / ${formatCredits(total)} (${formatCredits(remaining)} remaining)${packInfo}`);
+		if (credits.frozen) {
+			lines.push("  ⚠️  Account frozen (subscription inactive): credit-billed requests are refused");
+		}
+		lines.push(`  Period: ${credits.period_start.slice(0, 10)} → ${credits.period_end.slice(0, 10)} UTC`);
 	} else {
-		const capped = MODEL_QUOTAS.filter((q) => q.monthlyCap > 0);
-		const uncapped = MODEL_QUOTAS.filter((q) => q.monthlyCap === 0);
-		const known = new Set(MODEL_QUOTAS.map((q) => q.model));
-		const others = byModel.filter((m) => !known.has(m.model)).sort((a, b) => b.total_tokens - a.total_tokens);
+		lines.push("  Credits not available for this account");
+	}
 
-		lines.push("Models with monthly caps:", "");
-		for (const quota of capped) {
-			const usage = usageOf(quota.model);
-			const used = usage?.total_tokens ?? 0;
-			const requests = usage?.api_requests ?? 0;
-			const percentage = (used / quota.monthlyCap) * 100;
-			const remaining = Math.max(quota.monthlyCap - used, 0);
+	lines.push("");
+	lines.push(resetLine(now));
+	lines.push("");
 
-			lines.push(`${quota.label}:`);
-			lines.push(`  ${progressBar(percentage)} ${percentage.toFixed(1)}% of monthly cap`);
-			lines.push(
-				`  Used: ${formatTokens(used)} / ${formatTokens(quota.monthlyCap)} (${formatTokens(remaining)} remaining) · ${requestsSuffix(used, requests)}`,
-			);
-			if (quota.rollingWindowCap > 0) {
-				lines.push(
-					`  ↳ rolling window: ${formatTokens(quota.rollingWindowCap)} / ${quota.rollingWindowHours}h ` +
-						"(daily granularity — /usage cannot break it down)",
-				);
-			}
-			lines.push("");
+	// ── Model usage ───────────────────────────────────────────────────────
+	const sorted = byModel
+		.filter((m) => m.total_tokens > 0)
+		.sort((a, b) => (b.credits ?? 0) - (a.credits ?? 0));
+
+	if (sorted.length > 0) {
+		const totalCredits = totals?.credits ?? 0;
+		lines.push("⚡ Usage");
+		for (const m of sorted) {
+			lines.push(modelRow(m));
 		}
-
-		const usedUncapped = uncapped.filter((q) => (usageOf(q.model)?.total_tokens ?? 0) > 0);
-		if (usedUncapped.length > 0) {
-			lines.push("Uncapped models:", "");
-			for (const quota of usedUncapped) {
-				const usage = usageOf(quota.model)!;
-				lines.push(`${quota.label}: ${formatTokens(usage.total_tokens)} used · ${requestsSuffix(usage.total_tokens, usage.api_requests)}`);
-			}
-			lines.push("");
-		}
-
-		if (others.length > 0) {
-			lines.push("Other models (no documented cap):", "");
-			for (const usage of others) {
-				lines.push(`${usage.model}: ${formatTokens(usage.total_tokens)} used · ${requestsSuffix(usage.total_tokens, usage.api_requests)}`);
-			}
-			lines.push("");
+		lines.push("");
+		if (totalCredits > 0) {
+			lines.push(`Total credits consumed: ${formatCredits(totalCredits)} (cr)`);
 		}
 	}
 
-	lines.push(
-		`Window totals: ${formatTokens(totalTokens)} tokens ` +
-			`(${formatTokens(totals?.prompt_tokens ?? 0)} prompt / ${formatTokens(totals?.completion_tokens ?? 0)} completion) · ` +
-			`${formatCount(totalRequests)} requests`,
-	);
+	// ── All time ──────────────────────────────────────────────────────────
 	const allTime = report.all_time;
 	if (allTime) {
-		const cached = allTime.cached_at ? ` (cached ${allTime.cached_at.slice(0, 10)})` : "";
+		const cached = allTime.cached_at ? ` (as of ${allTime.cached_at.slice(0, 10)})` : "";
 		lines.push(`All time: ${formatTokens(allTime.total_tokens)} tokens · ${formatCount(allTime.api_requests)} requests${cached}`);
 	}
-	lines.push("💡 Source: GET /v1/usage · caps from https://nan.builders/docs/models");
+	lines.push("💡 Source: GET /v1/usage");
 	return lines.join("\n");
 }
 
