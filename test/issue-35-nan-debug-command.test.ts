@@ -113,6 +113,20 @@ describe("issue #35 — /nan-debug argument parsing", () => {
 			if (!parsed.ok) expect(parsed.error).toContain("Usage: /nan-debug");
 		}
 	});
+
+	// EV-2026-11-11 A1 (O11): a flag token after --out was consumed as the
+	// path value — `--out --emit` succeeded with emit:false, `--out --window 2`
+	// parsed as out="--window", topic="2".
+	test("rejects a flag token as the --out value", () => {
+		for (const input of ["--out --emit", "--out --window 2", "--out --out x"]) {
+			const parsed = parseDebugArgs(input);
+			expect(parsed.ok, input).toBe(false);
+			if (!parsed.ok) expect(parsed.error).toContain("Usage: /nan-debug");
+		}
+		// Documented forms keep parsing.
+		const ok = parseDebugArgs("cache --window 3 --out /tmp/report --emit");
+		expect(ok.ok).toBe(true);
+	});
 });
 
 describe("issue #35 — /nan-debug command flow", () => {
@@ -161,6 +175,24 @@ describe("issue #35 — /nan-debug command flow", () => {
 
 		expect(existsSync(join(out, "metadata.json"))).toBe(true);
 		expect(existsSync(`${out}.zip`)).toBe(true);
+	});
+
+	// EV-2026-11-11 A2 (O12): the README example `--out ~/evidence` wrote a
+	// literal `~` directory in the session cwd; `~` must resolve to the home
+	// directory.
+	test("--out ~/... resolves against the home directory", async () => {
+		const agentDir = fixtureAgentDir();
+		const home = scratch();
+		const { pi, commands } = fakePi();
+		registerNanDebugCommand(pi, { agentDir, homedir: home, now: () => NOW });
+		const { ctx, notifications } = fakeCtx();
+
+		await commands[0]!.handler("--out ~/evidence --emit", ctx);
+
+		expect(existsSync(join(home, "evidence", "metadata.json"))).toBe(true);
+		expect(existsSync(join(home, "evidence.zip"))).toBe(true);
+		expect(notifications[0]!.message).toContain(join(home, "evidence.zip"));
+		expect(existsSync(join(process.cwd(), "~", "evidence"))).toBe(false);
 	});
 
 	test("--window fetches the official usage for the same window", async () => {

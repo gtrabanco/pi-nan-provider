@@ -80,6 +80,9 @@ export function parseDebugArgs(input: string): ParseDebugArgsResult {
 		if (token === "--out") {
 			const value = tokens[i + 1];
 			if (value === undefined || value.length === 0) return { ok: false, error: `--out needs a file or directory path. ${DEBUG_USAGE_LINE}` };
+			// A flag token here is a missing value, not a path: consuming `--emit` or
+			// `--window` as the value would silently drop an explicit option (EV-2026-11-11 A1).
+			if (value.startsWith("--")) return { ok: false, error: `--out needs a file or directory path (got "${value}"). ${DEBUG_USAGE_LINE}` };
 			i += 1;
 			args.out = value;
 			continue;

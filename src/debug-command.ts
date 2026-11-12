@@ -9,6 +9,7 @@
  */
 
 import { join } from "node:path";
+import { homedir as osHomedir } from "node:os";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { NAN_API_KEY_ENV, resolveStoredNanApiKey, tryResolveNanApiKeyViaRegistry } from "./mcp/api-key.ts";
@@ -34,11 +35,24 @@ export interface NanDebugCommandDeps {
 	fetchUsage?: FetchUsageWindow;
 	/** Injectable key resolution for tests. */
 	resolveApiKey?: (ctx: ExtensionCommandContext) => Promise<string | undefined>;
+	/** Injectable home directory for tests; defaults to the OS home. */
+	homedir?: string;
 }
 
 async function defaultResolveApiKey(ctx: ExtensionCommandContext): Promise<string | undefined> {
 	const registryKey = await tryResolveNanApiKeyViaRegistry(ctx.modelRegistry);
 	return registryKey ?? resolveStoredNanApiKey() ?? (process.env[NAN_API_KEY_ENV] || undefined);
+}
+
+/**
+ * Expand a leading `~` (or `~/`) against the home directory so the README
+ * example `--out ~/evidence` writes where it says (EV-2026-11-11 A2).
+ * Every other path passes through untouched.
+ */
+function expandHomePath(value: string, home: string): string {
+	if (value === "~") return home;
+	if (value.startsWith("~/")) return join(home, value.slice(2));
+	return value;
 }
 
 export function registerNanDebugCommand(pi: ExtensionAPI, deps: NanDebugCommandDeps = {}): void {
@@ -83,11 +97,12 @@ export function registerNanDebugCommand(pi: ExtensionAPI, deps: NanDebugCommandD
 				return;
 			}
 
-			const explicitZip = parsed.args.out?.endsWith(".zip") ? parsed.args.out : undefined;
+			const explicitZipTarget = parsed.args.out ? expandHomePath(parsed.args.out, deps.homedir ?? osHomedir()) : undefined;
+			const explicitZip = explicitZipTarget?.endsWith(".zip") ? explicitZipTarget : undefined;
 			const outDir = explicitZip
 				? explicitZip.replace(/\.zip$/, "")
-				: (parsed.args.out ?? join(agentDir, NAN_DEBUG_REPORT_DIR));
-			const zipPath = explicitZip ?? (parsed.args.out ? `${parsed.args.out}.zip` : join(agentDir, NAN_DEBUG_ZIP));
+				: (explicitZipTarget ?? join(agentDir, NAN_DEBUG_REPORT_DIR));
+			const zipPath = explicitZip ?? (explicitZipTarget ? `${explicitZipTarget}.zip` : join(agentDir, NAN_DEBUG_ZIP));
 
 			try {
 				writeDebugReport(rendered.files, outDir);
