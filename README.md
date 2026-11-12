@@ -1,7 +1,7 @@
 # @gtrabanco/𝜋-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.5.4-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-1.5.3-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 [![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://cloud.nan.builders/r/7GK06FX8)
 
 [NaN Builders](https://cloud.nan.builders/r/7GK06FX8) model provider + a native MCP server for [pi](https://github.com/earendil-works/pi). 
@@ -26,7 +26,7 @@ Registers the `nan` provider via `pi.registerProvider()` using NaN's OpenAI-comp
 | **Attribution header** | `X-Pi-Provider: gtrabanco/pi-nan-provider@<version>` on every request, stripped when pi's install telemetry is disabled. |
 | **Native image models** | `flux-2-klein` and `qwen-image-2.1` registered as pi `type: "image"` models, reachable from codemode and extensions. |
 | **Native MCP media bridge** | The `nan-media` server (9 tools) registered through `pi.registerMcpServer()`, managed with `/nan-mcp`. |
-| **Quota reporting** | `/nan-usage` merges `GET /v1/usage` with the documented monthly caps. |
+| **Credits reporting** | `/nan-usage` shows credits balance with a progress bar, per-model breakdown (input / cached / output in M, credits consumed), and billing period — all from `GET /v1/usage` ([#37](https://github.com/gtrabanco/pi-nan-provider/issues/37)). |
 | **Cache-anomaly evidence** | `cf-ray` capture on the repeated `id` + `created` gateway signature ([#17](https://github.com/gtrabanco/pi-nan-provider/issues/17)) plus the deterministic `/nan-debug` collector ([#35](https://github.com/gtrabanco/pi-nan-provider/issues/35)). |
 | **pi integration** | Model refresh driven by pi's Models runtime, per-model `models.json` overrides, and the extension changelog (`pi.changelogPath`) that pi shows after an update. |
 
@@ -35,7 +35,7 @@ Commands:
 | Command | Purpose |
 | :--- | :--- |
 | `/nan-mcp` | Manage the media MCP bridge (`status` / `enable` / `disable`) |
-| `/nan-usage [1-90]` | Token usage per model vs. the documented caps |
+| `/nan-usage [1-90]` | Credits balance with usage bar, per-model breakdown (in / cached / out in M · credits cr), and all-time totals |
 | `/nan-debug [topic] [--window N] [--out path] [--emit]` | Redacted, reproducible evidence package for NaN |
 
 ---
@@ -290,22 +290,22 @@ included) for human review — see `.github/workflows/check-pi-sdk-versions.yml`
 
 ---
 
-## 📊 Quota Usage: `/nan-usage`
+## 📊 Credits: `/nan-usage`
 
-Shows your NaN token usage per model merged with the documented monthly caps, the window totals, your all-time totals, and the time until the billing cycle resets.
+Shows your NaN credits balance with a progress bar, per-model breakdown (input / cached / output in millions, credits consumed), billing period, and all-time totals.
 
 ### How it works
 
 `/nan-usage` calls NaN's [`GET /v1/usage`](https://nan.builders/docs/api#tag/usage) endpoint with the **same API key you already use for chat** — pi's stored credential (`/login nan`) or `NAN_API_KEY`. No CLI login, no session cookie, no extra setup.
 
-The endpoint returns your usage (rows per date and model) plus totals covering the requested window — at most 90 inclusive days. The command reads those totals and merges them with the caps published in the [NaN docs](https://nan.builders/docs/models) to show how much of each monthly cap you have consumed. `/usage` reports consumption only, so the caps themselves always come from the documented table (checked 2026-09-27).
+The endpoint returns your usage (rows per date and model) plus totals covering the requested window — at most 90 inclusive days. The command reads those totals and displays them in a credits-first layout: the main progress bar reflects credits consumed vs. your plan's allowance, and each model row shows tokens (in / cached / out) and the credits it cost.
 
 Rate limit: 30 requests per minute for `/usage`, separate from the model endpoints.
 
 ### Usage
 
 ```
-/nan-usage        # current UTC month (matches the monthly caps)
+/nan-usage        # current UTC month (matches the billing period)
 /nan-usage 7      # rolling 7-day window (1-90)
 /nan-usage 30     # rolling 30-day window
 /nan-usage help   # show the usage line
@@ -333,35 +333,30 @@ Rate limit: 30 requests per minute for `/usage`, separate from the model endpoin
 
 **With an API key** (real usage):
 ```
-📊 NaN Usage
+💳 Credits
+  [████████░░░░░░░░░░░░] 13.4% used · 936.7 / 7000 (6063.3 remaining)
+  Period: 2026-11-02 → 2026-12-02 UTC
 
-🗓️  Window: 2026-09-01 → 2026-09-27 UTC (27 days)
+⏱️  Next billing reset: 2026-12-02 UTC (20d 16h 0m 0s)
 
-⏱️  Next billing reset: 2026-09-30 UTC (2d 14h 30m 0s)
+⚡ Usage
+  deepseek-v4-flash · 2701.1M in / 450.9M cached / 8.8M out · 189.7 (cr)
+  glm5.3-flash · 1619.6M in / 20.9M cached / 7.2M out · 621.4 (cr)
+  qwen3.6 · 1123.9M in / 37.1M cached / 3.3M out · 0 (cr)
+  mimo-v2.6-flash · 368.4M in / 67.4M cached / 3.3M out · 104.3 (cr)
+  qwen3.8-flash · 286.4M in / 0.0M cached / 1.3M out · 21.3 (cr)
+  qwen3-embedding · 4.6M in / 0.0M cached / 0.0M out · 0 (cr)
+  gemma4 · 1.0M in / 0.0M cached / 0.0M out · 0 (cr)
 
-Models with monthly caps:
+Total credits consumed: 936.7 (cr)
 
-DeepSeek V4 Flash:
-  [████████░░░░░░░░░░░░] 40.0% of monthly cap
-  Used: 1.2B / 3.0B (1.8B remaining) · 5,120 requests
-
-MiMo V2.5:
-  [███░░░░░░░░░░░░░░░░░] 12.5% of monthly cap
-  Used: 125.0M / 1.0B (875.0M remaining) · 840 requests
-
-GLM 5.3:
-  [████████░░░░░░░░░░░░] 40.0% of monthly cap
-  Used: 1.2B / 3.0B (1.8B remaining) · 2,400 requests
-  ↳ rolling window: 400.0M / 4h (daily granularity — /usage cannot break it down)
-
-Uncapped models:
-
-Qwen 3.6: 890.5K used · 123 requests
-
-Window totals: 2.6B tokens (2.0B prompt / 640.0M completion) · 18,432 requests
-All time: 13.2B tokens · 41,250 requests (cached 2026-02-01)
-💡 Source: GET /v1/usage · caps from https://nan.builders/docs/models
+All time: 30.9B tokens · 125,915 requests (as of 2026-11-12)
+💡 Source: GET /v1/usage
 ```
+
+- **💳 Credits**: progress bar showing `% used · used / allowance (remaining)`, billing period dates, pack credits with expiration if applicable, frozen-account warning.
+- **⚡ Usage**: models sorted by credits consumed (primary billing metric), each row: `model · X.XM in / YM cached / Z.ZM out · W (cr)`.
+- **All time**: lifetime totals with the last cache timestamp.
 
 **Without an API key** (static limits only):
 ```
