@@ -206,45 +206,59 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   truth (maintainer instruction, reaffirmed 2026-09-29), cross-checked against
   the `model` param description in https://nan.builders/openapi.json, plus
   (since 2026-11-10) the live `GET /v1/models` for models NaN launches before
-  the docs catch up (see "2026-11-10 external models" below). The original
+  the docs catch up (see "Larger models" below). The original
   seven documented chat models declare 1M-token windows where the docs say so —
   `deepseek-v4-flash`, `glm5.3-flash`, `qwen3.8-flash` and `mimo-v2.6-flash` at
   **1,048,576**, `qwen3.6` and `gemma4` at **262,144** — and the first three
   carry a `MANUAL_OVERRIDES.contextWindow` because models.dev lagged (rounded
   1,000,000 for the first two, stale 262,144 for `qwen3.8-flash`; docs checked
   2026-10-14).
-  Official chat models (checked 2026-10-14): community `deepseek-v4-flash`,
+  Official chat models (checked 2026-11-17): community `deepseek-v4-flash`,
   `mimo-v2.6-flash`, `qwen3.8-flash`, `glm5.3-flash`, `qwen3.6`, `gemma4`
-  (all text+image vision) + `glm5.3`
-  (~753B MoE, multimodal text+image+audio+video input, 1M context).
+  (all text+image vision) + `glm5.3` (~753B MoE, **text only** since the
+  2026-11-17 docs — an image, audio, video or file part answers 400, earlier
+  turns included; the old card said multimodal, models.dev now says text-only).
   **glm5.3 is a general catalog model since 2026-11-10** (NaN announced "a
   partir de ahora ya NO habrá modelos exclusivos por tier"; the live
   `GET /v1/models` lists it for a non-premium key, checked 2026-11-10). It was
   premium live-only before (`LIVE_ONLY_MODEL_IDS` in the generator and
   `LIVE_ONLY_MODEL_DATA` in `src/fetch-models.ts`); both were REMOVED in
   package 1.5.1 as dead code once nothing was tier-gated. Its values live in
-  `MANUAL_OVERRIDES["glm5.3"]` (1,048,576 / 131,072, text+image,
-  reasoningEffortValues low/medium/high/max, `thinkingLevelMap { off: "low" }`,
-  name "GLM 5.3") over the models.dev entry (text-only, 1,000,000). The
-  overlay/merge paths now treat it like any catalogued id (issue #19's
-  invariant is intact: the store decides which ids exist, the generated
-  catalog decides their capabilities). `src/usage.ts` no longer has a `premium`
-  flag (removed in 1.5.1 at the maintainer's request); its token windows are a
-  known follow-up, NaN moved to credits.
-  **2026-11-10 external models** (ZDR, "EXTERNAL PROVIDER" on NaN's pricing
-  page): `kimi-k3.1-pro`, `qwen3.8-max`, `deepseek-v4-pro`, `hy4`. Not in
-  models.dev provider `nan`, the docs, or openapi.json, but listed by the live
-  `GET /v1/models` (checked 2026-11-10). They enter through
-  `MANUAL_ONLY_MODEL_IDS` with values in `scripts/manual-overrides.ts`
-  (`EXTERNAL_MODELS`), each with a provenance note: contextWindow from the
-  pricing page "1M context" (1,048,576 per the NaN pi docs convention;
-  `qwen3.8-max` uses the first-party 1,000,000), maxTokens 32,768 per
-  https://nan.builders/docs/pi, input from first-party vendor modalities on
-  models.dev restricted to text/image, reasoning true, cost 0 (maintainer
-  decision), `reasoningEffortValues: []` and NO `thinkingLevelMap` — how the
-  gateway handles `reasoning_effort` for external providers is unmeasured
-  (needs a permission-gated live probe). When the docs or models.dev list
-  them, re-verify the values (docs win).
+  `MANUAL_OVERRIDES["glm5.3"]` (1,048,576 / 131,072, **text only**,
+  reasoningEffortValues minimal/low/medium/high/xhigh/max,
+  `thinkingLevelMap { off: "minimal" }` — GLM cannot stop reasoning and the
+  docs apply `none` as `minimal`, name "GLM 5.3") over the models.dev entry
+  (text-only, 1,000,000). The overlay/merge paths now treat it like any
+  catalogued id (issue #19's invariant is intact: the store decides which ids
+  exist, the generated catalog decides their capabilities). `src/usage.ts` no
+  longer has a `premium` flag (removed in 1.5.1 at the maintainer's request);
+  its token windows are a known follow-up, NaN moved to credits.
+  **Larger models — six, all documented since 2026-11-17** (the docs' own
+  label; NaN bills them as "larger model" because they use credits faster):
+  `kimi-k3.1-pro`, `qwen3.8-max`, `qwen4-max`, `deepseek-v4-pro`, `hy4`,
+  `hy4-flash`. They live in `scripts/manual-overrides.ts` as `LARGER_MODELS`
+  (renamed from `EXTERNAL_MODELS` in package 1.5.6), each with a provenance
+  note citing https://nan.builders/docs/models (checked 2026-11-17):
+  contextWindow 1,048,576 per NaN's 1M convention except the two Alibaba
+  flagships (1,000,000, the first-party vendor value); maxTokens from the
+  card's "Max answer" (kimi 1,048,576, deepseek-v4-pro 393,216, hy4 and
+  hy4-flash 65,536, qwen3.8-max 131,072, qwen4-max 131,072) — pi-ai clamps the
+  outgoing budget to the context room (`clampMaxTokensToContext`), so a large
+  documented ceiling never becomes an over-context request; input from the
+  card (`deepseek-v4-pro` is text-only); reasoning true; cost 0 (maintainer
+  decision). `qwen4-max` and `hy4-flash` are the two ids the catalog never had
+  — models.dev provider `nan` lists neither, so they enter through
+  `MANUAL_ONLY_MODEL_IDS`; the other four are models.dev entries corrected by
+  the overrides. Reasoning: the docs keep `kimi-k3.1-pro` and
+  `deepseek-v4-pro` out of the contract and state their `none` aliases are NOT
+  mapped, so they declare no effort values and no `thinkingLevelMap`;
+  `qwen3.8-max` gets `maxTokensField: "max_completion_tokens"` because its
+  `max_tokens` bounds only the visible answer (issue #34's quota failure
+  mode); `qwen4-max`, `qwen3.8-flash`, `hy4`, `hy4-flash` and `qwen3.8-max`
+  map `off` to `none`; `hy4` reasons by default with the gateway applying
+  `low` when no level is sent.
+  When the docs or models.dev change, re-verify the values (docs win; a
+  measurement wins over the docs).
   Removed by the provider: `glm5.2` (2026-09-05) and `mimo-v2.5` (checked
   2026-09-29 — zero mentions in the docs and in openapi.json, and models.dev
   dropped it too; superseded by `mimo-v2.6-flash`). models.dev may re-list a
@@ -290,7 +304,16 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   `test/issue-2-truncated-stream.test.ts`, `test/issue-4-token-usage.test.ts`,
   `test/issue-7-streaming-usage-default.test.ts`;
   issues #2, #4 and #7.
-- **Catalog now declares `thinkingLevelMap` for reasoning suppression** (issue #16, measured 2026-09-27 against live gateway, repro script in the issue). `deepseek-v4-flash` → `{ off: "none" }` (0 reasoning tokens, reproducible); `glm5.3-flash` → `{ off: "minimal" }` (38 reasoning tokens + answer; `none` does NOT work on glm5.3 — 13,382 tokens); `qwen3.6` and `gemma4` → `{ off: "none" }` (gap left by the measured-only fix: the NaN docs state that with no parameter both reason by default with a 16,384-token budget and that `none`/`minimal` skip the reasoning phase entirely — https://nan.builders/docs/models#controlling-reasoning, checked 2026-10-01 — so `off` must send `none` explicitly). `reasoningEffortValues` corrected: deepseek-v4-flash from `[]` to `["none"]`; glm5.3-flash from `["low","medium","high","max"]` to include `"minimal"`. README limits table notes that `maxTokens` does NOT bound the reasoning phase (measured: max_tokens=512 still yielded 13,376 reasoning tokens). pi-ai's `buildRequest` (0.99.1) maps `reasoning: "off"` → `reasoningEffort: undefined` → fires the off-branch that checks `model.thinkingLevelMap?.off` (verified in pi-ai source ~line 718-722). A model whose reasoning depth is genuinely not adjustable (`qwen3.8-flash`, `mimo-v2.6-flash`) keeps no `thinkingLevelMap`: `off` sends nothing and the model uses its own default.
+- **The catalog declares `thinkingLevelMap` for reasoning suppression** (issue #16, measured 2026-09-27 against live gateway, repro script in the issue; extended 2026-11-17 from the docs for every model they now document). `deepseek-v4-flash` → `{ off: "none" }` (0 reasoning tokens, reproducible); `glm5.3-flash` and `glm5.3` → `{ off: "minimal" }` (38 reasoning tokens + answer; `none` does NOT work on glm5.3-flash — 13,382 tokens — and the docs state GLM always reasons, so `none` is applied as `minimal`); `qwen3.6`, `gemma4`, `qwen3.8-flash`, `qwen4-max`, `qwen3.8-max`, `hy4`, `hy4-flash` → `{ off: "none" }` (the NaN docs state that with no parameter these models reason by default and that `none` turns reasoning off — https://nan.builders/docs/models#controlling-reasoning, checked 2026-11-17 — so `off` must send `none` explicitly). `kimi-k3.1-pro` and `deepseek-v4-pro` declare NO map: the docs keep them out of the reasoning contract and state their `none` aliases are not mapped, so `off` sends nothing and the model decides. pi-ai's `buildRequest` maps `reasoning: "off"` → `reasoningEffort: undefined` → fires the off-branch that checks `model.thinkingLevelMap?.off` (verified in pi-ai 1.5.1, `api/openai-completions.js` ~line 715). `reasoningEffortValues` is catalog documentation only — pi and pi-ai never read it (`rg reasoningEffortValues node_modules/@earendil-works` → no match on 1.5.1) — and it now lives in ONE place, each model's `MANUAL_OVERRIDES` entry, with no fallback map in the generator. Ladders follow the docs: `deepseek-v4-flash` `none`+minimal…max (the measured fact that only `none` *suppresses* is unchanged and still drives its off map), `mimo-v2.6-flash` `none`/low…max (`minimal` is applied as `low`, `xhigh` as `max`), GLM and the two new models include `xhigh`. Note that pi-ai's `getSupportedThinkingLevels` only exposes `xhigh`/`max` when the map declares them, so the picker stops at `high` for models whose map only carries `off` (pre-existing pi behaviour; adding identity entries would change every model and is a separate decision). The README limits table records which models' `maxTokens` DOES bound reasoning plus answer (`qwen4-max`, `hy4`, `hy4-flash`, `mimo-v2.6-flash` per the 2026-11-17 docs) versus the measured case where it does not (max_tokens=512 on deepseek-v4-flash still yielded 13,376 reasoning tokens).
+- **Catalog cost is pinned to 0** (generator constant `NAN_CATALOG_COST`, recorded
+  in `GENERATED_CATALOG_META.notes`). NaN bills a credit pool (1 credit ≈ 0.026 €),
+  not per-token USD, so pi's per-token cost estimate has nothing to report. models.dev
+  provider `nan` started publishing a DERIVED USD conversion on 2026-11-17
+  (deepseek-v4-flash 0.29484 / 1.17936, glm5.3 1.37592 / 4.32432, …), which is not a
+  price NaN charges; adopting it would make pi display that estimate as real money.
+  A model with a confirmed per-token price can still override `cost` through
+  `MANUAL_OVERRIDES`; to adopt models.dev's numbers everywhere, delete the constant.
+  Regression test: `test/larger-models-2026-11-17.test.ts`.
 - A NaN request that still exceeds the destination model's context window (the
   cross-model thinking guard is disabled with `NAN_THINKING_GUARD=0`, the
   inflation is not a `thinking` block, or the window is smaller) gets NaN's
