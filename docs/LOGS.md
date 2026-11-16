@@ -87,3 +87,38 @@ the thread without re-reading git history.
 
 - Owner decision: track or ignore `decisions.md` / `external-verify.md` under
   the new `docs/` ignore rule; then external verdict on the handoff.
+
+## 2026-11-16 — issue #40: `nan-mcp-server` pin `1.3.0 → 1.5.0`
+
+**Done**
+
+- Applied issue #40 on branch `fix/issue-40-nan-mcp-server-1-5-0` (PR #41,
+  body `Closes #40`): bumped `DEFAULT_NAN_MEDIA_MCP_VERSION` and carried the
+  documented surface and the release line in one patch release `1.5.5`. The
+  unit ledger lives in `docs/fix/issue-40-nan-mcp-server-1-5-0/` (local-only
+  under the repo's `docs/` ignore rule); SPEC + obligations + evidence are in
+  `SPEC.md`, the protected-path records in `decisions.md`.
+- Both READMEs: media tool table gains `get_usage` (10 tools), Features row
+  count `9 → 10`, `NAN_MEDIA_MCP_VERSION` default `1.5.0`; badges `1.5.5`.
+- AGENTS.md verified facts: pin `nan-mcp-server@1.5.0`, 10 tools; upstream
+  `1.4.0` `qwen-image-2.1` support needs no package change, `1.5.0` adds
+  `get_usage` (real consumption + credit pool) and flags stale `get_quota`
+  counters.
+- CHANGELOG `1.5.5` entry; `package.json` `1.5.5` (npm latest is `1.5.4`).
+
+**Checks**
+
+- RED first: `bun test test/mcp-media.test.ts` → 7 pass / 1 fail (pin
+  reproducer), then 8 pass / 0 fail after the constant change.
+- `bun test` → 376 pass / 0 fail / 1662 expect() calls / 35 files;
+  `bun run typecheck` → exit 0.
+- Differential vs a `d49ba7c` (`git archive main`) copy in `mktemp -d`:
+  identical 376/0/1662/35 and typecheck 0.
+- Published-surface check: `unpkg.com/nan-mcp-server@1.5.0/server.js` → 10
+  tools (`get_usage` the only addition); base-copy `bun run
+  check-nan-mcp-server` reproduces issue #40's `breaking: false` verdict.
+
+**Next**
+
+- External verifier verdict on PR #41; merging publishes `1.5.5` through the
+  gated workflow.
