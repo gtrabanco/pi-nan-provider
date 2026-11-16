@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.5] - 2026-11-16
+
+### Changed
+
+- **Media MCP bridge pin `nan-mcp-server@1.3.0 → 1.5.0`** (issue #40, auto-created by
+  `scripts/check-nan-mcp-server.ts`; verdict "safe to bump"). Every tracked tool is
+  still exposed, and `1.5.0` adds one: `get_usage` — real consumption and the credit
+  pool from `GET /v1/usage`, which the server recommends over the legacy `get_quota`
+  whose counters can be stale (flagged when they lag behind real activity). Native
+  `pi.registerMcpServer()` registration forwards it automatically as
+  `mcp__nan_media__get_usage`; no bridge code changed. The upstream `1.4.0`
+  `qwen-image-2.1` image support needs no package change either (the native image
+  model already exists in `src/images.ts`). Both READMEs document the 10-tool surface
+  and the new default.
+
 ## [1.5.4] - 2026-11-12
 
 ### Changed

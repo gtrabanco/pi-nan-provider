@@ -1,7 +1,7 @@
 # @gtrabanco/𝜋-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.5.4-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-1.5.5-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 [![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://cloud.nan.builders/r/7GK06FX8)
 
 [NaN Builders](https://cloud.nan.builders/r/7GK06FX8) model provider + a native MCP server for [pi](https://github.com/earendil-works/pi). 
@@ -25,7 +25,7 @@ Registers the `nan` provider via `pi.registerProvider()` using NaN's OpenAI-comp
 | **Reasoning controls** | Per-model `reasoningEffortValues` + `thinkingLevelMap` ([#16](https://github.com/gtrabanco/pi-nan-provider/issues/16)), the reasoning-only stream guard ([#21](https://github.com/gtrabanco/pi-nan-provider/issues/21)) and the `max_completion_tokens` interim bound for `qwen3.8-flash` ([#34](https://github.com/gtrabanco/pi-nan-provider/issues/34)). |
 | **Attribution header** | `X-Pi-Provider: gtrabanco/pi-nan-provider@<version>` on every request, stripped when pi's install telemetry is disabled. |
 | **Native image models** | `flux-2-klein` and `qwen-image-2.1` registered as pi `type: "image"` models, reachable from codemode and extensions. |
-| **Native MCP media bridge** | The `nan-media` server (9 tools) registered through `pi.registerMcpServer()`, managed with `/nan-mcp`. |
+| **Native MCP media bridge** | The `nan-media` server (10 tools) registered through `pi.registerMcpServer()`, managed with `/nan-mcp`. |
 | **Credits reporting** | `/nan-usage` shows credits balance with a progress bar, per-model breakdown (input / cached / output in M, credits consumed), and billing period — all from `GET /v1/usage` ([#37](https://github.com/gtrabanco/pi-nan-provider/issues/37)). |
 | **Cache-anomaly evidence** | `cf-ray` capture on the repeated `id` + `created` gateway signature ([#17](https://github.com/gtrabanco/pi-nan-provider/issues/17)) plus the deterministic `/nan-debug` collector ([#35](https://github.com/gtrabanco/pi-nan-provider/issues/35)). |
 | **pi integration** | Model refresh driven by pi's Models runtime, per-model `models.json` overrides, and the extension changelog (`pi.changelogPath`) that pi shows after an update. |
@@ -259,6 +259,7 @@ registering a server that can never connect. To get MCP in the CLI, enable the c
 | `mcp__nan_media__embed_text` | Text embeddings (qwen3-embedding) |
 | `mcp__nan_media__rerank_documents` | Document reranking (Qwen3-Reranker) |
 | `mcp__nan_media__get_quota` | Per-model token quota (used / cap / remaining / reset) |
+| `mcp__nan_media__get_usage` | Real consumption and credit pool (`GET /v1/usage`; preferred over stale `get_quota` counters) |
 
 > pi 0.99.0–0.99.1 used the hyphenated form (`mcp__nan-media__*`); pi 0.99.2+ sanitizes tool
 > names to `[A-Za-z0-9_]` only, so hyphens became underscores. The underscore form applies
@@ -269,7 +270,7 @@ registering a server that can never connect. To get MCP in the CLI, enable the c
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `NAN_MEDIA_MCP` | — | Per-session override (`0` or `false` to disable). |
-| `NAN_MEDIA_MCP_VERSION` | `1.3.0` | Pinned server version (recommended). |
+| `NAN_MEDIA_MCP_VERSION` | `1.5.0` | Pinned server version (recommended). |
 | `NAN_MEDIA_MCP_COMMAND` | — | Custom command override. |
 | `NAN_MEDIA_MCP_TIMEOUT_MS` | `120000` | Per-call timeout. |
 

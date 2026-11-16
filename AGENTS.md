@@ -310,8 +310,8 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
 - Since 0.10.0, this package uses native MCP via `pi.registerMcpServer()`.
   The server is session-scoped, visible in `/mcp` with source "extension".
   Server names and tool IDs:
-  - `nan-media` → tools: `mcp__nan_media__generate_image/edit_image/text_to_speech/list_voices/speech_to_text/list_models/embed_text/rerank_documents/get_quota`
-    (community stdio, `npx -y nan-mcp-server@1.3.0`, 120s timeout; 9 tools as of 1.3.0)
+  - `nan-media` → tools: `mcp__nan_media__generate_image/edit_image/text_to_speech/list_voices/speech_to_text/list_models/embed_text/rerank_documents/get_quota/get_usage`
+    (community stdio, `npx -y nan-mcp-server@1.5.0`, 120s timeout; 10 tools as of 1.5.0)
   - `exposure: "direct"` — tools are declared to the model.
   - User `mcp.json` entries with the same name take precedence.
   - `/nan-mcp enable/disable` calls `pi.registerMcpServer()` / `pi.unregisterMcpServer()` directly.
@@ -336,10 +336,18 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
     key, shared rate limit/quota). Spec: https://nan.builders/openapi.json
     (tag "MCP"). **Currently exposes no tools** (see the removal note above).
   - Community `nan-mcp-server` (https://github.com/luciferfran/nan-mcp-server):
-    stdio MCP server, version-pinned via NAN_MEDIA_MCP_VERSION (default 1.3.0)
-    or full command override via NAN_MEDIA_MCP_COMMAND. Tools (1.3.0): generate_image,
+    stdio MCP server, version-pinned via NAN_MEDIA_MCP_VERSION (default 1.5.0)
+    or full command override via NAN_MEDIA_MCP_COMMAND. Tools (1.5.0): generate_image,
     edit_image, text_to_speech, list_voices, speech_to_text, list_models, embed_text,
-    rerank_documents, get_quota.
+    rerank_documents, get_quota, get_usage.
+    The pin moved `1.3.0 → 1.5.0` in package 1.5.5 (issue #40, auto-created by the
+    weekly check; verdict safe, no tracked tool dropped). Upstream `1.4.0` added
+    `qwen-image-2.1` image support (no package change: the native image model
+    already exists in `src/images.ts`); `1.5.0` added `get_usage` — real
+    consumption and the credit pool from `GET /v1/usage`, recommended over the
+    legacy `get_quota` whose counters can be frozen (stale lines are flagged) —
+    and native registration exposes it automatically, so it is documented, not
+    bridged per-tool (verified on the published `server.js`, 2026-11-16).
   - Automated check (scripts/check-nan-mcp-server.ts) compares the npm registry
     against the pin weekly and files a `dependencies` issue when a newer release
     exists, with a breaking/safe verdict from the live server tool surface.
