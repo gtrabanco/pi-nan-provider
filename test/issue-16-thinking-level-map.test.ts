@@ -160,11 +160,13 @@ describe("issue #16 — thinkingLevelMap flows to the wire", () => {
 		expect(gateway.lastBody().reasoning_effort).toBe("none");
 	});
 
-	test("a model with non-adjustable reasoning sends no reasoning_effort when reasoning: 'off'", async () => {
-		// qwen3.8-flash accepts the parameter but its depth is not adjustable and
-		// it has no `none` value, so the catalog declares no thinkingLevelMap:
-		// pi cannot ask for off, and nothing is sent (the model's own default).
-		const model = modelFor("qwen3.8-flash");
+	test("a model outside the reasoning contract sends no reasoning_effort when reasoning: 'off'", async () => {
+		// kimi-k3.1-pro is one of the two models the docs keep out of the effort
+		// contract and only name as "Reasoning model"; the `none` aliases are NOT
+		// mapped on it (https://nan.builders/docs/models#controlling-reasoning,
+		// checked 2026-11-17), so the catalog declares no thinkingLevelMap: pi
+		// cannot ask for off, and nothing is sent (the model's own default).
+		const model = modelFor("kimi-k3.1-pro");
 		expect(model.thinkingLevelMap).toBeUndefined();
 		expect(model.reasoning).toBe(true);
 
@@ -174,11 +176,29 @@ describe("issue #16 — thinkingLevelMap flows to the wire", () => {
 		expect("reasoning_effort" in gateway.lastBody()).toBe(false);
 	});
 
-	test("deepseek-v4-flash reasoningEffortValues is ['none']", async () => {
+	test("qwen3.8-flash maps off to 'none' (docs 2026-11-17)", async () => {
+		// The 2026-10-14 docs called its depth "not adjustable"; the 2026-11-17 card
+		// and contract table state `none` turns reasoning off, so the catalog now
+		// carries the map and `thinking: off` reaches the gateway.
+		const model = modelFor("qwen3.8-flash");
+		expect(model.thinkingLevelMap?.off).toBe("none");
+
+		const gateway = capturingGateway();
+		await runTurn(model, gateway);
+
+		expect(gateway.lastBody().reasoning_effort).toBe("none");
+	});
+
+	test("deepseek-v4-flash reasoningEffortValues is the documented steering ladder", async () => {
+		// docs/models#controlling-reasoning (2026-11-17): `none` turns it off and
+		// `minimal` to `max` "steer how much it reasons — hints, not hard caps".
+		// The issue #16 measurement is unchanged and still drives the off map:
+		// only `none` suppresses reasoning (0 tokens, full answer).
 		const entry = NAN_GENERATED_MODELS.find((e) => e.id === "deepseek-v4-flash");
 		expect(entry).toBeDefined();
-		expect(entry!.reasoningEffortValues).toEqual(["none"]);
-		// The note must cite issue #16 as the source.
+		expect(entry!.reasoningEffortValues).toEqual(["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
+		expect(entry!.thinkingLevelMap?.off).toBe("none");
+		// The note must cite issue #16 as the source of the off measurement.
 		expect(
 			entry!.notes?.some((n) => n.includes("issue #16") || n.includes("#16")),
 			"deepseek-v4-flash note must cite issue #16",

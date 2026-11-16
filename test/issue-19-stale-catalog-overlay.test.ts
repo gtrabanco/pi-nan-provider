@@ -256,8 +256,9 @@ describe("issue #19 — live-only / uncatalogued stored ids pass through", () =>
 			// corrected instead of passing through.
 			expect(glm53!.contextWindow).toBe(1_048_576);
 			expect(glm53!.maxTokens).toBe(131_072);
-			expect(glm53!.input).toEqual(["text", "image"]);
-			expect(glm53!.thinkingLevelMap?.off).toBe("low");
+			// glm5.3 is text-only per the NaN docs (2026-11-17): an image answers 400.
+			expect(glm53!.input).toEqual(["text"]);
+			expect(glm53!.thinkingLevelMap?.off).toBe("minimal");
 			expect(glm53!.compat?.supportsReasoningEffort).toBe(true);
 		},
 	);

@@ -148,9 +148,9 @@ describe("mergeLiveWithGenerated", () => {
 
 	test("glm5.3 resolves to its catalog capabilities, not the unknown placeholder", () => {
 		// NaN removed tier-exclusive models on 2026-11-10: glm5.3 is a general
-		// catalog model, so a live id match returns the generated entry (the
-		// values it carried as a premium live-only model) instead of the blind
-		// 128K/4K placeholder.
+		// catalog model, so a live id match returns the generated entry instead of
+		// the blind 128K/4K placeholder. docs/models (2026-11-17) declares it
+		// text-only and maps `off` to `minimal` (GLM cannot stop reasoning).
 		const merged = mergeLiveWithGenerated(["glm5.3"], SOURCE);
 		expect(merged.matched).toEqual(["glm5.3"]);
 		expect(merged.unknown).toEqual([]);
@@ -158,22 +158,30 @@ describe("mergeLiveWithGenerated", () => {
 		expect(model.contextWindow).toBe(1_048_576);
 		expect(model.maxTokens).toBe(131_072);
 		expect(model.reasoning).toBe(true);
-		expect(model.input).toEqual(["text", "image"]);
-		expect(model.thinkingLevelMap?.off).toBe("low");
+		expect(model.input).toEqual(["text"]);
+		expect(model.thinkingLevelMap?.off).toBe("minimal");
 		expect(model.compat?.supportsFinishReason).toBe(true);
 	});
 
-	test("the 2026-11-10 external models resolve to catalog capabilities, not the 128K placeholder", () => {
-		// Absent from models.dev and the NaN docs, present in the live /v1/models;
-		// without their manual-only catalog entries the merge would hand them
-		// UNKNOWN_MODEL_LIMITS and pi would compact around 100K of a 1M window.
-		const ids = ["kimi-k3.1-pro", "qwen3.8-max", "deepseek-v4-pro", "hy4"];
+	test("the larger models resolve to catalog capabilities, not the 128K placeholder", () => {
+		// Without catalog entries the merge hands them UNKNOWN_MODEL_LIMITS and pi
+		// would compact around 100K of a 1M window. Limits are the documented ones
+		// (docs/models, 2026-11-17).
+		const expected = new Map([
+			["kimi-k3.1-pro", 1_048_576],
+			["qwen3.8-max", 131_072],
+			["qwen4-max", 131_072],
+			["deepseek-v4-pro", 393_216],
+			["hy4", 65_536],
+			["hy4-flash", 65_536],
+		]);
+		const ids = [...expected.keys()];
 		const merged = mergeLiveWithGenerated(ids, SOURCE);
 		expect(merged.matched).toEqual(ids);
 		expect(merged.unknown).toEqual([]);
 		for (const model of merged.models) {
 			expect(model.contextWindow, model.id).toBeGreaterThanOrEqual(1_000_000);
-			expect(model.maxTokens, model.id).toBe(32_768);
+			expect(model.maxTokens, model.id).toBe(expected.get(model.id)!);
 			expect(model.reasoning, model.id).toBe(true);
 		}
 	});
