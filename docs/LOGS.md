@@ -122,3 +122,36 @@ the thread without re-reading git history.
 
 - External verifier verdict on PR #41; merging publishes `1.5.5` through the
   gated workflow.
+
+## 2026-11-16 — issue #40: external-verify advisory corrections (post-verdict)
+
+**Done**
+
+- Triaged the `EXTERNAL VERIFY` receipt for
+  `docs/fix/issue-40-nan-mcp-server-1-5-0/` (0 blockers, 2 advisories); both
+  advisories deserved a fix and were fixed in the unit ledger (local-only,
+  gitignored): O2's validator cell now states the outcomes its commands
+  actually print (the checker never emitted a 1.3.0→1.5.0 tool delta — that
+  comes from the published-surface diff), and O8's head snapshot
+  (`8 files, +74/−14`) was appended as a new evidence row instead of rewriting
+  the 7-file receipt.
+- Correction Log row + 3 evidence rows added to the unit SPEC; the §5
+  freeze exception (validator cell edit) is recorded in the Log row.
+
+**Checks**
+
+- RED first: both reproducer cells mismatched measured output before the edit;
+  GREEN after: corrected O2 validators (`curl` surface → 10 names,
+  `comm -13` → exactly `get_usage`, `comm -23` → empty, base-copy checker
+  `status: update-available breaking: false`) and O8 (`git diff --stat` →
+  `8 files changed, 74 insertions(+), 14 deletions(-)`).
+- `bun test` → 376 pass / 0 fail / 1662 expect() calls / 35 files;
+  `bun run typecheck` → exit 0. Tracked tree otherwise untouched
+  (correction is docs-only).
+- Sibling sweep: no surviving assertion of the old validator claim; the
+  7-file receipt remains only as the historical row, reconciled by the
+  appended one.
+
+**Next**
+
+- Owner delta-reverify of this correction batch on PR #41.
