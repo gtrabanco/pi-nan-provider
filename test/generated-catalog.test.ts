@@ -18,16 +18,15 @@ import { GENERATED_CATALOG_META, NAN_GENERATED_MODELS } from "../scripts/models.
 const byId = new Map(NAN_GENERATED_MODELS.map((entry) => [entry.id, entry]));
 
 describe("manual overrides in the generated catalog", () => {
-	test("catalog matches the served NaN chat models (documented set plus the 2026-11-10 external models)", () => {
+	test("catalog matches the served NaN chat models (docs/models 2026-11-17)", () => {
 		// Official chat models per https://nan.builders/docs/models and the model
 		// param description in https://nan.builders/openapi.json (checked
-		// 2026-09-29): deepseek-v4-flash, mimo-v2.6-flash, qwen3.8-flash,
-		// glm5.3-flash, qwen3.6, gemma4, glm5.3. mimo-v2.5 is gone from both
-		// sources (removed by NaN, replaced by mimo-v2.6-flash). NaN removed
-		// tier-exclusive models on 2026-11-10, so glm5.3 is a general catalog
-		// model, and the same day it launched four external-provider models
-		// the docs do not list yet (kimi-k3.1-pro, qwen3.8-max,
-		// deepseek-v4-pro, hy4).
+		// 2026-11-17): the seven community models (deepseek-v4-flash,
+		// mimo-v2.6-flash, qwen3.8-flash, glm5.3-flash, qwen3.6, gemma4, glm5.3)
+		// plus the six larger models the docs now document (kimi-k3.1-pro,
+		// qwen3.8-max, qwen4-max, deepseek-v4-pro, hy4, hy4-flash).
+		// mimo-v2.5 is gone from every source (removed by NaN). NaN removed
+		// tier-exclusive models on 2026-11-10, so glm5.3 is a general catalog model.
 		expect([...byId.keys()].sort()).toEqual(
 			[
 				"deepseek-v4-flash",
@@ -36,39 +35,46 @@ describe("manual overrides in the generated catalog", () => {
 				"glm5.3",
 				"glm5.3-flash",
 				"hy4",
+				"hy4-flash",
 				"kimi-k3.1-pro",
 				"mimo-v2.6-flash",
 				"qwen3.6",
 				"qwen3.8-flash",
 				"qwen3.8-max",
+				"qwen4-max",
 			],
 		);
 	});
 
-	// S2 of odd/tasks/nan-external-models-2026-11.md: values come from NaN's pricing
-	// page ("1M context"), https://nan.builders/docs/pi (maxTokens 32768 for every
-	// 1M NaN model) and first-party vendor entries on models.dev; reasoning effort
-	// mapping for external providers is unmeasured, so none is declared.
-	const EXTERNAL_MODELS = [
-		{ id: "kimi-k3.1-pro", contextWindow: 1_048_576, input: ["text", "image"] },
-		{ id: "qwen3.8-max", contextWindow: 1_000_000, input: ["text", "image"] },
-		{ id: "deepseek-v4-pro", contextWindow: 1_048_576, input: ["text"] },
-		{ id: "hy4", contextWindow: 1_048_576, input: ["text", "image"] },
+	// Values per https://nan.builders/docs/models (2026-11-17): context, "Max
+	// answer", input modalities and the reasoning contract. The four larger models
+	// that entered the catalog on 2026-11-10 were carrying the flat 32,768 default
+	// and no reasoning mapping; the two new ids were missing entirely.
+	const LARGER_MODELS = [
+		{ id: "kimi-k3.1-pro", contextWindow: 1_048_576, maxTokens: 1_048_576, input: ["text", "image"], efforts: [], off: undefined },
+		{ id: "qwen3.8-max", contextWindow: 1_000_000, maxTokens: 131_072, input: ["text", "image"], efforts: ["none"], off: "none" },
+		{ id: "qwen4-max", contextWindow: 1_000_000, maxTokens: 131_072, input: ["text", "image"], efforts: ["none", "minimal", "low", "medium", "high", "xhigh", "max"], off: "none" },
+		{ id: "deepseek-v4-pro", contextWindow: 1_048_576, maxTokens: 393_216, input: ["text"], efforts: [], off: undefined },
+		{ id: "hy4", contextWindow: 1_048_576, maxTokens: 65_536, input: ["text", "image"], efforts: ["none"], off: "none" },
+		{ id: "hy4-flash", contextWindow: 1_048_576, maxTokens: 65_536, input: ["text", "image"], efforts: ["none"], off: "none" },
 	] as const;
-	for (const expected of EXTERNAL_MODELS) {
-		test(`${expected.id} ships its documented capabilities with provenance (2026-11-10)`, () => {
+	for (const expected of LARGER_MODELS) {
+		test(`${expected.id} ships its documented capabilities with provenance (2026-11-17)`, () => {
 			const entry = byId.get(expected.id);
 			expect(entry).toBeDefined();
 			expect(entry!.contextWindow).toBe(expected.contextWindow);
-			expect(entry!.maxTokens).toBe(32_768);
+			expect(entry!.maxTokens).toBe(expected.maxTokens);
 			expect(entry!.input).toEqual([...expected.input]);
 			expect(entry!.reasoning).toBe(true);
 			expect(entry!.cost).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
-			expect(entry!.reasoningEffortValues).toEqual([]);
-			expect(entry!.thinkingLevelMap).toBeUndefined();
+			expect(entry!.reasoningEffortValues).toEqual([...expected.efforts]);
+			expect(entry!.thinkingLevelMap?.off).toBe(expected.off);
 			expect(entry!.compat?.supportsFinishReason).toBe(true);
 			expect(entry!.compat?.supportsUsageInStreaming).toBe(true);
-			const provenance = entry!.notes?.filter((n) => n.includes("2026-11-10") && n.includes("https://")) ?? [];
+			const provenance =
+				entry!.notes?.filter(
+					(n) => n.includes("https://nan.builders/docs/models") && n.includes("2026-11-17"),
+				) ?? [];
 			expect(provenance.length, `${expected.id} provenance note`).toBeGreaterThan(0);
 		});
 	}
@@ -175,21 +181,24 @@ describe("manual overrides in the generated catalog", () => {
 		).toBe(true);
 	});
 
-	test("glm5.3 is a general catalog model with its documented capabilities (no tier gating since 2026-11-10)", () => {
+	test("glm5.3 is a general catalog model with its documented capabilities (text-only since 2026-11-17)", () => {
 		// NaN announced on 2026-11-10 that there are no tier-exclusive models any
 		// more, so glm5.3 left the premium live-only path and ships in the static
-		// catalog with the values it carried there (NaN docs, checked 2026-10-14):
-		// models.dev lists it text-only at 1,000,000 context, so the override pins
-		// the docs values.
+		// catalog. docs/models (2026-11-17) declares it text-only — an image or an
+		// earlier turn carrying one answers 400 — and states that GLM cannot stop
+		// reasoning, so `none` is applied as `minimal`, the value `off` maps to.
 		const entry = byId.get("glm5.3");
 		expect(entry).toBeDefined();
 		expect(entry!.name).toBe("GLM 5.3");
 		expect(entry!.contextWindow).toBe(1_048_576);
 		expect(entry!.maxTokens).toBe(131_072);
-		expect(entry!.input).toEqual(["text", "image"]);
+		expect(entry!.input).toEqual(["text"]);
 		expect(entry!.reasoning).toBe(true);
-		expect(entry!.reasoningEffortValues).toEqual(["low", "medium", "high", "max"]);
-		expect(entry!.thinkingLevelMap).toEqual({ off: "low" });
+		expect(entry!.reasoningEffortValues).toEqual(["minimal", "low", "medium", "high", "xhigh", "max"]);
+		// GLM cannot stop reasoning: `off` sends `minimal`. `xhigh`/`max` carry
+		// identity entries because pi-ai only offers those two levels when the
+		// map declares them (checked 2026-11-17).
+		expect(entry!.thinkingLevelMap).toEqual({ off: "minimal", xhigh: "xhigh", max: "max" });
 		expect(
 			GENERATED_CATALOG_META.notes.some((note) => note.startsWith("live-only:")),
 			"no live-only exclusion is recorded any more",

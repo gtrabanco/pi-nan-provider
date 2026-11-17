@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.6] - 2026-11-17
+
+### Added
+
+- **`qwen4-max` and `hy4-flash` in the catalog.** Both are chat models NaN serves
+  (live `GET /v1/models`, 2026-11-17) and documents on
+  [Models](https://nan.builders/docs/models), but models.dev provider `nan` lists
+  neither, so without a catalog entry the live merge would have handed them the
+  128K/4K placeholder. Documented values: `qwen4-max` 1,000,000 / 131,072 with the
+  full `reasoning_effort` ladder; `hy4-flash` 1,048,576 / 65,536, text+image, with
+  `none` as its off switch. Both carry `thinkingLevelMap.off`, so `thinking: off`
+  reaches the gateway as `reasoning_effort: "none"`.
+
+### Fixed
+
+- **`xhigh` and `max` are now selectable on the models whose docs declare them.**
+  pi-ai treats both levels as opt-in: `getSupportedThinkingLevels` only lists them
+  when the catalog's `thinkingLevelMap` carries a non-null entry, and any request
+  for them was silently clamped to `high` — so `max` reached the gateway as
+  `reasoning_effort: "high"`. The catalog now declares identity entries for
+  `deepseek-v4-flash`, `gemma4`, `qwen3.6`, `glm5.3`, `glm5.3-flash`,
+  `qwen3.8-flash`, `qwen4-max` and `mimo-v2.6-flash` (where NaN applies `xhigh`
+  as `max`). It matters concretely on `qwen3.6`/`gemma4`, whose documented
+  reasoning cap is 16,384 tokens at `high` and 32,768 at `xhigh`/`max`. The
+  models whose docs document only the off switch (`hy4`, `hy4-flash`,
+  `qwen3.8-max`) and the two outside the reasoning contract
+  (`kimi-k3.1-pro`, `deepseek-v4-pro`) stay at `off`…`high`.
+- **`glm5.3` is text-only.** The card and the pi page now state that an image, audio,
+  video or file part answers 400 (earlier turns included); the catalog still declared
+  `text, image` from the 2026-10-14 docs. models.dev agrees.
+- **`glm5.3` / `glm5.3-flash` map `thinking: off` to `minimal`** — the docs state GLM
+  cannot stop reasoning and applies `none` as `minimal`, its shortest reasoning
+  (`glm5.3` previously mapped to `low`).
+- **`qwen3.8-max` sends `max_completion_tokens`.** Its `max_tokens` bounds only the
+  visible answer and the reasoning bills on top of it — the quota blowout issue #34
+  fixed for `qwen3.8-flash`, now also documented for this model.
+- **The larger models declare their documented limits** instead of the flat 32,768
+  default: `kimi-k3.1-pro` 1,048,576, `deepseek-v4-pro` 393,216, `hy4` 65,536,
+  `qwen3.8-max` 131,072. `kimi-k3.1-pro` and `deepseek-v4-pro` stay outside the
+  reasoning contract (the docs do not map their `none` aliases), so no
+  `reasoning_effort` is sent for them.
+- **`qwen3.8-flash` maps `thinking: off` to `none`.** The docs now state `none` turns
+  its reasoning off; the catalog previously declared the parameter as
+  "accepted but not adjustable" and sent nothing.
+- `reasoning_effort` ladders follow the 2026-11-17 docs: `deepseek-v4-flash` declares
+  `none` + the steering values (the measured `none`-only suppression is unchanged and
+  still drives its off map), `mimo-v2.6-flash` declares `none`/`low`…`max`, and the
+  `qwen3.6`/`gemma4`/GLM ladders include `xhigh`. The effort list now lives only in
+  `scripts/manual-overrides.ts`; the generator's duplicate map is gone.
+
 ## [1.5.5] - 2026-11-16
 
 ### Changed

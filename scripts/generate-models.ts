@@ -37,27 +37,7 @@
 import type { GeneratedModelEntry } from "../src/fetch-models.ts";
 import { NON_CHAT_MODEL_IDS } from "../src/fetch-models.ts";
 import type { ManualModelOverride } from "./manual-overrides.ts";
-import {
-	MANUAL_OVERRIDES,
-	MANUAL_ONLY_MODEL_IDS,
-	REASONING_EFFORT_VALUES,
-} from "./manual-overrides.ts";
-
-/**
- * Reasoning effort values sourced from the NaN docs (https://nan.builders/docs/models
- * #controlling-reasoning, checked 2026-09-25). models.dev has no reasoning_effort_values
- * field — only reasoning_options which is [{type:"toggle"}] or [] — so the actual
- * effort levels must be hand-maintained from the docs. An empty array means the
- * parameter is accepted but depth is not adjustable by the user.
- */
-const REASONING_EFFORT_VALUES_FROM_DOCS: Record<string, string[]> = {
-	...REASONING_EFFORT_VALUES,
-	// deepseek-v4-flash: any value (no effect) — model decides per request
-	"deepseek-v4-flash": [],
-	// qwen3.8-flash, mimo-v2.6-flash: accepted, depth not adjustable
-	"qwen3.8-flash": [],
-	"mimo-v2.6-flash": [],
-};
+import { MANUAL_OVERRIDES, MANUAL_ONLY_MODEL_IDS } from "./manual-overrides.ts";
 
 const MODELS_DEV_API_URL = "https://models.dev/api.json";
 const SOURCE_PROVIDER_ID = "nan";
@@ -150,6 +130,22 @@ const NAN_COMPAT = {
 	maxTokensField: "max_tokens" as "max_tokens" | "max_completion_tokens",
 };
 
+/**
+ * Catalog cost for every chat model: zero, by maintainer decision. NaN bills a
+ * credit pool (1 credit ≈ 0.026 €) and not per-token USD, so pi's per-token
+ * cost estimate has nothing to report here. models.dev provider "nan" started
+ * publishing a DERIVED USD conversion on 2026-11-17 (deepseek-v4-flash
+ * 0.29484 / 1.17936, glm5.3 1.37592 / 4.32432, …) which is not a price NaN
+ * charges; adopting it would make pi display an estimate as real money for a
+ * credit-based gateway. A model with a confirmed per-token price can still
+ * override it through MANUAL_OVERRIDES.cost; to adopt models.dev's numbers for
+ * everything, delete this constant and read `m.cost` in convertModel.
+ */
+const NAN_CATALOG_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } as const;
+
+const NAN_COST_NOTE =
+	"cost 0 on every model: NaN bills a credit pool (1 credit ≈ 0.026 €) rather than per-token USD, so pi's per-token cost estimate does not apply. models.dev provider nan started publishing a derived USD conversion on 2026-11-17; it is not a price NaN charges, so it is not adopted (delete NAN_CATALOG_COST in scripts/generate-models.ts to adopt it).";
+
 const NAN_COMPAT_NOTE =
 	"compat matches the maintainer's working ~/.pi/agent/models.json LiteLLM config for api.nan.builders (2026-09-04): supportsDeveloperRole false, supportsReasoningEffort true, maxTokensField max_tokens. NaN's docs example sets only supportsDeveloperRole: true and is not battle-tested. supportsFinishReason true (2026-09-13, issue #2): the LiteLLM gateway intermittently closes SSE streams before emitting finish_reason; with true pi-ai raises 'Stream ended without finish_reason', which matches pi-ai's retryable-provider pattern ('ended without') and is retried automatically, whereas false silently synthesized stop/toolUse and stalled the turn mid-answer. supportsUsageInStreaming true (2026-09-16, issue #7): NaN's published schema is silent about stream_options, but the live gateway honors it — two identical streaming calls per model, differing only in stream_options: { include_usage: true }, returned 0 usage chunks without it and exactly 1 with it (prompt/completion/reasoning/cached token counts) on deepseek-v4-flash, glm5.3-flash, qwen3.6, mimo-v2.5 and gemma4, and a real pi session then recorded token counts where it recorded zeros. pi-ai only sends stream_options when this is not false, and the sanitizer forwards it when the model declares true, so chat models opt in by default and usage is reported (issue #4). A model that does not report streaming usage can still opt out per model with a models.json compat override (supportsUsageInStreaming: false); the sanitizer then strips stream_options and the payload stays strict.";
 
@@ -216,10 +212,7 @@ function buildManualOnlyModelEntry(
 	detail: string,
 	override: ManualModelOverride | undefined,
 ): GeneratedModel {
-	const reasoningEffortValues =
-		override?.reasoningEffortValues ??
-		REASONING_EFFORT_VALUES_FROM_DOCS[modelId] ??
-		undefined;
+	const reasoningEffortValues = override?.reasoningEffortValues ?? undefined;
 
 	return {
 		entry: {
@@ -227,7 +220,7 @@ function buildManualOnlyModelEntry(
 			name: override?.name ?? modelId,
 			reasoning: override?.reasoning ?? true,
 			input: override?.input ?? ["text", "image"],
-			cost: override?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			cost: override?.cost ?? { ...NAN_CATALOG_COST },
 			contextWindow: override?.contextWindow ?? 1_048_576,
 			maxTokens: override?.maxTokens ?? 131_072,
 			reasoningEffortValues,
@@ -235,6 +228,7 @@ function buildManualOnlyModelEntry(
 			compat: buildCompat(override),
 			notes: [
 				NAN_COMPAT_NOTE,
+				NAN_COST_NOTE,
 				`manual-only: "${modelId}" not yet on models.dev provider nan (${detail}).`,
 				...(override ? [override.note] : []),
 			],
@@ -270,11 +264,11 @@ function convertModel(modelId: string, m: ModelsDevModel): GeneratedModel | { sk
 	}
 
 	// Reasoning effort values sourced from the NaN docs (models.dev does not
-	// expose them — only reasoning_options: [{type:"toggle"}] or []).
-	// An empty array means the parameter is accepted but depth is not
-	// adjustable by the user; the model manages its own reasoning depth.
-	const reasoningEffortValues =
-		override?.reasoningEffortValues ?? REASONING_EFFORT_VALUES_FROM_DOCS[modelId] ?? undefined;
+	// expose them — only reasoning_options: [{type:"toggle"}] or []). They live
+	// on MANUAL_OVERRIDES next to their provenance note: one source, no fallback
+	// map in this generator. An empty array means the parameter is accepted but
+	// depth is not adjustable by the user; the model manages its own reasoning.
+	const reasoningEffortValues = override?.reasoningEffortValues ?? undefined;
 
 	return {
 		entry: {
@@ -282,12 +276,7 @@ function convertModel(modelId: string, m: ModelsDevModel): GeneratedModel | { sk
 			name: override?.name ?? m.name ?? modelId,
 			reasoning: override?.reasoning ?? m.reasoning === true,
 			input,
-			cost: override?.cost ?? {
-				input: m.cost?.input ?? 0,
-				output: m.cost?.output ?? 0,
-				cacheRead: m.cost?.cache_read ?? 0,
-				cacheWrite: m.cost?.cache_write ?? 0,
-			},
+			cost: override?.cost ?? { ...NAN_CATALOG_COST },
 			contextWindow: override?.contextWindow ?? contextWindow,
 			maxTokens: override?.maxTokens ?? maxTokens,
 			reasoningEffortValues,
@@ -295,6 +284,7 @@ function convertModel(modelId: string, m: ModelsDevModel): GeneratedModel | { sk
 			compat: buildCompat(override),
 			notes: [
 				NAN_COMPAT_NOTE,
+				NAN_COST_NOTE,
 				...(override ? [override.note] : []),
 				...(MANUAL_NOTES[modelId] ? [MANUAL_NOTES[modelId]!] : []),
 			],

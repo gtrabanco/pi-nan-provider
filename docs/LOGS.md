@@ -155,3 +155,56 @@ the thread without re-reading git history.
 **Next**
 
 - Owner delta-reverify of this correction batch on PR #41.
+
+## 2026-11-17 — NaN catalog: `qwen4-max` + `hy4-flash`, documented limits
+
+**Done**
+
+- Applied the catalog update through `/aw-local-apply`: ledger frozen at
+  `docs/fix/nan-larger-models-2026-11-17/` (topic directory — no issue exists
+  for this change), RED acceptance suite first
+  (`test/larger-models-2026-11-17.test.ts`, 25 of 28 failing on the untouched
+  tree), then implementation.
+- `scripts/manual-overrides.ts`: the larger-model block is now `LARGER_MODELS`
+  with six entries — the four 2026-11-10 ids plus `qwen4-max` and
+  `hy4-flash` — each carrying its documented context/max answer/modalities and
+  reasoning behaviour from https://nan.builders/docs/models (checked
+  2026-11-17). `reasoningEffortValues` moved out of its own table into each
+  override, so the generator no longer keeps a second copy.
+- `scripts/generate-models.ts`: dropped `REASONING_EFFORT_VALUES` and the
+  `REASONING_EFFORT_VALUES_FROM_DOCS` fallback; one source, the override.
+- Catalog corrections the docs pinned down: `glm5.3` **text only** (an image
+  answers 400) and `off` → `minimal`; `qwen3.8-max` sends
+  `max_completion_tokens` (its `max_tokens` bounds only the answer — issue
+  #34's quota failure mode) and maps `off` → `none`; `qwen3.8-flash` maps
+  `off` → `none`; `kimi-k3.1-pro` 1,048,576, `deepseek-v4-pro` 393,216,
+  `hy4` 65,536, `qwen3.8-max` 131,072 max output; `deepseek-v4-flash` declares
+  the documented steering ladder while keeping `off` → `none`.
+- README + README.es model and reasoning tables, CHANGELOG 1.5.6, version bump
+  (patch: the verified pi baseline is unchanged), AGENTS.md verified facts.
+
+**Checks**
+
+- `bun test` → 409 pass / 0 fail; `bun run typecheck` → exit 0.
+- Pinned suites moved to the new documented contract (issue-16, issue-19,
+  issue-34, fetch-models, generated-catalog); each edit is recorded in the
+  unit's `decisions.md` path-protection rows. No assertion relaxed or skipped.
+- Sources re-read before writing: docs/models (S6 HTML), docs/pi,
+  docs/opencode (client-budget wording), openapi.json `model` description and
+  the live `GET /v1/models` (token-free).
+
+**Next**
+
+- Owner verdict on the handoff. Advisory for a separate decision: pi-ai's
+  `getSupportedThinkingLevels` only exposes `xhigh`/`max` when
+  `thinkingLevelMap` declares them, so the picker stops at `high` even though
+  the docs document the two deeper levels; adding identity entries would change
+  every model's level list.
+
+**Extension (same day)** — owner instruction "Metelo dentro de pr #42": pi-ai
+only offers `xhigh`/`max` when `thinkingLevelMap` declares them, so the catalog
+now carries identity entries on the eight models whose docs declare a ladder up
+to `max`; a `max` request used to reach the gateway as `reasoning_effort: "high"`.
+`hy4`, `hy4-flash`, `qwen3.8-max` (only their off switch is documented) and
+`kimi-k3.1-pro`/`deepseek-v4-pro` (outside the contract) stay at `off`…`high`.
+Gate after the extension: 424 tests pass / 0 fail, typecheck exit 0.
