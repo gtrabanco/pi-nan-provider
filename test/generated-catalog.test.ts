@@ -195,7 +195,10 @@ describe("manual overrides in the generated catalog", () => {
 		expect(entry!.input).toEqual(["text"]);
 		expect(entry!.reasoning).toBe(true);
 		expect(entry!.reasoningEffortValues).toEqual(["minimal", "low", "medium", "high", "xhigh", "max"]);
-		expect(entry!.thinkingLevelMap).toEqual({ off: "minimal" });
+		// GLM cannot stop reasoning: `off` sends `minimal`. `xhigh`/`max` carry
+		// identity entries because pi-ai only offers those two levels when the
+		// map declares them (checked 2026-11-17).
+		expect(entry!.thinkingLevelMap).toEqual({ off: "minimal", xhigh: "xhigh", max: "max" });
 		expect(
 			GENERATED_CATALOG_META.notes.some((note) => note.startsWith("live-only:")),
 			"no live-only exclusion is recorded any more",

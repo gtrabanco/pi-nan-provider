@@ -20,6 +20,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`xhigh` and `max` are now selectable on the models whose docs declare them.**
+  pi-ai treats both levels as opt-in: `getSupportedThinkingLevels` only lists them
+  when the catalog's `thinkingLevelMap` carries a non-null entry, and any request
+  for them was silently clamped to `high` — so `max` reached the gateway as
+  `reasoning_effort: "high"`. The catalog now declares identity entries for
+  `deepseek-v4-flash`, `gemma4`, `qwen3.6`, `glm5.3`, `glm5.3-flash`,
+  `qwen3.8-flash`, `qwen4-max` and `mimo-v2.6-flash` (where NaN applies `xhigh`
+  as `max`). It matters concretely on `qwen3.6`/`gemma4`, whose documented
+  reasoning cap is 16,384 tokens at `high` and 32,768 at `xhigh`/`max`. The
+  models whose docs document only the off switch (`hy4`, `hy4-flash`,
+  `qwen3.8-max`) and the two outside the reasoning contract
+  (`kimi-k3.1-pro`, `deepseek-v4-pro`) stay at `off`…`high`.
 - **`glm5.3` is text-only.** The card and the pi page now state that an image, audio,
   video or file part answers 400 (earlier turns included); the catalog still declared
   `text, image` from the 2026-10-14 docs. models.dev agrees.

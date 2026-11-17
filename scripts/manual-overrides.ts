@@ -78,6 +78,18 @@ export interface ManualModelOverride {
  * undefined`, and pi-ai only emits `reasoning_effort` when that map supplies a
  * value. The effort list itself is catalog documentation (pi and pi-ai do not
  * read it; checked against pi-ai/pi 1.5.1).
+ *
+ * `xhigh` and `max` need an entry of their own. pi-ai treats both as OPT-IN:
+ * `getSupportedThinkingLevels()` only lists them when the map carries a non-null
+ * entry (pi-ai 1.5.1 `dist/models.js`, and its README: "`xhigh` and `max` are
+ * opt-in and require a non-null map entry"). Without it pi clamps a requested
+ * `max` down to `high` and the gateway never sees it, even though NaN accepts it.
+ * So every model whose docs declare a ladder up to `max` carries the identity
+ * entries `{ xhigh: "xhigh", max: "max" }`: the strings are what pi-ai would
+ * send anyway, so the map only widens what pi offers. Models whose docs document
+ * nothing but `none` plus a default (`hy4`, `hy4-flash`, `qwen3.8-max`) and the
+ * two outside the reasoning contract (`kimi-k3.1-pro`, `deepseek-v4-pro`) keep
+ * `off` alone and stay at `off`…`high`.
  */
 
 /**
@@ -129,7 +141,7 @@ const LARGER_MODELS: Record<string, ManualModelOverride> = {
 		contextWindow: 1_000_000,
 		maxTokens: 131_072,
 		reasoningEffortValues: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
-		thinkingLevelMap: { off: "none" },
+		thinkingLevelMap: { off: "none", xhigh: "xhigh", max: "max" },
 		note:
 			"Qwen4 Max, Alibaba's Qwen 4 flagship, documented in https://nan.builders/docs/models (checked 2026-11-17) and listed by the live GET https://api.nan.builders/v1/models (checked 2026-11-17); models.dev provider nan does not list it, so it enters as a manual-only entry. contextWindow 1,000,000: the card says '1M token context' and both first-party vendor entries on models.dev (vercel/alibaba/qwen4-max and openrouter/qwen/qwen4-max) say 1,000,000 — the smaller of that and NaN's 1M = 1,048,576 convention (https://nan.builders/docs/pi), the same rule qwen3.8-max follows. maxTokens 131,072: the card says 'Max answer 131K tokens' and the reasoning section says 'max_tokens bounds the total, reasoning plus answer, up to 131,000'. input text+image and reasoning true per the card. Reasoning: the card says 'reasoning_effort: none turns it off · minimal to max', and the reasoning section repeats that none turns it off on this model, so reasoningEffortValues declares the documented ladder and thinkingLevelMap { off: 'none' } supplies the off switch when pi maps reasoning:'off' to undefined." +
 			LARGER_MODEL_NOTE_SUFFIX,
@@ -271,7 +283,7 @@ export const MANUAL_OVERRIDES: Record<string, ManualModelOverride> = {
 		contextWindow: 1_048_576,
 		maxTokens: 131_072,
 		reasoningEffortValues: ["minimal", "low", "medium", "high", "xhigh", "max"],
-		thinkingLevelMap: { off: "minimal" },
+		thinkingLevelMap: { off: "minimal", xhigh: "xhigh", max: "max" },
 		note:
 			"general catalog model since 2026-11-10: NaN announced it no longer has tier-exclusive models ('a partir de ahora ya NO habrá modelos exclusivos por tier'), and the live GET https://api.nan.builders/v1/models lists glm5.3 for a non-premium key (checked 2026-11-10). " +
 			"input text only: the model card says 'Text only: text in, text out, with no image, audio, video or file input; a request carrying one answers 400, earlier turns of the conversation included', and https://nan.builders/docs/pi declares the same 'input': ['text'] (https://nan.builders/docs/models, checked 2026-11-17). The earlier override declared text+image from the 2026-10-14 card; models.dev also lists it text-only now, so this is a correction of a stale value, not a divergence. " +
@@ -282,7 +294,7 @@ export const MANUAL_OVERRIDES: Record<string, ManualModelOverride> = {
 		contextWindow: 1_048_576,
 		maxTokensField: "max_completion_tokens",
 		reasoningEffortValues: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
-		thinkingLevelMap: { off: "none" },
+		thinkingLevelMap: { off: "none", xhigh: "xhigh", max: "max" },
 		note:
 			"contextWindow 1,048,576: NaN docs state '1M token context (1,048,576 tokens)' and 'Max answer 131K tokens' (https://nan.builders/docs/models, checked 2026-11-17) — models.dev still lists 262,144. The earlier override was withdrawn 2026-09-07 when the docs read '262K token context, the model's native window'; the docs now state 1M and they are the source of truth (maintainer instruction: docs win over models.dev, which a user updates later). maxTokens stays 131,072, which models.dev already matches and the docs confirm as the 131K max answer. " +
 			"maxTokensField 'max_completion_tokens' (issue #34, NaN maintainer confirmation received 2026-11-11, quoted verbatim in the issue): on this model max_tokens does NOT bound the reasoning phase, the excess bills against the quota (it explained the 796M tokens against the 500M cap in the 2026-09-27 /v1/usage survey), and max_completion_tokens IS respected as the interim bound. The published OpenAPI schema still documents only max_tokens, so the strict-schema sanitizer exempts this model from its max_completion_tokens→max_tokens rename at request time (SanitizerOptions.preserveMaxCompletionTokens, wired from compat.maxTokensField in src/provider-factory.ts). REVERT: once NaN ships their prepared gateway fix, remove this override — test/issue-34-max-completion-tokens.test.ts is the tripwire. " +
@@ -293,7 +305,7 @@ export const MANUAL_OVERRIDES: Record<string, ManualModelOverride> = {
 		contextWindow: 1_048_576,
 		maxTokens: 32_768,
 		reasoningEffortValues: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
-		thinkingLevelMap: { off: "none" },
+		thinkingLevelMap: { off: "none", xhigh: "xhigh", max: "max" },
 		note:
 			"contextWindow 1,048,576: NaN docs state '1M token context' for this model (https://nan.builders/docs/models, checked 2026-11-17). models.dev lists 1,000,000, a rounded form of the same window; the docs value is authoritative (maintainer instruction: docs win over models.dev, which a user updates later). " +
 			"input includes image: NaN serves the Vision-Exp variant ('takes images as input', https://nan.builders/docs/models; the image_url content-parts in https://nan.builders/openapi.json list deepseek-v4-flash among the vision models). models.dev provider nan also lists text+image, so this stays a pin for the vision capability rather than a divergence. " +
@@ -305,7 +317,7 @@ export const MANUAL_OVERRIDES: Record<string, ManualModelOverride> = {
 		contextWindow: 1_048_576,
 		maxTokens: 131_072,
 		reasoningEffortValues: ["minimal", "low", "medium", "high", "xhigh", "max"],
-		thinkingLevelMap: { off: "minimal" },
+		thinkingLevelMap: { off: "minimal", xhigh: "xhigh", max: "max" },
 		note:
 			"contextWindow 1,048,576 ('1M token context') and maxTokens 131,072: the docs state that an output budget above this model's maximum is lowered to 131072, so 131,072 is its documented ceiling (https://nan.builders/docs/models, checked 2026-11-17); models.dev lists the rounded 1,000,000 window. " +
 			"thinkingLevelMap { off: \"minimal\" }: the card says 'reasoning_effort: minimal to max; always reasons, none is applied as minimal' — the gateway never stops reasoning on this model. issue #16 measured the same effect on 2026-09-27: 'minimal' yields ~38 reasoning tokens with an answer, while 'none' does not suppress it (13,382 tokens). " +
@@ -313,21 +325,21 @@ export const MANUAL_OVERRIDES: Record<string, ManualModelOverride> = {
 	},
 	"mimo-v2.6-flash": {
 		reasoningEffortValues: ["none", "low", "medium", "high", "max"],
-		thinkingLevelMap: { off: "none" },
+		thinkingLevelMap: { off: "none", xhigh: "xhigh", max: "max" },
 		note:
 			"reasoningEffortValues none/low/medium/high/max: the card says 'reasoning_effort: none turns it off · low to max', and the contract table says 'minimal is applied as low and xhigh as max' (https://nan.builders/docs/models#controlling-reasoning, checked 2026-11-17), so only the values with their own meaning are declared. " +
 			"thinkingLevelMap { off: \"none\" } (live re-probe 2026-10-14): the 2026-10-14 docs called the parameter 'accepted, depth not adjustable', but the gateway makes it effective at the off end — `none` gave 0 reasoning tokens / a full answer, while `low` gave 22 reasoning tokens and omitting the parameter gave 17. Measured behavior wins over the docs, so `thinking: off` sends reasoning_effort:\"none\" and actually disables reasoning.",
 	},
 	"qwen3.6": {
 		reasoningEffortValues: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
-		thinkingLevelMap: { off: "none" },
+		thinkingLevelMap: { off: "none", xhigh: "xhigh", max: "max" },
 		note:
 			"thinkingLevelMap { off: \"none\" } (issue #16): NaN docs state that with no reasoning_effort parameter every model uses its own default and that default is reasoning ON for qwen3.6 (16,384-token budget), while `none` and `minimal` skip the reasoning phase entirely (https://nan.builders/docs/models#controlling-reasoning, checked 2026-11-17). pi maps reasoning:\"off\" to reasoningEffort:undefined, so without this map `thinking: off` sent no parameter and the model reasoned anyway; the map sends reasoning_effort:\"none\" and actually disables reasoning. " +
 			"reasoningEffortValues: the contract table documents the whole ladder (low 2,048, medium 8,192, high 16,384, xhigh and max 32,768 reasoning tokens on Chat Completions).",
 	},
 	"gemma4": {
 		reasoningEffortValues: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
-		thinkingLevelMap: { off: "none" },
+		thinkingLevelMap: { off: "none", xhigh: "xhigh", max: "max" },
 		note:
 			"thinkingLevelMap { off: \"none\" } (issue #16): NaN docs state that with no reasoning_effort parameter gemma4 defaults to reasoning ON (16,384-token budget), while `none`/`minimal` skip reasoning entirely (https://nan.builders/docs/models#controlling-reasoning, checked 2026-11-17). pi maps reasoning:\"off\" to reasoningEffort:undefined, so without this map `thinking: off` sent no parameter and the model reasoned anyway; the map sends reasoning_effort:\"none\" and actually disables reasoning. " +
 			"reasoningEffortValues: the contract table documents the whole ladder (low 2,048, medium 8,192, high 16,384, xhigh and max 32,768 reasoning tokens on Chat Completions).",

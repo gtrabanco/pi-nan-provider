@@ -19,7 +19,12 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { normalizeContext, type Model } from "@earendil-works/pi-ai";
+import {
+	clampThinkingLevel,
+	getSupportedThinkingLevels,
+	normalizeContext,
+	type Model,
+} from "@earendil-works/pi-ai";
 import { mergeLiveWithGenerated, toModel } from "../src/fetch-models.ts";
 import { createNanCompatibleProvider } from "../src/provider-factory.ts";
 import { NAN_PROVIDER } from "../src/providers.ts";
@@ -277,6 +282,91 @@ describe("2026-11-17 — reasoning control reaches the wire", () => {
 		const gateway = capturingGateway();
 		await runTurn(modelFor("qwen4-max"), gateway, { reasoningEffort: "high" });
 		expect(gateway.lastBody().reasoning_effort).toBe("high");
+	});
+});
+
+/** One turn through the pi path (`streamSimple`: level in → clamp → wire). */
+async function runSimpleTurn(
+	model: Model<"openai-completions">,
+	gateway: { fetchImpl: typeof fetch },
+	level?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
+): Promise<unknown> {
+	const provider = await createNanCompatibleProvider(NAN_PROVIDER);
+	const stream = provider.streamSimple(
+		model,
+		normalizeContext({
+			systemPrompt: "You are a helper",
+			messages: [{ role: "user", content: "hi" }] as never,
+			tools: [],
+		}),
+		{
+			apiKey: "sk-test",
+			fetch: gateway.fetchImpl,
+			...(level !== undefined ? { reasoning: level } : {}),
+		},
+	);
+	for await (const _event of stream) {
+		// consume to completion
+	}
+	return await stream.result();
+}
+
+describe("2026-11-17 — xhigh and max are selectable where the docs document them", () => {
+	// pi-ai treats `xhigh`/`max` as opt-in: `getSupportedThinkingLevels` only
+	// lists them when `thinkingLevelMap` carries a non-null entry, and
+	// `clampThinkingLevel` degrades a request for either one to `high`
+	// otherwise. NaN accepts both (the docs' ladder runs `none` … `max`), so the
+	// catalog declares identity entries and pi can finally reach them.
+	const DOCUMENTED_DEEP = [
+		"qwen4-max",
+		"qwen3.8-flash",
+		"deepseek-v4-flash",
+		"mimo-v2.6-flash",
+		"qwen3.6",
+		"gemma4",
+		"glm5.3",
+		"glm5.3-flash",
+	] as const;
+
+	for (const id of DOCUMENTED_DEEP) {
+		test(`${id} exposes xhigh and max, and the wire carries them`, async () => {
+			const model = modelFor(id);
+			expect(getSupportedThinkingLevels(model)).toEqual([
+				"off",
+				"minimal",
+				"low",
+				"medium",
+				"high",
+				"xhigh",
+				"max",
+			]);
+			expect(clampThinkingLevel(model, "max")).toBe("max");
+			expect(clampThinkingLevel(model, "xhigh")).toBe("xhigh");
+
+			for (const level of ["xhigh", "max"] as const) {
+				const gateway = capturingGateway();
+				await runSimpleTurn(model, gateway, level);
+				expect(gateway.lastBody().reasoning_effort, `${id}@${level}`).toBe(level);
+			}
+		});
+	}
+
+	// The models whose docs document only the off switch, plus the two outside
+	// the reasoning contract, must not advertise levels nobody documented.
+	const OFF_ONLY = ["hy4", "hy4-flash", "qwen3.8-max", "kimi-k3.1-pro", "deepseek-v4-pro"] as const;
+
+	for (const id of OFF_ONLY) {
+		test(`${id} stays at off…high (no documented ladder above high)`, () => {
+			const model = modelFor(id);
+			expect(getSupportedThinkingLevels(model)).toEqual(["off", "minimal", "low", "medium", "high"]);
+			expect(clampThinkingLevel(model, "max")).toBe("high");
+		});
+	}
+
+	test("`off` (no level) still sends the documented off switch on a model with the deep levels", async () => {
+		const gateway = capturingGateway();
+		await runSimpleTurn(modelFor("qwen3.6"), gateway);
+		expect(gateway.lastBody().reasoning_effort).toBe("none");
 	});
 });
 

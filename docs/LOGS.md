@@ -200,3 +200,11 @@ the thread without re-reading git history.
   `thinkingLevelMap` declares them, so the picker stops at `high` even though
   the docs document the two deeper levels; adding identity entries would change
   every model's level list.
+
+**Extension (same day)** — owner instruction "Metelo dentro de pr #42": pi-ai
+only offers `xhigh`/`max` when `thinkingLevelMap` declares them, so the catalog
+now carries identity entries on the eight models whose docs declare a ladder up
+to `max`; a `max` request used to reach the gateway as `reasoning_effort: "high"`.
+`hy4`, `hy4-flash`, `qwen3.8-max` (only their off switch is documented) and
+`kimi-k3.1-pro`/`deepseek-v4-pro` (outside the contract) stay at `off`…`high`.
+Gate after the extension: 424 tests pass / 0 fail, typecheck exit 0.
