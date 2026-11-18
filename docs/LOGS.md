@@ -289,3 +289,36 @@ Gate after the extension: 424 tests pass / 0 fail, typecheck exit 0.
 
 - Owner verdict (external verify) on commits `ed3dbe2`, `dadc6bf`, `48577e7`
   + this evidence commit; nothing pushed.
+
+## 2026-11-18 — issue #35 S11 (owner order): cf-ray of every response in the report
+
+**Done**
+
+- Owner: "El cf-ray hay que incluirlo en el reporte de debug, es básico para
+  el equipo de soporte de nan." + accepted option "cf-ray de TODAS las
+  respuestas" → issue #35's S11 (recorded "not shipped") is ordered after all.
+  Scope note revoked (D-35-03), branch `feat/cf-ray-every-response` stacked on
+  the #44 correction head `7b1fa8b` (ledger and version line stay linear).
+- Ledgers frozen first: O23–O28, PE-012, criteria C16–C19, path-protection
+  justification + approval records (P4).
+- RED corpus on `test/issue-35-s11-response-rays.test.ts` (0 pass / 1 error,
+  `Cannot find module`), then `src/response-rays.ts`: per-response sidecar
+  `{response_id, cf_ray, model, observed_at}` (four fields, best-effort,
+  newest 50,000 lines kept by deterministic compact) + capture wired into
+  `withCacheAnomalyCapture` on success AND failure paths + report join
+  (`DebugTurn.cf_ray`, rendered `turns.jsonl`, report README bullet).
+- Docs in-change: README EN/ES (sidecar paragraph, contents bullet, feature
+  row, badges), CHANGELOG 1.5.9, `package.json` 1.5.9, AGENTS #35 bullet.
+
+**Checks**
+
+- `bun test` → 465 pass / 0 fail / 2157 expect / 39 files; `bun run typecheck` → exit 0.
+- All 28 obligation rows re-run green in the foreground → `verified`.
+- Differential: base `7b1fa8b` copy in `mktemp` → 456/0/2134/38 + typecheck 0
+  vs changed 465/0/2157/39 + typecheck 0 — +9 corpus tests only.
+- Anomaly suite (13/0) proves the #17 capture is byte-identical.
+
+**Next**
+
+- Owner verdict (external verify) on commits `5336817`, `b9b61ad`, `f4a951b`
+  + this evidence commit, on top of PR #44's branch; nothing pushed.

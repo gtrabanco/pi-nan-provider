@@ -40,6 +40,7 @@ import { providerAttributionEnabled, stripProviderAttribution } from "./attribut
 import { withContextOverflowClassification } from "./context-overflow-classifier.ts";
 import { withReasoningOnlyStreamGuard } from "./reasoning-only-stream-guard.ts";
 import { createCacheAnomalyFileSink, withCacheAnomalyCapture, type CacheAnomalySink } from "./cache-anomaly.ts";
+import { createResponseRayFileSink, type ResponseRaySink } from "./response-rays.ts";
 import { NAN_IMAGE_API, baselineImageModels, createNanImagesApi } from "./images.ts";
 import {
 	baselineModels,
@@ -74,6 +75,8 @@ export interface NanCompatibleProviderOptions {
 	fetchImpl?: typeof fetch;
 	/** Sink for the issue #35 cache-anomaly evidence; defaults to the agent-dir JSONL file. */
 	cacheAnomalySink?: CacheAnomalySink;
+	/** Sink for the per-response cf-ray sidecar (issue #35 S11); defaults to the agent-dir JSONL file. */
+	responseRaySink?: ResponseRaySink;
 }
 
 /**
@@ -305,12 +308,16 @@ export async function createNanCompatibleProvider(
 			// (NOT onPayload, which only receives the outgoing request params).
 			// Outermost: cache-anomaly evidence capture (issue #35). It only adds
 			// observation hooks (onResponse for `cf-ray`, onProviderStreamEvent for
-			// the raw id/created pair) and never rewrites the stream.
+			// the raw id/created pair) and never rewrites the stream. Since S11 it
+			// also appends every observed cf-ray to the response-ray sidecar.
 			api: withCacheAnomalyCapture(
 				withContextOverflowClassification(
 					withReasoningOnlyStreamGuard(wrapApiForStrictSanitization(apiFactory())),
 				),
-				{ sink: options.cacheAnomalySink ?? createCacheAnomalyFileSink() },
+				{
+					sink: options.cacheAnomalySink ?? createCacheAnomalyFileSink(),
+					raySink: options.responseRaySink ?? createResponseRayFileSink(),
+				},
 			),
 		}),
 		overlayMap,

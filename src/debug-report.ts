@@ -4,8 +4,9 @@
  * NaN could not reproduce the prompt-cache anomaly and asked for "modelo y
  * cf-ray de un par de llamadas". This module reads pi's session JSONL (usage,
  * stop reasons, response ids) plus the local cache-anomaly capture
- * (`nan-cache-anomalies.jsonl`, which holds the `cf-ray` pair) and renders a
- * report that can be shared verbatim.
+ * (`nan-cache-anomalies.jsonl`, which holds the anomaly `cf-ray` pair) and
+ * the per-response ray sidecar (`nan-response-rays.jsonl`, issue #35 S11),
+ * and renders a report that can be shared verbatim.
  *
  * Contract (issue #35, scoped by PR #44):
  *   - no LLM, no network unless `--window` explicitly asks for `/v1/usage`;
@@ -31,6 +32,7 @@ import { PI_AI_VERSION } from "@earendil-works/pi-ai";
 import { VERSION as PI_VERSION, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { GENERATED_CATALOG_META } from "../scripts/models.generated.ts";
 import { CACHE_ANOMALY_FILE, defaultCacheAnomalyPath, type CacheAnomalyRecord } from "./cache-anomaly.ts";
+import { RESPONSE_RAYS_FILE, readResponseRays } from "./response-rays.ts";
 import { fetchUsageReport, rollingWindow, type UsageWindow } from "./usage.ts";
 import { createZip } from "./zip.ts";
 
@@ -449,6 +451,8 @@ export interface DebugTurn {
 	stop_reason: string;
 	error: DebugErrorClass | null;
 	response_id: string | null;
+	/** Cloudflare trace id joined from the response-ray sidecar; null when uncaptured. */
+	cf_ray: string | null;
 	created: number | null;
 	input: number;
 	output: number;
@@ -528,6 +532,8 @@ export interface BuildDebugReportOptions {
 	fetchUsage?: FetchUsageWindow;
 	includeUsage?: boolean;
 	anomalyFile?: string;
+	/** Per-response ray sidecar; defaults to the agent-dir file (issue #35 S11). */
+	raysFile?: string;
 	sessionsDir?: string;
 }
 
@@ -710,6 +716,8 @@ export async function buildDebugReport(options: BuildDebugReportOptions = {}): P
 	}
 	const sessionsDir = options.sessionsDir ?? join(agentDir, "sessions");
 	const anomalyFile = options.anomalyFile ?? (options.agentDir ? join(agentDir, CACHE_ANOMALY_FILE) : defaultCacheAnomalyPath());
+	// Per-response cf-ray sidecar (issue #35 S11): joined onto turns below.
+	const rayByResponseId = readResponseRays(options.raysFile ?? join(agentDir, RESPONSE_RAYS_FILE));
 
 	const anomalies = readAnomalies(anomalyFile).filter((record) => inWindow(record.detected_at.slice(0, 10), window));
 
@@ -766,6 +774,7 @@ export async function buildDebugReport(options: BuildDebugReportOptions = {}): P
 				stop_reason: stopReason,
 				error: errorClass,
 				response_id: responseId,
+				cf_ray: responseId !== null ? (rayByResponseId.get(responseId) ?? null) : null,
 				created: null,
 				input: numberOrZero(usage.input),
 				output: numberOrZero(usage.output),
@@ -934,7 +943,7 @@ function renderReadme(report: DebugReport, versions: Record<string, string>): st
 		"## What is collected",
 		"",
 		"- `anonymized_usage.jsonl` — one aggregated row per date/session/model: token counters, turn count, stop-reason counts, cache-hit rate, anomaly signatures.",
-		"- `turns.jsonl` — one row per assistant turn: model, usage counters, stop reason, classified error, response id, `created` (null when the transcript has none), duration.",
+		"- `turns.jsonl` — one row per assistant turn: model, usage counters, stop reason, classified error, response id, `cf_ray` (Cloudflare trace id from `<agentDir>/nan-response-rays.jsonl`, null when uncaptured), `created` (null when the transcript has none), duration.",
 		"- `errors.jsonl` — one row per turn that produced an error: error class, truncated message (200 chars max), MD5 hash of the full message, input/output tokens for context.",
 		"- `anomalies.jsonl` — duplicate `id`/`created` pairs captured by the provider, with both `cf-ray` values (see issue #35).",
 		"- `sessions/` — the raw session JSONL files filtered to the window, so you can inspect the full transcript locally.",
