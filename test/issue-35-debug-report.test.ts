@@ -72,7 +72,9 @@ function assistantLine(turn: Turn): string {
 		stopReason: turn.stopReason ?? "stop",
 		timestamp: Date.parse(turn.timestamp ?? "2026-11-10T10:00:00.000Z"),
 		durationMs: turn.durationMs ?? 1000,
-		// Content is present in real transcripts and must never be collected.
+		// Content is present in real transcripts: report rows and root files must never
+		// collect it; `sessions/` embeds it verbatim only on the PR #44 owner request
+		// (its `cwd` header is MD5-hashed — see the EV-2026-11-18 B5 fix).
 		content: [{ type: "text", text: "PROMPT-OR-ANSWER-LITERAL" }],
 	};
 	if (turn.responseId !== null) message.responseId = turn.responseId ?? "chatcmpl-1";
@@ -246,10 +248,24 @@ describe("issue #35 — report rows and metadata", () => {
 		const { agentDir } = fixtureAgentDir();
 		expect(DEFAULT_DEBUG_WINDOW_DAYS).toBe(7);
 		const report = await buildDebugReport({ agentDir, now: NOW, windowDays: DEFAULT_DEBUG_WINDOW_DAYS });
-		const rendered = renderDebugReport(report);
-		expect(Object.keys(rendered.files).sort()).toEqual(
-			["README.md", "anomalies.jsonl", "anonymized_usage.jsonl", "metadata.json", "turns.jsonl"].sort(),
-		);
+		const rendered = renderDebugReport(report, join(agentDir, "sessions"));
+		const names = Object.keys(rendered.files);
+		for (const name of [
+			"README.md",
+			"anomalies.jsonl",
+			"anonymized_usage.jsonl",
+			"errors.jsonl",
+			"metadata.json",
+			"turns.jsonl",
+		]) {
+			expect(names).toContain(name);
+		}
+		// `sessions/` carries the window-filtered raw transcripts (the 2026-10-01
+		// fixture session stays out), with only the `cwd` header hashed.
+		expect(names.filter((name) => name.startsWith("sessions/")).sort()).toEqual([
+			"sessions/--home-agent-project--/2026-11-10T10-00-00-000Z_a.jsonl",
+			"sessions/--home-agent-project--/2026-11-11T11-00-00-000Z_b.jsonl",
+		]);
 		expect(() => JSON.parse(rendered.files["metadata.json"]!)).not.toThrow();
 		expect(() => JSON.parse(rendered.files["anonymized_usage.jsonl"]!.trim().split("\n")[0]!)).not.toThrow();
 	});

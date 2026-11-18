@@ -57,6 +57,14 @@ One observable criterion per `S#`, each naming the check that proves it.
 | C9 | S20 | `anomalies.jsonl` inside the report carries the `cf-ray` pair captured by the anomaly detection, filtered to the window. | `bun test test/issue-35-debug-report.test.ts` exits 0 |
 | C10 | S15, S22, S23 | Two runs over identical inputs produce byte-identical zip output (fixed entry order and timestamps); session and worktree identifiers are MD5 truncated to 12 chars; no path or credential is emitted. | `bun test test/issue-35-debug-report.test.ts` exits 0 |
 | C11 | repo AGENTS.md | The full deterministic gate is green. | `bun test` and `bun run typecheck` exit 0 |
+| C12 | S1 (apply 2026-11-18) | Every blocker B1–B6 of the 2026-11-18 `EXTERNAL VERIFY` receipt is resolved: the full gate is green and each blocker's reproducer behaves as claimed. | `bun test` exits 0; `bun test test/issue-44-nan-debug-interval.test.ts` exits 0 |
+| C13 | S2 (apply 2026-11-18) | The frozen-failure corpus (the B1 layout failure plus one RED test per B2–B5/A3 rule) is recorded failing before any fix lands. | `## Evidence` RED rows dated 2026-11-18 and written before the first P2 row |
+| C14 | S3 (apply 2026-11-18) | Differential: a base copy in `mktemp` scratch and the changed tree differ only by the requested behavior — base stays `427 pass / 0 fail`, changed tree green, typecheck clean on both; no unrequested result change in the pre-existing suites. | `bun test` and `bun run typecheck` exit 0 on both copies |
+| C15 | S4 (apply 2026-11-18) | The sibling sweep re-run after the batch finds no surviving mention asserting the pre-batch truth (stale "never" claims, `2año` usage example, stale report-contents/redaction prose). | `rg -n "aside from|120 chars|full text is available|The raw text is never emitted" src/debug-report.ts` exits 1; `rg -n -- "--interval" README.md README.es.md` exits 0 |
+| C16 | S1, S2 (apply 2026-11-18), #35 S11 | Every stream with a gateway id and a `cf-ray` header appends one `{response_id, cf_ray, model, observed_at}` record to the local sidecar, on success and on failure; local-only, no content/credentials/paths, write failure never breaks the stream. | `bun test test/issue-35-s11-response-rays.test.ts` exits 0 |
+| C17 | S1, S2 (apply 2026-11-18), #35 S17 | The report joins the sidecar: turn rows and rendered `turns.jsonl` carry `cf_ray` (ray or `null`), while the anomaly capture and record stay byte-identical to before. | `bun test test/issue-35-s11-response-rays.test.ts` exits 0; `bun test test/issue-35-cache-anomaly-capture.test.ts` exits 0 |
+| C18 | S2 (apply 2026-11-18) | Differential: a `7b1fa8b` copy in `mktemp` scratch and the changed tree differ only by the requested corpus — pre-existing suites identical, both gates green, typecheck clean. | `bun test` and `bun run typecheck` exit 0 on both copies |
+| C19 | S1, S2 (apply 2026-11-18) | README EN/ES document the sidecar and the `cf_ray` field, CHANGELOG has the 1.5.9 entry, badges match `package.json`. | `bash -c 'rg -q "nan-response-rays" README.md README.es.md && rg -q "1.5.9" package.json CHANGELOG.md'` exits 0 |
 
 ## Scope notes (assumptions marked as assumptions)
 
@@ -67,11 +75,25 @@ One observable criterion per `S#`, each naming the check that proves it.
 - **Assumption:** the default window is 7 days (clamped to the API's 90-day
   limit when `--window` is used), because the issue shows a "window: 2d"
   preview but no default.
-- The lighter alternative in S11 (log every `cf-ray`) is not shipped: S8–S10
+- ~~The lighter alternative in S11 (log every `cf-ray`) is not shipped: S8–S10
   is the concrete proposal and the one NaN's request maps to; S11 explicitly
-  says "either way", so one shape is enough.
+  says "either way", so one shape is enough.~~ — **revoked by the owner on
+  2026-11-18** ("El cf-ray hay que incluirlo en el reporte de debug, es básico
+  para el equipo de soporte de nan.", accepted option "cf-ray de TODAS las
+  respuestas"): S11 now ships as the persistent response-ray sidecar
+  `<agentDir>/nan-response-rays.jsonl` (`response_id` → `cf_ray`), joined into
+  `turns.jsonl`. The S8–S10 anomaly pair capture is unchanged (D-35-03).
 - `--window`'s live `GET /v1/usage` stays permission-gated: tests inject the
   fetch, and no live probe is run for this unit.
+- **Assumption (PR #44, correction batch 2026-11-18):** the open-left interval
+  `- <date>` starts at the default window's start (`rollingWindow(7)` = last 7
+  days inclusive), because #44's own comment says "inicio del window hasta 10
+  nov" and an interval carries no `--window` to read.
+- **Owner amendment (PR #44 §1, correction batch 2026-11-18):** `sessions/`
+  embeds raw session transcripts on the owner's explicit request, so the
+  "never collect prompt/response content, credentials or raw paths" invariant
+  scopes to the root files; `sessions/` carries raw text with only its `cwd`
+  header MD5[:12]-hashed. Credentials stay excluded everywhere.
 
 ## Log
 
@@ -129,6 +151,53 @@ One observable criterion per `S#`, each naming the check that proves it.
   mid-batch, adding `docs/` to `.gitignore`: the new `decisions.md` and
   `external-verify.md` are git-ignored and stay untracked pending the owner's
   decision — not force-added over a fresh owner commit.
+- 2026-11-18 — Correction batch opened from the `EXTERNAL VERIFY` receipt in
+  `external-verify.md` (2026-11-18: NEEDS-DECISION, 6 blockers B1–B6, 4
+  advisories, base `542e707` · head `e045261`; owner: "triage and fix those
+  that deserve to fix …"). Triage: all six blockers and all four advisories
+  deserve the fix; ledgers extended with O14–O22 and PE-010/PE-011 before any
+  code; O6/O7/O9/O10/O13 flipped back to `in-progress` because their validators
+  no longer reproduce at `e045261`. PE-010 verified against the pinned pi
+  1.5.1 dist (raw args, no quote stripping); npm latest confirmed 1.5.7 for
+  the O20 bump target.
+- 2026-11-18 — P1 (RED): the frozen-failure corpus landed on
+  `test/issue-44-nan-debug-interval.test.ts` → 4 pass / 10 fail / 43 expect
+  before any `src/` change; path-protection justification + owner-approval
+  records (D-35-02) cut in this unit's `decisions.md` first, and the
+  already-recorded 2026-11-11 layout edit was applied to
+  `test/issue-35-debug-report.test.ts` (contains checks + `sessions/` entries
+  + `sessionsDir`), turning the pre-batch 441/1 gate green at the test layer.
+- 2026-11-18 — P2: `src/debug-report.ts` fixes landed (`dadc6bf`, one slice
+  with the corpus so the batch never commits a red gate): `--interval` value
+  join up to the next `--` flag + quote stripping (PE-010), open-left/open-right
+  parsing, explicit 90-day cap message (usage line drops `2año`), day-granular
+  `inWindow` (start-date parity), `error_summary` in metadata, `cwd` hashing in
+  `sessions/`, scoped never-collected wording (header, classifyErrorMessage
+  doc, rendered template, preview suffix), real `days` for relative spans,
+  UTC-only `parseRange`. Suite → 456 pass / 0 fail, typecheck exit 0.
+- 2026-11-18 — P3/P4: README EN/ES + CHANGELOG + `package.json` 1.5.8 +
+  AGENTS bullet (`48577e7`); ledgers frozen (`ed3dbe2`); all 22 obligation
+  rows re-run green in the foreground and flipped to `verified`; differential
+  vs a fresh `origin/main` copy clean (427/0/2024/36 → 456/0/2134/38,
+  typecheck 0 both sides); post-batch sibling sweep clean. Commits:
+  `ed3dbe2`, `dadc6bf`, `48577e7` (+ this evidence commit) — not pushed, the
+  owner is the external verifier.
+- 2026-11-18 — S11 reopened by owner order (S1 + accepted option "cf-ray de
+  TODAS las respuestas") on branch `feat/cf-ray-every-response` stacked on
+  `7b1fa8b`: the "S11 not shipped" scope note is revoked above, ledgers
+  extended with O23–O28 and PE-012 before code, criteria C16–C19 cut, and the
+  path-protection justification + approval records (D-35-03, phase P4) cut in
+  this unit's `decisions.md`. Stacked delivery keeps the unit ledger and the
+  version line linear (1.5.7 → 1.5.8 → 1.5.9).
+- 2026-11-18 — P4 (RED) → P5 → P6 → P7: corpus cut (0 pass / 1 error,
+  `Cannot find module`), then `src/response-rays.ts` + raySink wiring
+  (`f4a951b`) turned it 9 pass / 0 fail; README EN/ES + CHANGELOG 1.5.9 +
+  `package.json` 1.5.9 + AGENTS bullet (`b9b61ad`, landed one commit before
+  the code commit because two git commands raced on `index.lock` — the failed
+  add was re-run sequentially, no history rewritten); ledgers frozen
+  (`5336817`). All 28 obligation rows re-run green in the foreground and
+  flipped to `verified`; differential vs `7b1fa8b` clean (+9 corpus only).
+  Not pushed — the owner is the external verifier.
 
 ## Evidence
 
@@ -145,3 +214,19 @@ One observable criterion per `S#`, each naming the check that proves it.
 | 2026-11-12 | O11 + O12 | `bun test test/issue-35-nan-debug-command.test.ts` → `13 pass, 0 fail, 52 expect() calls` | ok |
 | 2026-11-12 | O13 differential | `mktemp` copy of `369bb56`: `bun test` → `374 pass, 0 fail, 1653 expect() calls, 35 files` + `bun run typecheck` exit 0; changed tree → `376 pass, 0 fail, 1664 expect() calls, 35 files` + typecheck exit 0 — delta is exactly the +2/+11 new corpus, zero deletions | ok |
 | 2026-11-12 | S4 sibling sweep | `rg` over README EN/ES, AGENTS, CHANGELOG, `src/`: command enumerations, `--out` mentions and tilde examples consistent; remaining `README.es.md:439` duplicated `---` traced to `origin/main:397` (base, reported) | ok |
+| 2026-11-18 | correction-batch RED (O14, O15, O16, O17, O21) | `bun test test/issue-44-nan-debug-interval.test.ts` → **4 pass / 10 fail / 43 expect** before any `src/` change; B1's reproducer recorded pre-batch: `bun test` → 441 pass / 1 fail (layout test) at `e045261` | ok |
+| 2026-11-18 | O1 + O2 + O3 | `bun test test/issue-35-cache-anomaly-capture.test.ts` → 13 pass / 0 fail / 33 expect | ok |
+| 2026-11-18 | O4 + O5 + O8 + O11 + O12 | `bun test test/issue-35-nan-debug-command.test.ts` → 13 pass / 0 fail / 52 expect | ok |
+| 2026-11-18 | O6 + O7 + O9 + O13 (B1 restored) | `bun test test/issue-35-debug-report.test.ts` → 8 pass / 0 fail / 69 expect (layout assertion carries `errors.jsonl` + exact window-filtered `sessions/` entries) | ok |
+| 2026-11-18 | O14 + O15 + O16 + O17 + O21 | `bun test test/issue-44-nan-debug-interval.test.ts` → 14 pass / 0 fail / 73 expect | ok |
+| 2026-11-18 | O10 full gate | `bun test` → 456 pass / 0 fail / 2134 expect / 38 files; `bun run typecheck` → exit 0 | ok |
+| 2026-11-18 | O18 + O22 text validators | `rg -n "aside from\|120 chars\|full text is available\|The raw text is never emitted" src/debug-report.ts` → exit 1; `rg -n "\\.getHours\\(\\)\|\\.getMinutes\\(\\)\|\\.getSeconds\\(\\)" src/debug-report.ts` → exit 1 | ok |
+| 2026-11-18 | O19 + O20 docs validators | `rg -n -- "--interval" README.md README.es.md` → exit 0; `rg -n "1\\.5\\.8" package.json CHANGELOG.md` → exit 0; EN/ES header lists both 24 lines, identical structure; both badges `version-1.5.8` | ok |
+| 2026-11-18 | C14 differential base-vs-change | base copy (`git archive origin/main` in `mktemp`): 427 pass / 0 fail / 2024 expect / 36 files + typecheck exit 0; changed tree: 456 pass / 0 fail / 2134 expect / 38 files + typecheck exit 0 — delta = the 15 #44 feature tests + the 14-test correction corpus, zero base test lost or regressed, no unrequested result change | ok |
+| 2026-11-18 | C15 sibling sweep (post-batch) | stale-claim `rg` set all at the expected exits (no `aside from`/`120 chars`/`never emitted`, no absolute "never collected" README line, no advertised `2año`); `errors.jsonl`/`sessions/`/`error_summary` present in README EN+ES; AGENTS #35 bullet extended; rendered template and preview scoped | ok |
+| 2026-11-18 | S11 RED corpus (O23, O24, O25) | `bun test test/issue-35-s11-response-rays.test.ts` → **0 pass / 1 fail / 1 error** (`Cannot find module '../src/response-rays.ts'`) before any `src/` change | ok |
+| 2026-11-18 | O23 + O24 + O25 | `bun test test/issue-35-s11-response-rays.test.ts` → **9 pass / 0 fail / 23 expect** (capture on success and failure, four-field shape, no-id/no-header skip, 3-line cap keeps newest, unwritable path safe, join + rendered `cf_ray`, missing sidecar nulls, reader resilience) | ok |
+| 2026-11-18 | O26 regression pin | anomaly suite → 13 pass / 0 fail / 33 expect; report suite → 8 pass / 0 fail / 69 expect; command suite → 13 pass / 0 fail / 52 expect; interval suite → 14 pass / 0 fail / 73 expect — anomaly record shape and every pre-existing behavior untouched | ok |
+| 2026-11-18 | O28 full gate | `bun test` → 465 pass / 0 fail / 2157 expect / 39 files; `bun run typecheck` → exit 0 | ok |
+| 2026-11-18 | C18 differential base-vs-change | base copy (`git archive 7b1fa8b` in `mktemp`): 456 pass / 0 fail / 2134 expect / 38 files + typecheck exit 0; changed tree: 465 / 0 / 2157 / 39 + typecheck exit 0 — delta = exactly the 9-test S11 corpus, zero base test lost or regressed | ok |
+| 2026-11-18 | O27 docs validators | `bash -c 'rg -q "nan-response-rays" README.md README.es.md && rg -q "1.5.9" package.json CHANGELOG.md'` → exit 0; EN/ES header lists 24/24 lines; both badges `version-1.5.9` | ok |

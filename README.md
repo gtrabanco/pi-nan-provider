@@ -1,7 +1,7 @@
 # @gtrabanco/𝜋-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.5.7-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-1.5.9-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 [![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://cloud.nan.builders/r/7GK06FX8)
 
 [NaN Builders](https://cloud.nan.builders/r/7GK06FX8) model provider + a native MCP server for [pi](https://github.com/earendil-works/pi). 
@@ -27,7 +27,7 @@ Registers the `nan` provider via `pi.registerProvider()` using NaN's OpenAI-comp
 | **Native image models** | `flux-2-klein` and `qwen-image-2.1` registered as pi `type: "image"` models, reachable from codemode and extensions. |
 | **Native MCP media bridge** | The `nan-media` server (10 tools) registered through `pi.registerMcpServer()`, managed with `/nan-mcp`. |
 | **Credits reporting** | `/nan-usage` shows credits balance with a progress bar, per-model breakdown (input / cached / output in M, credits consumed), and billing period — all from `GET /v1/usage` ([#37](https://github.com/gtrabanco/pi-nan-provider/issues/37)). |
-| **Cache-anomaly evidence** | `cf-ray` capture on the repeated `id` + `created` gateway signature ([#17](https://github.com/gtrabanco/pi-nan-provider/issues/17)) plus the deterministic `/nan-debug` collector ([#35](https://github.com/gtrabanco/pi-nan-provider/issues/35)). |
+| **Cache-anomaly evidence** | `cf-ray` capture on the repeated `id` + `created` gateway signature ([#17](https://github.com/gtrabanco/pi-nan-provider/issues/17)) plus the deterministic `/nan-debug` collector ([#35](https://github.com/gtrabanco/pi-nan-provider/issues/35)) with per-error evidence, every response's `cf-ray` joined into `turns.jsonl` (S11), and flexible `--interval` windows ([#44](https://github.com/gtrabanco/pi-nan-provider/issues/44)). |
 | **pi integration** | Model refresh driven by pi's Models runtime, per-model `models.json` overrides, and the extension changelog (`pi.changelogPath`) that pi shows after an update. |
 
 Commands:
@@ -36,7 +36,7 @@ Commands:
 | :--- | :--- |
 | `/nan-mcp` | Manage the media MCP bridge (`status` / `enable` / `disable`) |
 | `/nan-usage [1-90]` | Credits balance with usage bar, per-model breakdown (in / cached / out in M · credits cr), and all-time totals |
-| `/nan-debug [topic] [--window N] [--out path] [--emit]` | Redacted, reproducible evidence package for NaN |
+| `/nan-debug [topic] [--window N] [--interval FLEX] [--out path] [--emit]` | Redacted, reproducible evidence package for NaN |
 
 ---
 
@@ -400,6 +400,12 @@ SHA-256 of the request payload. It is **local-only**: no prompt or response
 content, no credentials, no paths, no upload. A write failure never breaks a
 stream.
 
+Independently of any anomaly, every response's `cf-ray` is kept in
+`<agentDir>/nan-response-rays.jsonl` — `response_id`, `cf_ray`, `model`,
+`observed_at`, newest 50,000 lines, local-only (issue #35 S11) — and the
+report joins it into `turns.jsonl` as `cf_ray`, so support gets the rays of
+any pair of calls without waiting for a recurrence.
+
 `/nan-debug` turns that file plus your session transcripts into a redacted,
 reproducible evidence package for NaN:
 
@@ -408,11 +414,20 @@ reproducible evidence package for NaN:
 /nan-debug cache --window 2         # topic label + a 2-day window
 /nan-debug --window 2 --emit        # also writes <agentDir>/nan-debug-report.zip
 /nan-debug cache --out ~/evidence --emit
+/nan-debug --interval 5min          # relative spans: 5min, 2h, 3d, 1mes
+/nan-debug --interval "2026-11-10 - 2026-11-11 17:30"  # ranges, open ends, single points too
 ```
 
 - `--window N` (1–90 days) also fetches `GET /v1/usage` for the same period with
   your stored key and writes `usage_window.json`; without the flag nothing is
   fetched. That live call counts against your quota's request rate.
+- `--interval <desc>` replaces `--window` (using both is an error) and accepts
+  relative spans (`5min`, `2h`, `3d`, `1mes`), date/time ranges
+  (`2026-11-10 - 2026-11-11 17:30`, `10:30 - 11:00`, cross-midnight
+  `23:00 - 01:00`), open ends (`2026-11-10 -`, `- 2026-11-10`), year-months
+  (`2026-11 - 2026-12`) and single points (`2026-11-10`,
+  `2026-11-10T10:00:00Z`). The span is capped at 90 days and parsing is fully
+  deterministic — no LLM calls. The topic, when you use one, goes before the flag.
 - The zip is written **only** with `--emit`; the default run writes the local
   report and prints a preview.
 - `--out <path>` writes the report anywhere you name it (and, with `--emit`,
@@ -420,12 +435,20 @@ reproducible evidence package for NaN:
   above write where they say. A flag token is never accepted as the path.
 - The report contains `README.md`, `anonymized_usage.jsonl` (per date/session/
   model totals, stop-reason counts, cache-hit rate), `turns.jsonl` (per-turn
-  usage, stop reason, error class, response id), `anomalies.jsonl` (`cf-ray`
-  pair) and `metadata.json` (package/pi-ai/pi versions, catalog provenance).
-- Session and worktree labels are MD5-truncated to 12 chars; `errorMessage` is
-  reduced to `overflow | rate_limited | invalid_request | transport | other`;
-  prompt/response content and credentials are never collected. Identical inputs
-  produce byte-identical zip bytes.
+  usage, stop reason, error class, response id, `cf_ray`), `errors.jsonl` (one row per
+  errored turn: class, 200-char message fragment, MD5 hash of the full message,
+  input/output tokens, response id), `anomalies.jsonl` (`cf-ray` pair),
+  `sessions/` (the raw session JSONL files filtered to the window) and
+  `metadata.json` (package/pi-ai/pi versions, catalog provenance,
+  `error_summary`).
+- Session and worktree labels are MD5-truncated to 12 chars (including the
+  `cwd` header inside `sessions/`); `errorMessage` is reduced to `overflow |
+  rate_limited | invalid_request | transport | other`, and `errors.jsonl` keeps
+  at most 200 characters of the raw message plus an MD5 hash. Credentials are
+  never collected anywhere; prompt/response content is never collected in the
+  root files — `sessions/` is the exception, raw transcripts included on
+  request ([#44](https://github.com/gtrabanco/pi-nan-provider/issues/44)), with
+  only `cwd` hashed. Identical inputs produce byte-identical zip bytes.
 
 ## 📊 Models
 
