@@ -208,3 +208,39 @@ to `max`; a `max` request used to reach the gateway as `reasoning_effort: "high"
 `hy4`, `hy4-flash`, `qwen3.8-max` (only their off switch is documented) and
 `kimi-k3.1-pro`/`deepseek-v4-pro` (outside the contract) stay at `off`…`high`.
 Gate after the extension: 424 tests pass / 0 fail, typecheck exit 0.
+
+## 2026-11-17 — issue #36: revert the `qwen3.8-flash` `max_completion_tokens` bound
+
+**Done**
+
+- NaN support reported the gateway fix deployed and validated, so removed
+  `maxTokensField: "max_completion_tokens"` from `MANUAL_OVERRIDES["qwen3.8-flash"]`
+  and regenerated the catalog; the entry is back on the classic `max_tokens`.
+  `qwen3.8-max` keeps its own override on the 2026-11-17 docs evidence, so
+  `SanitizerOptions.preserveMaxCompletionTokens` and the sanitizer wiring stay.
+- `test/issue-34-max-completion-tokens.test.ts` now encodes the #36 revert:
+  `qwen3.8-flash` catalog/wire on `max_tokens`, `qwen3.8-max` still on
+  `max_completion_tokens`, sanitizer default/opt-out both covered.
+- README (EN/ES), CHANGELOG 1.5.7, version bump, AGENTS verified facts and the
+  qwen3.8-flash provenance note updated; `/nan-usage` needed no code change —
+  the "usage" report was the #17 proxy response cache, now disabled upstream.
+
+**Probe (authorized by the maintainer, 3k-token cap)**
+
+- Two identical streaming requests, `max_tokens: 1024`, `include_usage`:
+  completions 168 / 165 tokens, ids `chatcmpl-05a8…` / `chatcmpl-1a06…`,
+  different `created` → cache off, each response has its own usage.
+- One `max_tokens: 64` request: `completion_tokens: 64`,
+  `reasoning_tokens: 64`, `finish_reason: "length"`, empty content → the budget
+  is honoured. Total probe: 661 tokens.
+
+**Checks**
+
+- `bun test` → 427 pass / 0 fail / 2024 expect() calls / 36 files;
+  `bun run typecheck` → exit 0.
+- `bun run generate-models` diff: only `qwen3.8-flash` compat field, its note
+  and `fetchedAt`.
+
+**Next**
+
+- PR/merge publishes 1.5.7; close #36 with the probe result.

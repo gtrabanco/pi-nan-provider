@@ -121,10 +121,12 @@ function modelSupportsUsageInStreaming(model: unknown): boolean {
 
 /**
  * Whether the model's effective compat sends the `max_completion_tokens`
- * request field instead of the classic `max_tokens` (issue #34). The model
- * object here is pi-ai's post-registry view — baseline catalog, live-merge
- * refresh, `models.json` override and the #19 stale-store overlay all flow
- * through `compat`, so this reads the value the user actually runs with.
+ * request field instead of the classic `max_tokens` (the per-model mechanism
+ * from issue #34; `qwen3.8-max` is the catalog model that still uses it).
+ * The model object here is pi-ai's post-registry view — baseline catalog,
+ * live-merge refresh, `models.json` override and the #19 stale-store overlay
+ * all flow through `compat`, so this reads the value the user actually runs
+ * with.
  */
 function modelSendsMaxCompletionTokens(model: unknown): boolean {
 	if (!isObject(model)) return false;

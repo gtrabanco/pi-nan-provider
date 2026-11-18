@@ -1,31 +1,28 @@
 /**
- * ACCEPTANCE TESTS — issue #34
- * "qwen3.8-flash: NaN confirms max_tokens does not bound reasoning and the
- * excess bills the quota — send max_completion_tokens as the interim bound."
+ * ACCEPTANCE TESTS — issue #34 interim bound, reverted by issue #36.
  *
+ * #34 "qwen3.8-flash: NaN confirms max_tokens does not bound reasoning and the
+ * excess bills the quota — send max_completion_tokens as the interim bound."
  * https://github.com/gtrabanco/pi-nan-provider/issues/34
  *
- * The bug: the catalog sends `maxTokensField: "max_tokens"` for every model.
- * NaN confirmed maintainer-side (2026-11-11, quoted in the issue) that on
- * `qwen3.8-flash` `max_tokens` does NOT bound the reasoning phase, the excess
- * bills against the quota, and `max_completion_tokens` IS respected as the
- * interim bound until NaN ships their prepared fix.
+ * #36 "Tracking: remove the qwen3.8-flash max_completion_tokens override when
+ * NaN ships the max_tokens fix."
+ * https://github.com/gtrabanco/pi-nan-provider/issues/36
  *
- * The fix: `compat.maxTokensField: "max_completion_tokens"` for qwen3.8-flash
- * only (the issue's conservative scope — accepting the field on the other
- * flash models is unverified live), with the sanitizer's
- * `max_completion_tokens → max_tokens` rename gated per model so the field
- * survives to the wire. Provenance: NaN's reply, not a docs URL — the
- * published OpenAPI schema does not document `max_completion_tokens`.
+ * History:
+ * - 2026-11-11 — NaN confirmed `max_tokens` did not bound the reasoning phase
+ *   on `qwen3.8-flash`, the excess billed against the quota, and
+ *   `max_completion_tokens` was respected. Package 1.5.3 sent that field as an
+ *   interim bound with the sanitizer's rename gated per model.
+ * - 2026-11-17 — NaN support reported the gateway fix deployed and validated
+ *   (`max_tokens` honours the client budget). The interim override was removed
+ *   in package 1.5.7; the per-model sanitizer opt-out stays because
+ *   `qwen3.8-max` still declares the field on docs evidence.
  *
- * These tests are FROZEN acceptance criteria. They drive the real pi-ai
+ * These tests are the revert contract. They drive the real pi-ai
  * `openai-completions` adapter end-to-end through the real provider (including
- * the strict-schema sanitizer wrapper) against a mock NaN gateway that
- * captures the request body. No network: fetch is injected.
- *
- * Revert contract (issue #34): once NaN ships their gateway fix, the catalog
- * override must be REMOVED. The provenance test below fails loudly until it
- * is — that test is the revert tripwire, not something to relax.
+ * the strict-schema sanitizer wrapper) against a mock NaN gateway that captures
+ * the request body. No network: fetch is injected.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -89,36 +86,37 @@ async function runTurn(model: Model<"openai-completions">, gateway: { fetchImpl:
 	return await stream.result();
 }
 
-describe("issue #34 — max_completion_tokens bounds qwen3.8-flash reasoning", () => {
-	// FROZEN acceptance criterion C1/C3: the catalog pins the field on the one
-	// model NaN named, with provenance tracing to their reply (not a docs URL).
-	test("qwen3.8-flash catalog entry declares maxTokensField 'max_completion_tokens' with 2026-11-11 provenance", () => {
+describe("issue #36 — qwen3.8-flash is back on max_tokens", () => {
+	test("qwen3.8-flash catalog entry no longer overrides maxTokensField", () => {
 		const entry = NAN_GENERATED_MODELS.find((e) => e.id === "qwen3.8-flash");
 		expect(entry).toBeDefined();
-		expect(entry!.compat?.maxTokensField).toBe("max_completion_tokens");
-
-		// Provenance (no-fabrication rule): the value traces to NaN's maintainer
-		// reply of 2026-11-11 — the issue quotes it.
-		const note = entry!.notes?.join(" ") ?? MANUAL_OVERRIDES["qwen3.8-flash"]?.note ?? "";
-		expect(note).toContain("2026-11-11");
-		expect(note.includes("issue #34") || note.includes("#34")).toBe(true);
-
-		// Revert tripwire (C4): the note must say how to undo the override.
-		expect(
-			/revert|remove the override|shipping their fix|once NaN ships/i.test(note),
-			"provenance note must record the revert plan",
-		).toBe(true);
+		expect(entry!.compat?.maxTokensField).toBe("max_tokens");
+		expect(MANUAL_OVERRIDES["qwen3.8-flash"]?.maxTokensField).toBeUndefined();
 	});
 
-	// FROZEN acceptance criterion C2: the field is scoped to the Qwen models the
-	// docs describe as bounding only the visible answer with `max_tokens`
-	// (`qwen3.8-flash` per issue #34, `qwen3.8-max` per docs/models 2026-11-17).
-	// Every other generated entry keeps the LiteLLM-confirmed `max_tokens`.
+	test("the qwen3.8-flash note records the revert and its provenance", () => {
+		const entry = NAN_GENERATED_MODELS.find((e) => e.id === "qwen3.8-flash");
+		const note = entry!.notes?.join(" ") ?? MANUAL_OVERRIDES["qwen3.8-flash"]?.note ?? "";
+		// History stays: the interim bound existed and was billed-aware.
+		expect(note).toContain("#34");
+		// The revert traces to NaN support confirming the deployed gateway fix.
+		expect(note).toContain("2026-11-17");
+		expect(note).toContain("#36");
+		expect(/max_tokens/i.test(note)).toBe(true);
+	});
+
+	// `qwen3.8-max` keeps the field on docs evidence (docs/models 2026-11-17);
+	// its contract is independent of the #34 interim bound.
+	test("qwen3.8-max keeps maxTokensField 'max_completion_tokens'", () => {
+		const entry = NAN_GENERATED_MODELS.find((e) => e.id === "qwen3.8-max");
+		expect(entry).toBeDefined();
+		expect(entry!.compat?.maxTokensField).toBe("max_completion_tokens");
+	});
+
 	test("every other catalog model keeps maxTokensField 'max_tokens'", () => {
-		const completionFieldModels = new Set(["qwen3.8-flash", "qwen3.8-max"]);
 		expect(NAN_GENERATED_MODELS.length).toBeGreaterThan(1);
 		for (const entry of NAN_GENERATED_MODELS) {
-			if (completionFieldModels.has(entry.id)) {
+			if (entry.id === "qwen3.8-max") {
 				expect(entry.compat?.maxTokensField, entry.id).toBe("max_completion_tokens");
 				continue;
 			}
@@ -126,15 +124,24 @@ describe("issue #34 — max_completion_tokens bounds qwen3.8-flash reasoning", (
 		}
 	});
 
-	// FROZEN acceptance criterion C1: the wire carries the new field end-to-end.
-	test("qwen3.8-flash wire request sends max_completion_tokens (not max_tokens)", async () => {
+	test("qwen3.8-flash wire request sends max_tokens (not max_completion_tokens)", async () => {
 		const model = modelFor("qwen3.8-flash");
+		expect(model.compat?.maxTokensField).toBe("max_tokens");
+
+		const gateway = capturingGateway();
+		await runTurn(model, gateway);
+
+		expect(gateway.lastBody().max_tokens).toBe(32_768);
+		expect("max_completion_tokens" in gateway.lastBody()).toBe(false);
+	});
+
+	test("qwen3.8-max wire request still sends max_completion_tokens", async () => {
+		const model = modelFor("qwen3.8-max");
 		expect(model.compat?.maxTokensField).toBe("max_completion_tokens");
 
 		const gateway = capturingGateway();
 		await runTurn(model, gateway);
 
-		// The decisive wire contract.
 		expect(gateway.lastBody().max_completion_tokens).toBe(32_768);
 		expect("max_tokens" in gateway.lastBody()).toBe(false);
 	});
@@ -151,9 +158,9 @@ describe("issue #34 — max_completion_tokens bounds qwen3.8-flash reasoning", (
 		expect("max_completion_tokens" in gateway.lastBody()).toBe(false);
 	});
 
-	// Sanitizer gate, default side (O4): without a per-model option the
-	// documented rename still runs — hand-built payloads for non-overridden
-	// models stay on the strict `max_tokens` shape.
+	// Sanitizer gate, default side: without a per-model option the documented
+	// rename still runs — hand-built payloads for non-overridden models stay on
+	// the strict `max_tokens` shape.
 	test("sanitizer keeps renaming max_completion_tokens → max_tokens by default", () => {
 		const payload: Json = { model: "qwen3.6", max_completion_tokens: 123, messages: [{ role: "user", content: "hi" }] };
 		const out = sanitizeOpenAICompatPayload(payload) as Json;
@@ -161,11 +168,10 @@ describe("issue #34 — max_completion_tokens bounds qwen3.8-flash reasoning", (
 		expect("max_completion_tokens" in out).toBe(false);
 	});
 
-	// Sanitizer gate, opt-in side (O5): a model declaring
-	// maxTokensField: "max_completion_tokens" keeps the field after
-	// sanitization — this is what lets the wire contract hold.
-	test("sanitizer preserves max_completion_tokens for a max_completion_tokens model", () => {
-		const payload: Json = { model: "qwen3.8-flash", max_completion_tokens: 32_768, messages: [{ role: "user", content: "hi" }] };
+	// Sanitizer gate, opt-in side: the mechanism stays for the model that still
+	// declares `maxTokensField` (qwen3.8-max).
+	test("sanitizer preserves max_completion_tokens when the model opts in", () => {
+		const payload: Json = { model: "qwen3.8-max", max_completion_tokens: 32_768, messages: [{ role: "user", content: "hi" }] };
 		const out = sanitizeOpenAICompatPayload(payload, { preserveMaxCompletionTokens: true }) as Json;
 		expect(out.max_completion_tokens).toBe(32_768);
 		expect("max_tokens" in out).toBe(false);

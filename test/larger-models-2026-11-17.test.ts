@@ -373,7 +373,9 @@ describe("2026-11-17 — xhigh and max are selectable where the docs document th
 describe("2026-11-17 — qwen3.8-max bounds the client budget", () => {
 	// The docs: `max_tokens` "only bounds the visible answer: the reasoning comes
 	// on top of it. To cap the total ... use max_completion_tokens" — the same
-	// quota blowout issue #34 fixed for qwen3.8-flash.
+	// quota failure mode #34 addressed for qwen3.8-flash. #36 reverted that
+	// model once NaN fixed its gateway; this one keeps the override on the
+	// 2026-11-17 docs evidence.
 	test("qwen3.8-max sends max_completion_tokens, never max_tokens", async () => {
 		const gateway = capturingGateway();
 		await runTurn(modelFor("qwen3.8-max"), gateway, { maxTokens: 16_384 });

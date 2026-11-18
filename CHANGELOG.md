@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.7] - 2026-11-17
+
+### Changed
+
+- **`qwen3.8-flash` sends `max_tokens` again (issue #36).** NaN support reported
+  the gateway fix deployed and validated (`max_tokens` honours a 1,024-token
+  budget), so the interim `max_completion_tokens` override from issue #34 is
+  removed and `bun run generate-models` puts the model back on the classic
+  field. `qwen3.8-max` keeps its own `max_completion_tokens` override, which
+  comes from the 2026-11-17 docs and is independent of the #34 interim. The
+  sanitizer's per-model opt-out (`SanitizerOptions.preserveMaxCompletionTokens`)
+  stays: it is the mechanism that carries `qwen3.8-max`.
+- **The proxy response cache is gone.** NaN disabled it on 2026-11-17: two
+  identical requests now return two real completions, each with its own usage
+  (the issue #17 replay). The `/nan-debug` cache-anomaly capture stays as a
+  relapse tripwire and the READMEs record the new state.
+
 ## [1.5.6] - 2026-11-17
 
 ### Added
