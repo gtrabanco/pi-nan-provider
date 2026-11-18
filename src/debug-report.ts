@@ -7,15 +7,16 @@
  * (`nan-cache-anomalies.jsonl`, which holds the `cf-ray` pair) and renders a
  * report that can be shared verbatim.
  *
- * Contract (issue #35):
+ * Contract (issue #35, scoped by PR #44):
  *   - no LLM, no network unless `--window` explicitly asks for `/v1/usage`;
- *   - never collect prompt/response content, credentials or raw paths;
+ *   - the redacted root files never collect prompt/response content,
+ *     credentials or raw paths — `sessions/` is the owner-requested exception
+ *     (PR #44): raw transcripts with only the `cwd` header MD5-hashed;
  *   - session and worktree identifiers are MD5-truncated to 12 chars;
- *   - error text is reduced to a fixed class and limited to 120 chars; the
- *     full text is available in `errors.jsonl` with a redaction hash; the
- *     full text is never emitted in the preview or the zip root files.
- *   - the same inputs produce byte-identical zip bytes (aside from
- *     `errors.jsonl` which includes a short human-readable fragment).
+ *   - error text in rows and the preview is reduced to a fixed class;
+ *     `errors.jsonl` carries at most 200 characters of the raw message plus
+ *     an MD5 hash of the full text, which appears nowhere else;
+ *   - the same inputs produce byte-identical zip bytes.
  *
  * The report layout matches the 2026-11-10 anonymized dataset: one aggregated
  * `anonymized_usage.jsonl` row per (date, session, model), plus `turns.jsonl`
@@ -39,7 +40,7 @@ export const NAN_DEBUG_REPORT_DIR = "nan-debug-report";
 export const NAN_DEBUG_ZIP = "nan-debug-report.zip";
 
 export const DEBUG_USAGE_LINE =
-	"Usage: /nan-debug [topic] [--window N] [--interval FLEXIBLE] [--out file] [--emit] — collects a redacted NaN evidence report locally; --emit writes the shareable zip.\n\nIntervals: '5min', '2h', '3d', '1mes', '2año', '2026-11-10 - 2026-11-11 17:30', '10:30 - 11:00', etc.";
+	"Usage: /nan-debug [topic] [--window N] [--interval FLEXIBLE] [--out file] [--emit] — collects a redacted NaN evidence report locally; --emit writes the shareable zip.\n\nIntervals: '5min', '2h', '3d', '1mes', '2026-11-10 - 2026-11-11 17:30', '10:30 - 11:00', '2026-11-10 -', max 90 days, mutually exclusive with --window.";
 
 /** A flexible time window with ISO-capable boundaries (YYYY-MM-DD or full ISO 8601). */
 export interface DebugWindow {
@@ -112,10 +113,28 @@ export function parseDebugArgs(input: string): ParseDebugArgsResult {
 			continue;
 		}
 		if (token === "--interval") {
-			const value = tokens[i + 1];
-			if (value === undefined) return { ok: false, error: `--interval needs a time description. ${DEBUG_USAGE_LINE}` };
-			i += 1;
-			if (value.startsWith("--")) return { ok: false, error: `--interval needs a time description (got "${value}"). ${DEBUG_USAGE_LINE}` };
+			// The value spans every token up to the next `--` flag: pi passes the
+			// command text raw and unquoted (PE-010), so a range like
+			// "2026-11-10 - 2026-11-11 17:30" arrives as several whitespace tokens.
+			const parts: string[] = [];
+			let j = i + 1;
+			while (j < tokens.length && !tokens[j]!.startsWith("--")) {
+				parts.push(tokens[j]!);
+				j += 1;
+			}
+			if (parts.length === 0) {
+				const next = tokens[i + 1];
+				return next === undefined
+					? { ok: false, error: `--interval needs a time description. ${DEBUG_USAGE_LINE}` }
+					: { ok: false, error: `--interval needs a time description (got "${next}"). ${DEBUG_USAGE_LINE}` };
+			}
+			i = j - 1;
+			let value = parts.join(" ");
+			// Strip one layer of surrounding quotes (`--interval " - 2026-11-10"`).
+			if (value.length > 1 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) {
+				value = value.slice(1, -1).trim();
+			}
+			if (value.length === 0) return { ok: false, error: `--interval needs a time description. ${DEBUG_USAGE_LINE}` };
 			args.interval = value;
 			continue;
 		}
@@ -168,8 +187,8 @@ const TIME_UNITS: ReadonlyMap<string, number> = new Map([
 	["year", 365 * 86_400_000],
 ]);
 
-/** Parse a standalone relative span like "5min", "2h", "3d". Returns null if not a relative span. */
-function tryParseRelativeSpan(input?: string): RelativeSpan | null {
+/** Parse a standalone relative span like "5min", "2h", "3d": null when it is not a relative span, the explicit cap error when it exceeds 90 days. */
+function tryParseRelativeSpan(input?: string): RelativeSpan | { error: string } | null {
 	if (!input) return null;
 	const match = /^(\d+)\s*(\S+)$/.exec(input.trim());
 	if (!match) return null;
@@ -179,7 +198,7 @@ function tryParseRelativeSpan(input?: string): RelativeSpan | null {
 	const spanMs = TIME_UNITS.get(unit);
 	if (!spanMs) return null;
 	const total = Number(amountStr) * spanMs;
-	if (total > MAX_INTERVAL_MS) return null; // too large
+	if (total > MAX_INTERVAL_MS) return { error: `Interval too large (max 90 days).` };
 	return { kind: "relative" as const, spanMs: total };
 }
 
@@ -217,8 +236,9 @@ function parsePartialISO(value: string): Date | null {
 }
 
 /**
- * Build an ISO string from a Date. Falls back to YYYY-MM-DD if no time info.
- * Uses the pattern: "YYYY-MM-DD" if only date, else full ISO.
+ * Build a full ISO 8601 UTC string (always `YYYY-MM-DDTHH:mm:ss.sssZ`) so
+ * interval bounds compare lexicographically against day-granular dates once
+ * `slice(0, 10)` is applied.
  */
 function dateToISO(d: Date): string {
 	const y = d.getUTCFullYear();
@@ -239,18 +259,34 @@ export function parseFlexibleTime(input: string, now: Date): DebugWindow | { ok:
 	const trimmed = input.trim();
 	if (trimmed.length === 0) return { ok: false, error: `--interval requires a time description. ${DEBUG_USAGE_LINE}` };
 
-	// 1. Try relative span: "5min", "2h", "3d", "1mes", "2año"
+	// 1. Try relative span: "5min", "2h", "3d", "1mes"
 	const relative = tryParseRelativeSpan(trimmed);
 	if (relative) {
-		const startMs = now.getTime() - relative.spanMs;
+		if ("error" in relative) return { ok: false, error: relative.error };
 		return {
-			start: dateToISO(new Date(startMs)),
+			start: dateToISO(new Date(now.getTime() - relative.spanMs)),
 			end: dateToISO(now),
-			days: 1,
+			days: Math.max(1, Math.round(relative.spanMs / 86_400_000)),
 		};
 	}
 
-	// 2. Try range: split on " - " (dash with spaces)
+	// 2. Open left: "- <date>" — from the default window's start until <date>
+	//    (issue #44: "inicio del window hasta 10 nov").
+	const openLeft = /^-\s+(.+)$/.exec(trimmed);
+	if (openLeft?.[1]) {
+		const right = openLeft[1].trim();
+		const end = parseTimeToken(right, now, false);
+		if (!end) {
+			return { ok: false, error: `Cannot parse interval "${trimmed}". Use "- 2026-11-10" to run from the default window's start until a date.` };
+		}
+		const start = new Date(`${rollingWindow(DEFAULT_DEBUG_WINDOW_DAYS, now).start}T00:00:00.000Z`);
+		const spanMs = end.getTime() - start.getTime();
+		if (spanMs <= 0) return { ok: false, error: `Start (${dateToISO(start)}) must be before end (${right}).` };
+		if (spanMs > MAX_INTERVAL_MS) return { ok: false, error: `Interval too large (max 90 days).` };
+		return { start: dateToISO(start), end: dateToISO(end), days: Math.max(1, Math.round(spanMs / 86_400_000)) };
+	}
+
+	// 3. Try range: split on " - " (dash with spaces)
 	// Match " - " but not "--" or "-" at edges
 	const rangeMatch = /^(.+?)\s+-\s+(.+)$/.exec(trimmed);
 	if (rangeMatch?.[1] && rangeMatch?.[2]) {
@@ -259,13 +295,28 @@ export function parseFlexibleTime(input: string, now: Date): DebugWindow | { ok:
 		return parseRange(left, right, now);
 	}
 
-	// 3. Try single date/time: parse as a single point, default end to now
+	// 4. Open right: "<date> -" — from <date> until now (issue #44).
+	const openRight = /^(.+?)\s+-\s*$/.exec(trimmed);
+	if (openRight?.[1]) {
+		const left = openRight[1].trim();
+		const start = parseTimeToken(left, now, true);
+		if (!start) {
+			return { ok: false, error: `Cannot parse interval "${trimmed}". Use "2026-11-10 -" to run from a date until now.` };
+		}
+		const spanMs = now.getTime() - start.getTime();
+		if (spanMs <= 0) return { ok: false, error: `Start (${left}) must be before now.` };
+		if (spanMs > MAX_INTERVAL_MS) return { ok: false, error: `Interval too large (max 90 days).` };
+		return { start: dateToISO(start), end: dateToISO(now), days: Math.max(1, Math.round(spanMs / 86_400_000)) };
+	}
+
+	// 5. Try single date/time: parse as a single point, default end to now
 	const point = parsePartialISO(trimmed);
 	if (point) {
+		const spanMs = now.getTime() - point.getTime();
 		return {
 			start: dateToISO(point),
 			end: dateToISO(now),
-			days: 1,
+			days: Math.max(1, Math.round(spanMs / 86_400_000)),
 		};
 	}
 
@@ -284,15 +335,16 @@ function parseRange(left: string, right: string, now: Date): DebugWindow | { ok:
 		return { ok: false, error: `Cannot parse range "${left} - ${right}". Use dates (2026-11-10), times (10:30 - 11:00), or both.` } as const;
 	}
 
-	// Cross-midnight detection: if end < start AND end has no date component
-	// (i.e., time is 00:00:00 which means it was parsed from a time-only like "01:00"),
-	// add 1 day to end. Also check if both are on the same calendar day.
+	// Cross-midnight detection: time-only tokens fall back to `now`'s calendar
+	// day (parseTimeToken's fallbackDate), so an end before the start on that
+	// same day means the end belongs to the next day — "23:00 - 01:00" becomes
+	// 23:00 → 01:00 next day. Everything reads UTC (EV-2026-11-18 A4: the
+	// local-time variant of this check was dead code, outcome-identical).
 	if (end.getTime() < start.getTime()) {
-		const isTimeOnlyEnd = end.getHours() === 0 && end.getMinutes() === 0 && end.getSeconds() === 0 && end.getUTCMilliseconds() === 0;
 		const sameCalendarDay = start.getUTCFullYear() === end.getUTCFullYear()
 			&& start.getUTCMonth() === end.getUTCMonth()
 			&& start.getUTCDate() === end.getUTCDate();
-		if (isTimeOnlyEnd || sameCalendarDay) {
+		if (sameCalendarDay) {
 			end.setUTCDate(end.getUTCDate() + 1);
 		}
 	}
@@ -351,8 +403,9 @@ const ERROR_PATTERNS: ReadonlyArray<readonly [DebugErrorClass, RegExp]> = [
 ];
 
 /**
- * Map a raw `errorMessage` to a fixed class. The raw text is never emitted —
- * this is the only thing that reaches the report.
+ * Map a raw `errorMessage` to a fixed class. Rows, previews and aggregates
+ * only ever see this class; the raw text reaches the report solely as
+ * `errors.jsonl`'s 200-character fragment plus its MD5 hash (PR #44).
  */
 export function classifyErrorMessage(message: string | undefined): DebugErrorClass | null {
 	if (typeof message !== "string" || message.length === 0) return null;
@@ -538,6 +591,29 @@ function listSessionFilesFiltered(root: string, window: DebugWindow): string[] {
 	});
 }
 
+/**
+ * Embed a raw session transcript with only its `cwd` header hashed: `sessions/`
+ * ships the transcript verbatim on the PR #44 owner request, but raw paths
+ * must never reach any rendered file. Lines without a `cwd` key, and lines
+ * that no longer parse as JSON, pass through untouched (EV-2026-11-18 B5).
+ */
+function scrubSessionTranscript(text: string): string {
+	if (!text.includes('"cwd"')) return text;
+	return text
+		.split("\n")
+		.map((line) => {
+			if (!line.includes('"cwd"')) return line;
+			try {
+				const entry = JSON.parse(line) as Record<string, unknown>;
+				if (typeof entry.cwd === "string") entry.cwd = md5Short(entry.cwd);
+				return JSON.stringify(entry);
+			} catch {
+				return line;
+			}
+		})
+		.join("\n");
+}
+
 /** Date of a session file: the ISO-timestamp filename prefix, else its mtime. */
 function sessionFileDate(file: string): string {
 	const match = /^(\d{4}-\d{2}-\d{2})T/.exec(basename(file));
@@ -610,7 +686,10 @@ function readAnomalies(file: string): CacheAnomalyRecord[] {
 }
 
 function inWindow(date: string, window: DebugWindow): boolean {
-	return date >= window.start && date <= window.end;
+	// Day-granular on both sides: interval bounds are full ISO strings while
+	// session/anomaly dates are YYYY-MM-DD — comparing them raw silently
+	// dropped the whole start date (EV-2026-11-18 B4).
+	return date >= window.start.slice(0, 10) && date <= window.end.slice(0, 10);
 }
 
 // ── Report building ───────────────────────────────────────────────────────
@@ -785,6 +864,10 @@ export async function buildDebugReport(options: BuildDebugReportOptions = {}): P
 			prompt_response_bytes: 0,
 			credentials: 0,
 		},
+		error_summary: {
+			total: errors.length,
+			byClass: { ...errorCounts },
+		},
 	};
 
 	const report: DebugReport = {
@@ -859,10 +942,10 @@ function renderReadme(report: DebugReport, versions: Record<string, string>): st
 		"",
 		"## What is never collected",
 		"",
-		"- Prompt or response content.",
-		"- Raw file paths or worktree names (MD5 truncated to 12 chars).",
-		"- Credentials or auth headers.",
-		"- Full error messages (only 200-char truncated text + MD5 hash).",
+		"- Prompt or response content in the root files — except under `sessions/`, which embeds your raw session transcripts on request (issue #44); only their `cwd` header is MD5-truncated to 12 chars.",
+		"- Raw file paths or worktree names outside transcripts (labels are MD5-truncated to 12 chars).",
+		"- Credentials or auth headers, in any file.",
+		"- Full error messages: `errors.jsonl` keeps at most 200 characters plus an MD5 hash of the full text.",
 		"",
 		"## Versions",
 		"",
@@ -894,7 +977,7 @@ export function renderDebugReport(report: DebugReport, sessionsDir?: string): Re
 			for (const file of sessionFiles) {
 				const content = readFileSync(file, "utf8");
 				const relPath = file.startsWith(sessionsDir) ? file.slice(sessionsDir.length + 1) : basename(file);
-				files[`sessions/${relPath}`] = content;
+				files[`sessions/${relPath}`] = scrubSessionTranscript(content);
 			}
 		} catch {
 			// If sessionsDir doesn't exist or can't be read, skip session files.
@@ -923,7 +1006,7 @@ export function renderDebugReport(report: DebugReport, sessionsDir?: string): Re
 		`errors: ${errorCounts.total} total${errorParts.length > 0 ? ` (${errorParts})` : ""}`,
 		`per-model avg tokens/turn: ${perModel.length > 0 ? perModel : "(none)"}`,
 		`anomalies: ${report.counts.anomalies.duplicateIdCreated} duplicate id/created pairs · ${report.counts.anomalies.reasoningOnlyStream} reasoning-only stream · ${report.counts.anomalies.contextOverflow} context overflow`,
-		`redaction: ${report.counts.sessions} session ids hashed · ${(report.metadata as { redaction: { worktree_labels_hashed: number } }).redaction.worktree_labels_hashed} paths hashed · 0 prompt/response bytes collected`,
+		`redaction: ${report.counts.sessions} session ids hashed · ${(report.metadata as { redaction: { worktree_labels_hashed: number } }).redaction.worktree_labels_hashed} paths hashed · 0 prompt/response bytes collected (root files; sessions/ excepted)`,
 		"→ nothing shared yet. Run with --emit to write nan-debug-report.zip",
 	].join("\n");
 
