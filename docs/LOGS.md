@@ -244,3 +244,48 @@ Gate after the extension: 424 tests pass / 0 fail, typecheck exit 0.
 **Next**
 
 - PR/merge publishes 1.5.7; close #36 with the probe result.
+
+## 2026-11-18 — EV-2026-11-18 correction batch: `/nan-debug` interval + error evidence fixes (PR #44)
+
+**Done**
+
+- Read the `EXTERNAL VERIFY` receipt (2026-11-18, NEEDS-DECISION: 6 blockers
+  B1–B6, 4 advisories, base `542e707` · head `e045261`) and folded one
+  correction batch under the owner's "triage and fix those that deserve to
+  fix …" — all six blockers and all four advisories fixed (D-35-02).
+- Ledgers first (§5): O14–O22 + PE-010 (pi passes slash-command args raw,
+  verified on the pinned 1.5.1 dist) + PE-011 (date-only `rollingWindow`
+  bounds), criteria C12–C15, O6/O7/O9/O10/O13 reopened, path-protection
+  justification + owner-approval records cut in the unit `decisions.md`.
+- RED corpus on `test/issue-44-nan-debug-interval.test.ts` (4 pass / 10 fail
+  before any `src/` change), then the fix in `src/debug-report.ts`:
+  `--interval` joins tokens up to the next `--` flag + strips quotes (all
+  documented range/open forms now parse), open-left/open-right windows,
+  explicit 90-day cap message (usage line drops the unparsable `2año`),
+  day-granular `inWindow` (start-date sessions no longer dropped; `5min`/`2h`
+  windows no longer empty), `error_summary` in `metadata.json`, `sessions/`
+  embeds transcripts with the `cwd` header MD5-hashed (no raw path anywhere),
+  never-collected wording scoped in the module header, `classifyErrorMessage`
+  doc, rendered template and preview, real `days` for relative spans,
+  UTC-only `parseRange`, absolute byte-identity restored in the header.
+- The 2026-11-11 record for the protected layout test was finally applied
+  (contains checks + `errors.jsonl` + window-filtered `sessions/` entries +
+  `sessionsDir`), so the red gate and the stale records resolve together.
+- Docs in the same change: README/README.es (`--interval`, report contents,
+  scoped redaction, #44 feature row, badge), CHANGELOG 1.5.8,
+  `package.json` 1.5.8 (npm latest = 1.5.7; PATCH line per D-35-01), AGENTS
+  #35 bullet.
+
+**Checks**
+
+- `bun test` → 456 pass / 0 fail / 2134 expect / 38 files; `bun run typecheck` → exit 0.
+- All 22 obligation rows re-run green in the foreground → `verified`.
+- Differential: base `origin/main` copy in `mktemp` → 427/0/2024/36 + typecheck 0
+  vs changed tree 456/0/2134/38 + typecheck 0 — requested delta only.
+- Post-batch sibling sweep clean (stale-claim `rg` set at expected exits;
+  EN/ES header structure identical, 24 lines each).
+
+**Next**
+
+- Owner verdict (external verify) on commits `ed3dbe2`, `dadc6bf`, `48577e7`
+  + this evidence commit; nothing pushed.

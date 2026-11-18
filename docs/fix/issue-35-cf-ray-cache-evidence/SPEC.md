@@ -151,6 +151,28 @@ One observable criterion per `S#`, each naming the check that proves it.
   no longer reproduce at `e045261`. PE-010 verified against the pinned pi
   1.5.1 dist (raw args, no quote stripping); npm latest confirmed 1.5.7 for
   the O20 bump target.
+- 2026-11-18 — P1 (RED): the frozen-failure corpus landed on
+  `test/issue-44-nan-debug-interval.test.ts` → 4 pass / 10 fail / 43 expect
+  before any `src/` change; path-protection justification + owner-approval
+  records (D-35-02) cut in this unit's `decisions.md` first, and the
+  already-recorded 2026-11-11 layout edit was applied to
+  `test/issue-35-debug-report.test.ts` (contains checks + `sessions/` entries
+  + `sessionsDir`), turning the pre-batch 441/1 gate green at the test layer.
+- 2026-11-18 — P2: `src/debug-report.ts` fixes landed (`dadc6bf`, one slice
+  with the corpus so the batch never commits a red gate): `--interval` value
+  join up to the next `--` flag + quote stripping (PE-010), open-left/open-right
+  parsing, explicit 90-day cap message (usage line drops `2año`), day-granular
+  `inWindow` (start-date parity), `error_summary` in metadata, `cwd` hashing in
+  `sessions/`, scoped never-collected wording (header, classifyErrorMessage
+  doc, rendered template, preview suffix), real `days` for relative spans,
+  UTC-only `parseRange`. Suite → 456 pass / 0 fail, typecheck exit 0.
+- 2026-11-18 — P3/P4: README EN/ES + CHANGELOG + `package.json` 1.5.8 +
+  AGENTS bullet (`48577e7`); ledgers frozen (`ed3dbe2`); all 22 obligation
+  rows re-run green in the foreground and flipped to `verified`; differential
+  vs a fresh `origin/main` copy clean (427/0/2024/36 → 456/0/2134/38,
+  typecheck 0 both sides); post-batch sibling sweep clean. Commits:
+  `ed3dbe2`, `dadc6bf`, `48577e7` (+ this evidence commit) — not pushed, the
+  owner is the external verifier.
 
 ## Evidence
 
@@ -167,3 +189,13 @@ One observable criterion per `S#`, each naming the check that proves it.
 | 2026-11-12 | O11 + O12 | `bun test test/issue-35-nan-debug-command.test.ts` → `13 pass, 0 fail, 52 expect() calls` | ok |
 | 2026-11-12 | O13 differential | `mktemp` copy of `369bb56`: `bun test` → `374 pass, 0 fail, 1653 expect() calls, 35 files` + `bun run typecheck` exit 0; changed tree → `376 pass, 0 fail, 1664 expect() calls, 35 files` + typecheck exit 0 — delta is exactly the +2/+11 new corpus, zero deletions | ok |
 | 2026-11-12 | S4 sibling sweep | `rg` over README EN/ES, AGENTS, CHANGELOG, `src/`: command enumerations, `--out` mentions and tilde examples consistent; remaining `README.es.md:439` duplicated `---` traced to `origin/main:397` (base, reported) | ok |
+| 2026-11-18 | correction-batch RED (O14, O15, O16, O17, O21) | `bun test test/issue-44-nan-debug-interval.test.ts` → **4 pass / 10 fail / 43 expect** before any `src/` change; B1's reproducer recorded pre-batch: `bun test` → 441 pass / 1 fail (layout test) at `e045261` | ok |
+| 2026-11-18 | O1 + O2 + O3 | `bun test test/issue-35-cache-anomaly-capture.test.ts` → 13 pass / 0 fail / 33 expect | ok |
+| 2026-11-18 | O4 + O5 + O8 + O11 + O12 | `bun test test/issue-35-nan-debug-command.test.ts` → 13 pass / 0 fail / 52 expect | ok |
+| 2026-11-18 | O6 + O7 + O9 + O13 (B1 restored) | `bun test test/issue-35-debug-report.test.ts` → 8 pass / 0 fail / 69 expect (layout assertion carries `errors.jsonl` + exact window-filtered `sessions/` entries) | ok |
+| 2026-11-18 | O14 + O15 + O16 + O17 + O21 | `bun test test/issue-44-nan-debug-interval.test.ts` → 14 pass / 0 fail / 73 expect | ok |
+| 2026-11-18 | O10 full gate | `bun test` → 456 pass / 0 fail / 2134 expect / 38 files; `bun run typecheck` → exit 0 | ok |
+| 2026-11-18 | O18 + O22 text validators | `rg -n "aside from\|120 chars\|full text is available\|The raw text is never emitted" src/debug-report.ts` → exit 1; `rg -n "\\.getHours\\(\\)\|\\.getMinutes\\(\\)\|\\.getSeconds\\(\\)" src/debug-report.ts` → exit 1 | ok |
+| 2026-11-18 | O19 + O20 docs validators | `rg -n -- "--interval" README.md README.es.md` → exit 0; `rg -n "1\\.5\\.8" package.json CHANGELOG.md` → exit 0; EN/ES header lists both 24 lines, identical structure; both badges `version-1.5.8` | ok |
+| 2026-11-18 | C14 differential base-vs-change | base copy (`git archive origin/main` in `mktemp`): 427 pass / 0 fail / 2024 expect / 36 files + typecheck exit 0; changed tree: 456 pass / 0 fail / 2134 expect / 38 files + typecheck exit 0 — delta = the 15 #44 feature tests + the 14-test correction corpus, zero base test lost or regressed, no unrequested result change | ok |
+| 2026-11-18 | C15 sibling sweep (post-batch) | stale-claim `rg` set all at the expected exits (no `aside from`/`120 chars`/`never emitted`, no absolute "never collected" README line, no advertised `2año`); `errors.jsonl`/`sessions/`/`error_summary` present in README EN+ES; AGENTS #35 bullet extended; rendered template and preview scoped | ok |
