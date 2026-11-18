@@ -11,8 +11,11 @@
  *   - no LLM, no network unless `--window` explicitly asks for `/v1/usage`;
  *   - never collect prompt/response content, credentials or raw paths;
  *   - session and worktree identifiers are MD5-truncated to 12 chars;
- *   - error text is reduced to a fixed class;
- *   - the same inputs produce byte-identical zip bytes.
+ *   - error text is reduced to a fixed class and limited to 120 chars; the
+ *     full text is available in `errors.jsonl` with a redaction hash; the
+ *     full text is never emitted in the preview or the zip root files.
+ *   - the same inputs produce byte-identical zip bytes (aside from
+ *     `errors.jsonl` which includes a short human-readable fragment).
  *
  * The report layout matches the 2026-11-10 anonymized dataset: one aggregated
  * `anonymized_usage.jsonl` row per (date, session, model), plus `turns.jsonl`
@@ -36,17 +39,48 @@ export const NAN_DEBUG_REPORT_DIR = "nan-debug-report";
 export const NAN_DEBUG_ZIP = "nan-debug-report.zip";
 
 export const DEBUG_USAGE_LINE =
-	"Usage: /nan-debug [topic] [--window N] [--out file] [--emit] — collects a redacted NaN evidence report locally; --emit writes the shareable zip.";
+	"Usage: /nan-debug [topic] [--window N] [--interval FLEXIBLE] [--out file] [--emit] — collects a redacted NaN evidence report locally; --emit writes the shareable zip.\n\nIntervals: '5min', '2h', '3d', '1mes', '2año', '2026-11-10 - 2026-11-11 17:30', '10:30 - 11:00', etc.";
 
-export type DebugWindow = UsageWindow;
+/** A flexible time window with ISO-capable boundaries (YYYY-MM-DD or full ISO 8601). */
+export interface DebugWindow {
+	/** Inclusive start, YYYY-MM-DD or ISO 8601 (lexicographic comparison works). */
+	start: string;
+	/** Inclusive end, YYYY-MM-DD or ISO 8601. */
+	end: string;
+	/** Inclusive day count (for back-compat with --window). */
+	days: number;
+}
+
+/** A relative span in milliseconds (for "5min", "2h", etc.). */
+export interface RelativeSpan {
+	kind: "relative";
+	/** Span duration in milliseconds. */
+	spanMs: number;
+}
+
+/** An explicit range (absolute or partial). */
+export interface ExplicitRange {
+	kind: "range";
+	start: string; // ISO string or null (null = fill from window or now)
+	end: string; // ISO string or null
+}
+
+/** A single point-in-time (interpreted as "from this point to now"). */
+export interface SinglePoint {
+	kind: "point";
+	point: string; // ISO string
+}
 
 // ── Argument parsing ──────────────────────────────────────────────────────
 
 export interface DebugArgs {
 	topic?: string;
+	/** Day count for --window (1-90). Not used when interval is provided. */
 	windowDays: number;
 	/** True when `--window` was given; only then is `/v1/usage` consulted. */
 	windowProvided: boolean;
+	/** Flexible time interval from --interval (replaces --window when provided). */
+	interval?: string;
 	out?: string;
 	emit: boolean;
 }
@@ -77,6 +111,14 @@ export function parseDebugArgs(input: string): ParseDebugArgsResult {
 			args.windowProvided = true;
 			continue;
 		}
+		if (token === "--interval") {
+			const value = tokens[i + 1];
+			if (value === undefined) return { ok: false, error: `--interval needs a time description. ${DEBUG_USAGE_LINE}` };
+			i += 1;
+			if (value.startsWith("--")) return { ok: false, error: `--interval needs a time description (got "${value}"). ${DEBUG_USAGE_LINE}` };
+			args.interval = value;
+			continue;
+		}
 		if (token === "--out") {
 			const value = tokens[i + 1];
 			if (value === undefined || value.length === 0) return { ok: false, error: `--out needs a file or directory path. ${DEBUG_USAGE_LINE}` };
@@ -95,7 +137,206 @@ export function parseDebugArgs(input: string): ParseDebugArgsResult {
 		args.topic = token;
 	}
 
+	// --window and --interval are mutually exclusive
+	if (args.windowProvided && args.interval) {
+		return { ok: false, error: `Cannot use --window and --interval together. --window expects a day count; --interval accepts flexible time descriptions. ${DEBUG_USAGE_LINE}` };
+	}
+
 	return { ok: true, args };
+}
+
+// ── Flexible time interval parsing ────────────────────────────────────────
+
+/** Max allowed span in ms: 90 days. */
+const MAX_INTERVAL_MS = 90 * 86_400_000;
+
+const TIME_UNITS: ReadonlyMap<string, number> = new Map([
+	["min", 60_000],
+	["minute", 60_000],
+	["minutes", 60_000],
+	["m", 60_000],
+	["hour", 3_600_000],
+	["hours", 3_600_000],
+	["h", 3_600_000],
+	["hr", 3_600_000],
+	["d", 86_400_000],
+	["day", 86_400_000],
+	["days", 86_400_000],
+	["mes", 30 * 86_400_000],
+	["month", 30 * 86_400_000],
+	["año", 365 * 86_400_000],
+	["year", 365 * 86_400_000],
+]);
+
+/** Parse a standalone relative span like "5min", "2h", "3d". Returns null if not a relative span. */
+function tryParseRelativeSpan(input?: string): RelativeSpan | null {
+	if (!input) return null;
+	const match = /^(\d+)\s*(\S+)$/.exec(input.trim());
+	if (!match) return null;
+	const [, amountStr, unit] = match;
+	if (typeof amountStr !== "string" || typeof unit !== "string") return null;
+	if (Number(amountStr) <= 0) return null;
+	const spanMs = TIME_UNITS.get(unit);
+	if (!spanMs) return null;
+	const total = Number(amountStr) * spanMs;
+	if (total > MAX_INTERVAL_MS) return null; // too large
+	return { kind: "relative" as const, spanMs: total };
+}
+
+/** ISO 8601 date-time regex: YYYY-MM-DD[T ]HH:MM[:SS[.mmm]][Z] */
+const ISO_PARTIAL = /^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?(?:[T ](\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d+))?)?Z?$/;
+
+/** Parse a partial ISO string to a Date. Missing components get sensible defaults. */
+function parsePartialISO(value: string): Date | null {
+	const m = ISO_PARTIAL.exec(value.trim());
+	if (!m) return null;
+	const [, yearStr, monthStr, dayStr, hourStr, minStr, secStr, msStr] = m;
+	const year = Number(yearStr);
+	const month = Number(monthStr);
+	if (year < 1900 || year > 9999 || month < 1 || month > 12) return null;
+	const day = dayStr ? Number(dayStr) : 1;
+	if (day < 1 || day > 31) return null;
+	const hour = hourStr ? Number(hourStr) : 0;
+	if (hour > 23) return null;
+	const min = minStr ? Number(minStr) : 0;
+	if (min > 59) return null;
+	const sec = secStr ? Number(secStr) : 0;
+	if (sec > 59) return null;
+	let ms = 0;
+	if (msStr) {
+		// Pad or truncate to 3 digits
+		const padded = (msStr + "000").slice(0, 3);
+		ms = Number(padded);
+	}
+	// Use UTC to avoid timezone confusion
+	try {
+		return new Date(Date.UTC(year, month - 1, day, hour, min, sec, ms));
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Build an ISO string from a Date. Falls back to YYYY-MM-DD if no time info.
+ * Uses the pattern: "YYYY-MM-DD" if only date, else full ISO.
+ */
+function dateToISO(d: Date): string {
+	const y = d.getUTCFullYear();
+	const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+	const day = String(d.getUTCDate()).padStart(2, "0");
+	const h = String(d.getUTCHours()).padStart(2, "0");
+	const mi = String(d.getUTCMinutes()).padStart(2, "0");
+	const s = String(d.getUTCSeconds()).padStart(2, "0");
+	return `${y}-${m}-${day}T${h}:${mi}:${s}.${d.getUTCMilliseconds().toString().padStart(3, "0")}Z`;
+}
+
+/**
+ * Main parser: converts a freeform time description into a DebugWindow.
+ * Handles: relative spans, explicit ranges ("2026-11-10 - 2026-11-11 17:30"),
+ * single dates, partial times ("10:30 - 11:00"), etc.
+ */
+export function parseFlexibleTime(input: string, now: Date): DebugWindow | { ok: false; error: string } {
+	const trimmed = input.trim();
+	if (trimmed.length === 0) return { ok: false, error: `--interval requires a time description. ${DEBUG_USAGE_LINE}` };
+
+	// 1. Try relative span: "5min", "2h", "3d", "1mes", "2año"
+	const relative = tryParseRelativeSpan(trimmed);
+	if (relative) {
+		const startMs = now.getTime() - relative.spanMs;
+		return {
+			start: dateToISO(new Date(startMs)),
+			end: dateToISO(now),
+			days: 1,
+		};
+	}
+
+	// 2. Try range: split on " - " (dash with spaces)
+	// Match " - " but not "--" or "-" at edges
+	const rangeMatch = /^(.+?)\s+-\s+(.+)$/.exec(trimmed);
+	if (rangeMatch?.[1] && rangeMatch?.[2]) {
+		const left = rangeMatch[1].trim();
+		const right = rangeMatch[2].trim();
+		return parseRange(left, right, now);
+	}
+
+	// 3. Try single date/time: parse as a single point, default end to now
+	const point = parsePartialISO(trimmed);
+	if (point) {
+		return {
+			start: dateToISO(point),
+			end: dateToISO(now),
+			days: 1,
+		};
+	}
+
+	return { ok: false, error: `Cannot parse interval "${trimmed}". Use relative (5min, 2h, 3d), date ranges (2026-11-10 - 2026-11-11 17:30), or single dates.` };
+}
+
+/**
+ * Parse a range: "left - right". Each side can be a date, time, or partial.
+ * "now" provides the default date when no date component is present.
+ */
+function parseRange(left: string, right: string, now: Date): DebugWindow | { ok: false; error: string } {
+	const start = parseTimeToken(left, now, true);
+	const end = parseTimeToken(right, now, false);
+
+	if (!start || !end) {
+		return { ok: false, error: `Cannot parse range "${left} - ${right}". Use dates (2026-11-10), times (10:30 - 11:00), or both.` } as const;
+	}
+
+	// Cross-midnight detection: if end < start AND end has no date component
+	// (i.e., time is 00:00:00 which means it was parsed from a time-only like "01:00"),
+	// add 1 day to end. Also check if both are on the same calendar day.
+	if (end.getTime() < start.getTime()) {
+		const isTimeOnlyEnd = end.getHours() === 0 && end.getMinutes() === 0 && end.getSeconds() === 0 && end.getUTCMilliseconds() === 0;
+		const sameCalendarDay = start.getUTCFullYear() === end.getUTCFullYear()
+			&& start.getUTCMonth() === end.getUTCMonth()
+			&& start.getUTCDate() === end.getUTCDate();
+		if (isTimeOnlyEnd || sameCalendarDay) {
+			end.setUTCDate(end.getUTCDate() + 1);
+		}
+	}
+
+	const spanMs = end.getTime() - start.getTime();
+	if (spanMs <= 0) {
+		return { ok: false, error: `Start (${left}) must be before end (${right}).` };
+	}
+	if (spanMs > MAX_INTERVAL_MS) {
+		return { ok: false, error: `Interval too large (max 90 days).` };
+	}
+
+	return {
+		start: dateToISO(start),
+		end: dateToISO(end),
+		days: Math.max(1, Math.round(spanMs / 86_400_000)),
+	};
+}
+
+/**
+ * Parse a single time token: could be a full date, a date+time, a time-only,
+ * or a partial date. Falls back to `fallbackDate` for missing components.
+ * Returns a Date with the parsed components applied to fallbackDate's date.
+ */
+function parseTimeToken(token: string, fallbackDate: Date, _isStart: boolean): Date | null {
+	// Try full ISO first
+	const d = parsePartialISO(token);
+	if (d) return d;
+
+	// Try time-only: HH:MM[:SS]
+	const timeOnly = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(token.trim());
+	if (timeOnly) {
+		const [, hStr, mStr, sStr] = timeOnly;
+		const h = Number(hStr);
+		const m = Number(mStr);
+		const s = sStr ? Number(sStr) : 0;
+		if (h < 0 || h > 23 || m < 0 || m > 59 || s < 0 || s > 59) return null;
+		const result = new Date(fallbackDate);
+		// Keep same date as fallback
+		result.setUTCHours(h, m, s, 0);
+		return result;
+	}
+
+	return null;
 }
 
 // ── Error classification ──────────────────────────────────────────────────
@@ -169,11 +410,41 @@ export interface DebugCounts {
 	sessions: number;
 	turns: number;
 	models: string[];
+	errors: {
+		total: number;
+		byClass: Record<DebugErrorClass, number>;
+	};
 	anomalies: {
 		duplicateIdCreated: number;
 		reasoningOnlyStream: number;
 		contextOverflow: number;
 	};
+}
+
+/** One row per turn that had an error — written to errors.jsonl. */
+export interface DebugErrorRecord {
+	/** ISO 8601 timestamp of the turn. */
+	timestamp: string;
+	/** MD5[12] of the session file. */
+	session_id: string;
+	/** MD5[12] of the worktree cwd. */
+	worktree_label: string;
+	/** Model that returned the error. */
+	model: string;
+	/** The classified error (one of the fixed classes). */
+	error: DebugErrorClass;
+	/** The stop reason (usually "error"). */
+	stop_reason: string;
+	/** The full error message, truncated to 200 chars. */
+	message_truncated: string;
+	/** MD5 hash of the full error message (so the original is never in the output). */
+	message_hash: string;
+	/** Response id if present. */
+	response_id: string | null;
+	/** Input tokens for context. */
+	input: number;
+	/** Output tokens (usually 0 for errors). */
+	output: number;
 }
 
 export interface DebugReport {
@@ -182,6 +453,7 @@ export interface DebugReport {
 	generatedAt: string;
 	rows: DebugUsageRow[];
 	turns: DebugTurn[];
+	errors: DebugErrorRecord[];
 	anomalies: CacheAnomalyRecord[];
 	counts: DebugCounts;
 	metadata: Record<string, unknown>;
@@ -193,7 +465,10 @@ export type FetchUsageWindow = (window: DebugWindow, apiKey: string) => Promise<
 export interface BuildDebugReportOptions {
 	agentDir?: string;
 	now?: Date;
+	/** Day count for --window (1-90). Ignored when `interval` is set. */
 	windowDays?: number;
+	/** Flexible time interval from --interval (replaces windowDays when set). */
+	interval?: string;
 	topic?: string;
 	/** Only consulted when `includeUsage` is true. */
 	apiKey?: string;
@@ -252,6 +527,15 @@ function listSessionFiles(root: string): string[] {
 		}
 	}
 	return files.sort();
+}
+
+/** List session files whose date falls within the given window. */
+function listSessionFilesFiltered(root: string, window: DebugWindow): string[] {
+	const allFiles = listSessionFiles(root);
+	return allFiles.filter((file) => {
+		const fileDate = sessionFileDate(file);
+		return fileDate >= window.start.slice(0, 10) && fileDate <= window.end.slice(0, 10);
+	});
 }
 
 /** Date of a session file: the ISO-timestamp filename prefix, else its mtime. */
@@ -334,17 +618,35 @@ function inWindow(date: string, window: DebugWindow): boolean {
 export async function buildDebugReport(options: BuildDebugReportOptions = {}): Promise<DebugReport> {
 	const agentDir = options.agentDir ?? getAgentDir();
 	const now = options.now ?? new Date();
-	const window = rollingWindow(options.windowDays ?? DEFAULT_DEBUG_WINDOW_DAYS, now);
+	// Use flexible interval if provided, else fall back to day-count window
+	let window: DebugWindow;
+	if (options.interval) {
+		const result = parseFlexibleTime(options.interval, now);
+		if (typeof result === "object" && result !== null && "ok" in result && result.ok === false) {
+			throw new Error((result as { error: string }).error);
+		}
+		window = result as DebugWindow;
+	} else {
+		window = rollingWindow(options.windowDays ?? DEFAULT_DEBUG_WINDOW_DAYS, now);
+	}
 	const sessionsDir = options.sessionsDir ?? join(agentDir, "sessions");
 	const anomalyFile = options.anomalyFile ?? (options.agentDir ? join(agentDir, CACHE_ANOMALY_FILE) : defaultCacheAnomalyPath());
 
 	const anomalies = readAnomalies(anomalyFile).filter((record) => inWindow(record.detected_at.slice(0, 10), window));
 
 	const turns: DebugTurn[] = [];
+	const errors: DebugErrorRecord[] = [];
 	const usages = new Map<string, DebugUsageRow>();
 	const worktreeLabels = new Set<string>();
 	const sessionIds = new Set<string>();
 	const models = new Set<string>();
+	const errorCounts: Record<DebugErrorClass, number> = {
+		overflow: 0,
+		rate_limited: 0,
+		invalid_request: 0,
+		transport: 0,
+		other: 0,
+	};
 	let reasoningOnlyCount = 0;
 	let contextOverflowCount = 0;
 
@@ -394,6 +696,26 @@ export async function buildDebugReport(options: BuildDebugReportOptions = {}): P
 				total: numberOrZero(usage.totalTokens),
 				model_ms: numberOrZero(message.durationMs),
 			});
+
+			// Track errors separately for errors.jsonl
+			if (errorClass) {
+				const msgTruncated = errorMessage?.slice(0, 200) ?? "";
+				const msgHash = errorMessage ? createHash("md5").update(errorMessage).digest("hex").slice(0, 12) : "";
+				errors.push({
+					timestamp,
+					session_id: sessionId,
+					worktree_label: worktreeLabel,
+					model,
+					error: errorClass,
+					stop_reason: stopReason,
+					message_truncated: msgTruncated,
+					message_hash: msgHash,
+					response_id: responseId,
+					input: numberOrZero(usage.input),
+					output: numberOrZero(usage.output),
+				});
+				errorCounts[errorClass] += 1;
+			}
 
 			const key = `${dateOfTurn}\u0000${sessionId}\u0000${model}`;
 			let row = usages.get(key);
@@ -473,11 +795,16 @@ export async function buildDebugReport(options: BuildDebugReportOptions = {}): P
 		turns: turns.sort((a, b) =>
 			a.timestamp === b.timestamp ? a.session_id.localeCompare(b.session_id) : a.timestamp.localeCompare(b.timestamp),
 		),
+		errors: errors.sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
 		anomalies,
 		counts: {
 			sessions: sessionIds.size,
 			turns: turns.length,
 			models: [...models].sort(),
+			errors: {
+				total: errors.length,
+				byClass: { ...errorCounts },
+			},
 			anomalies: {
 				duplicateIdCreated: anomalies.length,
 				reasoningOnlyStream: reasoningOnlyCount,
@@ -525,7 +852,9 @@ function renderReadme(report: DebugReport, versions: Record<string, string>): st
 		"",
 		"- `anonymized_usage.jsonl` — one aggregated row per date/session/model: token counters, turn count, stop-reason counts, cache-hit rate, anomaly signatures.",
 		"- `turns.jsonl` — one row per assistant turn: model, usage counters, stop reason, classified error, response id, `created` (null when the transcript has none), duration.",
+		"- `errors.jsonl` — one row per turn that produced an error: error class, truncated message (200 chars max), MD5 hash of the full message, input/output tokens for context.",
 		"- `anomalies.jsonl` — duplicate `id`/`created` pairs captured by the provider, with both `cf-ray` values (see issue #35).",
+		"- `sessions/` — the raw session JSONL files filtered to the window, so you can inspect the full transcript locally.",
 		"- `metadata.json` — versions, catalog provenance, window, redaction counters.",
 		"",
 		"## What is never collected",
@@ -533,6 +862,7 @@ function renderReadme(report: DebugReport, versions: Record<string, string>): st
 		"- Prompt or response content.",
 		"- Raw file paths or worktree names (MD5 truncated to 12 chars).",
 		"- Credentials or auth headers.",
+		"- Full error messages (only 200-char truncated text + MD5 hash).",
 		"",
 		"## Versions",
 		"",
@@ -543,17 +873,33 @@ function renderReadme(report: DebugReport, versions: Record<string, string>): st
 	].join("\n");
 }
 
-export function renderDebugReport(report: DebugReport): RenderedReport {
+export function renderDebugReport(report: DebugReport, sessionsDir?: string): RenderedReport {
 	const versions = (report.metadata as { versions: Record<string, string> }).versions;
 	const files: Record<string, string> = {
 		"README.md": renderReadme(report, versions),
 		"anonymized_usage.jsonl": report.rows.map((row) => JSON.stringify(row)).join("\n") + (report.rows.length > 0 ? "\n" : ""),
 		"turns.jsonl": report.turns.map((turn) => JSON.stringify(turn)).join("\n") + (report.turns.length > 0 ? "\n" : ""),
+		"errors.jsonl": report.errors.map((err) => JSON.stringify(err)).join("\n") + (report.errors.length > 0 ? "\n" : ""),
 		"anomalies.jsonl": report.anomalies.map((record) => JSON.stringify(record)).join("\n") + (report.anomalies.length > 0 ? "\n" : ""),
 		"metadata.json": `${JSON.stringify(report.metadata, null, 2)}\n`,
 	};
 	if (report.usageWindow !== undefined) {
 		files["usage_window.json"] = `${JSON.stringify(report.usageWindow, null, 2)}\n`;
+	}
+
+	// Include session JSONL files filtered by the window.
+	if (sessionsDir) {
+		try {
+			const sessionFiles = listSessionFilesFiltered(sessionsDir, report.window);
+			for (const file of sessionFiles) {
+				const content = readFileSync(file, "utf8");
+				const relPath = file.startsWith(sessionsDir) ? file.slice(sessionsDir.length + 1) : basename(file);
+				files[`sessions/${relPath}`] = content;
+			}
+		} catch {
+			// If sessionsDir doesn't exist or can't be read, skip session files.
+			// This can happen in tests or when the directory is moved.
+		}
 	}
 
 	const perModel = report.counts.models
@@ -565,9 +911,16 @@ export function renderDebugReport(report: DebugReport): RenderedReport {
 		})
 		.join(" · ");
 
+	const errorCounts = report.counts.errors;
+	const errorParts = Object.entries(errorCounts.byClass)
+		.filter(([, count]) => count > 0)
+		.map(([kind, count]) => `${kind}: ${count}`)
+		.join(" · ");
+
 	const preview = [
 		`nan-debug report — ${report.window.start} → ${report.window.end} (window: ${report.window.days}d)`,
 		`sessions: ${report.counts.sessions} · turns: ${report.counts.turns} · models: ${report.counts.models.length}`,
+		`errors: ${errorCounts.total} total${errorParts.length > 0 ? ` (${errorParts})` : ""}`,
 		`per-model avg tokens/turn: ${perModel.length > 0 ? perModel : "(none)"}`,
 		`anomalies: ${report.counts.anomalies.duplicateIdCreated} duplicate id/created pairs · ${report.counts.anomalies.reasoningOnlyStream} reasoning-only stream · ${report.counts.anomalies.contextOverflow} context overflow`,
 		`redaction: ${report.counts.sessions} session ids hashed · ${(report.metadata as { redaction: { worktree_labels_hashed: number } }).redaction.worktree_labels_hashed} paths hashed · 0 prompt/response bytes collected`,
@@ -580,7 +933,9 @@ export function renderDebugReport(report: DebugReport): RenderedReport {
 export function writeDebugReport(files: Record<string, string>, outDir: string): void {
 	mkdirSync(outDir, { recursive: true });
 	for (const [name, content] of Object.entries(files)) {
-		writeFileSync(join(outDir, name), content);
+		const filePath = join(outDir, name);
+		mkdirSync(dirname(filePath), { recursive: true });
+		writeFileSync(filePath, content);
 	}
 }
 

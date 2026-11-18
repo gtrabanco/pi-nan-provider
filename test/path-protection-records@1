@@ -1,0 +1,1 @@
+justification | test/issue-35-debug-report.test.ts | 245 | 2026-11-11 | execute-phase | Updated test to expect errors.jsonl in rendered report (new /nan-debug error tracking feature)

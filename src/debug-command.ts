@@ -73,6 +73,7 @@ export function registerNanDebugCommand(pi: ExtensionAPI, deps: NanDebugCommandD
 
 			const now = deps.now?.() ?? new Date();
 			const agentDir = deps.agentDir ?? getAgentDir();
+			const sessionsDir = join(agentDir, "sessions");
 			const apiKey = parsed.args.windowProvided
 				? await (deps.resolveApiKey ?? defaultResolveApiKey)(ctx)
 				: undefined;
@@ -83,12 +84,14 @@ export function registerNanDebugCommand(pi: ExtensionAPI, deps: NanDebugCommandD
 					agentDir,
 					now,
 					windowDays: parsed.args.windowDays,
+					interval: parsed.args.interval,
 					topic: parsed.args.topic,
 					apiKey,
 					includeUsage: parsed.args.windowProvided,
 					fetchUsage: parsed.args.windowProvided ? (deps.fetchUsage ?? fetchDebugUsageWindow) : undefined,
+					sessionsDir,
 				});
-				rendered = renderDebugReport(report);
+				rendered = renderDebugReport(report, sessionsDir);
 			} catch (error) {
 				ctx.ui.notify(
 					`nan-debug failed to collect the report: ${error instanceof Error ? error.message : String(error)}`,
