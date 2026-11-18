@@ -61,6 +61,10 @@ One observable criterion per `S#`, each naming the check that proves it.
 | C13 | S2 (apply 2026-11-18) | The frozen-failure corpus (the B1 layout failure plus one RED test per B2–B5/A3 rule) is recorded failing before any fix lands. | `## Evidence` RED rows dated 2026-11-18 and written before the first P2 row |
 | C14 | S3 (apply 2026-11-18) | Differential: a base copy in `mktemp` scratch and the changed tree differ only by the requested behavior — base stays `427 pass / 0 fail`, changed tree green, typecheck clean on both; no unrequested result change in the pre-existing suites. | `bun test` and `bun run typecheck` exit 0 on both copies |
 | C15 | S4 (apply 2026-11-18) | The sibling sweep re-run after the batch finds no surviving mention asserting the pre-batch truth (stale "never" claims, `2año` usage example, stale report-contents/redaction prose). | `rg -n "aside from|120 chars|full text is available|The raw text is never emitted" src/debug-report.ts` exits 1; `rg -n -- "--interval" README.md README.es.md` exits 0 |
+| C16 | S1, S2 (apply 2026-11-18), #35 S11 | Every stream with a gateway id and a `cf-ray` header appends one `{response_id, cf_ray, model, observed_at}` record to the local sidecar, on success and on failure; local-only, no content/credentials/paths, write failure never breaks the stream. | `bun test test/issue-35-s11-response-rays.test.ts` exits 0 |
+| C17 | S1, S2 (apply 2026-11-18), #35 S17 | The report joins the sidecar: turn rows and rendered `turns.jsonl` carry `cf_ray` (ray or `null`), while the anomaly capture and record stay byte-identical to before. | `bun test test/issue-35-s11-response-rays.test.ts` exits 0; `bun test test/issue-35-cache-anomaly-capture.test.ts` exits 0 |
+| C18 | S2 (apply 2026-11-18) | Differential: a `7b1fa8b` copy in `mktemp` scratch and the changed tree differ only by the requested corpus — pre-existing suites identical, both gates green, typecheck clean. | `bun test` and `bun run typecheck` exit 0 on both copies |
+| C19 | S1, S2 (apply 2026-11-18) | README EN/ES document the sidecar and the `cf_ray` field, CHANGELOG has the 1.5.9 entry, badges match `package.json`. | `bash -c 'rg -q "nan-response-rays" README.md README.es.md && rg -q "1.5.9" package.json CHANGELOG.md'` exits 0 |
 
 ## Scope notes (assumptions marked as assumptions)
 
@@ -71,9 +75,14 @@ One observable criterion per `S#`, each naming the check that proves it.
 - **Assumption:** the default window is 7 days (clamped to the API's 90-day
   limit when `--window` is used), because the issue shows a "window: 2d"
   preview but no default.
-- The lighter alternative in S11 (log every `cf-ray`) is not shipped: S8–S10
+- ~~The lighter alternative in S11 (log every `cf-ray`) is not shipped: S8–S10
   is the concrete proposal and the one NaN's request maps to; S11 explicitly
-  says "either way", so one shape is enough.
+  says "either way", so one shape is enough.~~ — **revoked by the owner on
+  2026-11-18** ("El cf-ray hay que incluirlo en el reporte de debug, es básico
+  para el equipo de soporte de nan.", accepted option "cf-ray de TODAS las
+  respuestas"): S11 now ships as the persistent response-ray sidecar
+  `<agentDir>/nan-response-rays.jsonl` (`response_id` → `cf_ray`), joined into
+  `turns.jsonl`. The S8–S10 anomaly pair capture is unchanged (D-35-03).
 - `--window`'s live `GET /v1/usage` stays permission-gated: tests inject the
   fetch, and no live probe is run for this unit.
 - **Assumption (PR #44, correction batch 2026-11-18):** the open-left interval
@@ -173,6 +182,13 @@ One observable criterion per `S#`, each naming the check that proves it.
   typecheck 0 both sides); post-batch sibling sweep clean. Commits:
   `ed3dbe2`, `dadc6bf`, `48577e7` (+ this evidence commit) — not pushed, the
   owner is the external verifier.
+- 2026-11-18 — S11 reopened by owner order (S1 + accepted option "cf-ray de
+  TODAS las respuestas") on branch `feat/cf-ray-every-response` stacked on
+  `7b1fa8b`: the "S11 not shipped" scope note is revoked above, ledgers
+  extended with O23–O28 and PE-012 before code, criteria C16–C19 cut, and the
+  path-protection justification + approval records (D-35-03, phase P4) cut in
+  this unit's `decisions.md`. Stacked delivery keeps the unit ledger and the
+  version line linear (1.5.7 → 1.5.8 → 1.5.9).
 
 ## Evidence
 
