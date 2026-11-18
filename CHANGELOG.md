@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.8] - 2026-11-18
+
+### Added
+
+- **`/nan-debug` error tracking and flexible `--interval` windows (issue #44).**
+  The report gains `errors.jsonl` (one row per errored turn: error class,
+  200-character message fragment, MD5 hash of the full message, input/output
+  tokens, response id), `error_summary` (total + byClass) in `metadata.json`,
+  an errors line in the preview, and the raw window-filtered session JSONL
+  files under `sessions/`. `--interval` accepts relative spans (`5min`, `2h`,
+  `3d`, `1mes`), date/time ranges (`2026-11-10 - 2026-11-11 17:30`,
+  `10:30 - 11:00`, `23:00 - 01:00`), open ends (`2026-11-10 -`,
+  `- 2026-11-10`), year-months (`2026-11 - 2026-12`) and single timestamps; it
+  is mutually exclusive with `--window`, capped at 90 days, and parsed
+  deterministically with no LLM calls.
+
+### Fixed
+
+- **EV-2026-11-18 correction batch (6 blockers, 4 advisories).** Every
+  documented `--interval` range/open form now parses at the command boundary
+  (the value spans tokens up to the next `--` flag, quotes stripped);
+  interval windows include sessions on their start date at `--window` parity
+  (day-granular filtering); `metadata.json` carries `error_summary`;
+  `sessions/` hashes the `cwd` header so no raw path reaches the report and
+  the redaction wording (report template, README EN/ES, module header) is
+  scoped to that truth; relative spans report their real day count; the
+  interval parser reads UTC only; the module header again states byte-identical
+  zip output unconditionally with the correct 200-char/hash figures; and the
+  full test gate is green again with the #44 layout-test edit applied.
+
 ## [1.5.7] - 2026-11-17
 
 ### Changed
