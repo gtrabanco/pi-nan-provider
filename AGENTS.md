@@ -254,7 +254,10 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   mapped, so they declare no effort values and no `thinkingLevelMap`;
   `qwen3.8-max` gets `maxTokensField: "max_completion_tokens"` because its
   `max_tokens` bounds only the visible answer (issue #34's quota failure
-  mode); `qwen4-max`, `qwen3.8-flash`, `hy4`, `hy4-flash` and `qwen3.8-max`
+  mode); `qwen3.8-flash` used the same interim field from #34 until NaN support
+  confirmed the deployed `max_tokens` fix on 2026-11-17, when #36 reverted it
+  (package 1.5.7) — do not reintroduce it without a new measurement;
+  `qwen4-max`, `qwen3.8-flash`, `hy4`, `hy4-flash` and `qwen3.8-max`
   map `off` to `none`; `hy4` reasons by default with the gateway applying
   `low` when no level is sent.
   When the docs or models.dev change, re-verify the values (docs win; a
@@ -523,7 +526,10 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   provider-side: the store write path belongs to pi-ai.
 
 - **Cache-anomaly evidence + `/nan-debug` (issue #35, verified 2026-11-11 on
-  pi-ai 1.5.1):** pi-ai's `StreamOptions.onResponse(response, model)` is the
+  pi-ai 1.5.1; the upstream cache was disabled 2026-11-17):** NaN support
+  confirmed the proxy response cache is off — two identical requests now return
+  two real completions, each with its own usage — so the #17 replay is fixed.
+  The capture below stays as a relapse tripwire. pi-ai's `StreamOptions.onResponse(response, model)` is the
   only response-header surface (`ProviderResponse = { status, headers }`,
   called by openai-completions right after the HTTP response). The gateway
   `id`/`created` pair comes from raw `onProviderStreamEvent` chunks: pi-ai copies

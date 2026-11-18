@@ -201,12 +201,12 @@ export interface SanitizerOptions {
 	/**
 	 * Keep `max_completion_tokens` in the payload instead of renaming it to
 	 * `max_tokens`. Set only when the model's effective `compat.maxTokensField`
-	 * is `"max_completion_tokens"` (issue #34: NaN confirmed the gateway honors
-	 * `max_completion_tokens` on `qwen3.8-flash` as the interim bound for the
-	 * reasoning phase, which `max_tokens` does not bound). When false/absent the
-	 * documented rename runs — NaN's published OpenAPI schema only documents
-	 * `max_tokens`, so hand-built payloads and non-overridden models stay on
-	 * the strict shape.
+	 * is `"max_completion_tokens"` — the per-model mechanism introduced for
+	 * issue #34. `qwen3.8-flash` used it until the gateway fix landed (#36);
+	 * `qwen3.8-max` still declares it because its `max_tokens` bounds only the
+	 * visible answer. When false/absent the documented rename runs — NaN's
+	 * published OpenAPI schema only documents `max_tokens`, so hand-built
+	 * payloads and non-overridden models stay on the strict shape.
 	 */
 	preserveMaxCompletionTokens?: boolean;
 }
@@ -255,9 +255,10 @@ export function sanitizeOpenAICompatPayload(payload: unknown, options: Sanitizer
 	// must stay schema-strict.
 	if (options.preserveStreamOptions !== true) delete out.stream_options;
 	// NaN documents `max_tokens`, not `max_completion_tokens` — unless the
-	// model's compat declares `max_completion_tokens` (issue #34): the gateway
-	// honors it there as the interim reasoning bound, so the rename would undo
-	// the catalog's maxTokensField override before the payload leaves pi.
+	// model's compat declares `max_completion_tokens` (the #34 mechanism,
+	// still used by `qwen3.8-max`): the gateway honors it there to bound the
+	// total, so the rename would undo the catalog's maxTokensField override
+	// before the payload leaves pi.
 	if (
 		"max_completion_tokens" in out &&
 		!("max_tokens" in out) &&
