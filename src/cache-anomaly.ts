@@ -14,7 +14,11 @@
  *     chunks (pi-ai only persists `id` as `AssistantMessage.responseId`),
  *   - compares each completed stream with the previous one for the same model,
  *     and when both `id` and `created` repeat, appends one JSONL record to
- *     `<agentDir>/nan-cache-anomalies.jsonl`.
+ *     `<agentDir>/nan-cache-anomalies.jsonl`,
+ *   - appends every observed response's `cf-ray` to the response-ray sidecar
+ *     (`<agentDir>/nan-response-rays.jsonl`, issue #35 S11, owner-ordered
+ *     2026-11-18) when a `raySink` is wired — capture for the report join,
+ *     independent of anomaly detection.
  *
  * The record deliberately carries no prompt or response content, no
  * credentials and no paths: only the model, the gateway pair, both `cf-ray`
@@ -32,6 +36,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage, ProviderStreams } from "@earendil-works/pi-ai";
+import type { ResponseRaySink } from "./response-rays.ts";
 
 /** Default file name inside pi's agent dir. */
 export const CACHE_ANOMALY_FILE = "nan-cache-anomalies.jsonl";
@@ -98,6 +103,8 @@ export function createCacheAnomalyFileSink(filePath?: string): CacheAnomalySink 
 
 export interface CacheAnomalyCaptureOptions {
 	sink: CacheAnomalySink;
+	/** Per-response ray sidecar (issue #35 S11); when omitted, no rays are captured. */
+	raySink?: ResponseRaySink;
 	/** Injectable clock for deterministic tests. */
 	now?: () => Date;
 }
@@ -209,10 +216,25 @@ export function withCacheAnomalyCapture(api: ProviderStreams, options: CacheAnom
 
 		const stream = run(opts as T);
 
+		const captureRay = (id?: string): void => {
+			if (!options.raySink || !id || state.cfRay === null) return;
+			try {
+				options.raySink.record({
+					response_id: id,
+					cf_ray: state.cfRay,
+					model: modelId,
+					observed_at: state.observedAt,
+				});
+			} catch {
+				// Ray capture is best-effort; never break the turn.
+			}
+		};
+
 		const complete = (message: AssistantMessage | undefined) => {
 			// pi-ai persists only the id; keep it as a fallback when the raw
 			// chunks did not carry one.
 			const id = state.id ?? message?.responseId;
+			captureRay(id);
 			if (!id || state.created === undefined) return;
 
 			const current: LastResponse = {
@@ -262,7 +284,9 @@ export function withCacheAnomalyCapture(api: ProviderStreams, options: CacheAnom
 		};
 
 		stream.result().then(complete, () => {
-			// A failed stream has no gateway pair worth comparing.
+			// A failed stream has no gateway pair worth comparing — but when the
+			// response already produced an id, its ray is still evidence (S11).
+			captureRay(state.id);
 		});
 		return stream;
 	};
