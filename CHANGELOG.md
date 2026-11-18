@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.9] - 2026-11-18
+
+### Added
+
+- **cf-ray of every response in the debug report (issue #35 S11, owner order
+  2026-11-18).** The provider appends `{response_id, cf_ray, model,
+  observed_at}` for every stream that produced a gateway id to the local
+  `<agentDir>/nan-response-rays.jsonl` sidecar (success and failure paths,
+  newest 50,000 lines, best-effort writes, four fields only), and `/nan-debug`
+  joins it into `turns.jsonl` as `cf_ray` (null when uncaptured). NaN support
+  gets the rays of any pair of calls without waiting for an anomaly
+  recurrence; the #17 anomaly capture is unchanged.
+
 ## [1.5.8] - 2026-11-18
 
 ### Added

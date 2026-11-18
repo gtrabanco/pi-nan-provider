@@ -550,7 +550,12 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   MD5-hashed; root files stay redacted — the transcripts are the owner's
   explicit ask, issue #44), and adds `--interval` (day-granular windows capped
   at 90 days, mutually exclusive with `--window`; its value joins tokens up to
-  the next `--` flag because pi passes slash-command args raw). The zip is built by
+  the next `--` flag because pi passes slash-command args raw). Since 1.5.9
+  every response's `cf-ray` is appended by the same wrapper to
+  `<agentDir>/nan-response-rays.jsonl` (`{response_id, cf_ray, model,
+  observed_at}`, newest 50,000 lines, best-effort — `src/response-rays.ts`)
+  and joined into `turns.jsonl` as `cf_ray` (issue #35 S11, owner order
+  2026-11-18; null when uncaptured). The zip is built by
   `src/zip.ts` (store method, sorted entries, fixed 1980-01-01 timestamps)
   because `Bun.Archive` is Bun-only and pi also runs on Node. Session/worktree
   labels are MD5[:12]; `errorMessage` maps to

@@ -1,7 +1,7 @@
 # @gtrabanco/𝜋-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.5.8-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-1.5.9-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 [![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://cloud.nan.builders/r/7GK06FX8)
 
 [NaN Builders](https://cloud.nan.builders/r/7GK06FX8) model provider + a native MCP server for [pi](https://github.com/earendil-works/pi). 
@@ -27,7 +27,7 @@ Registers the `nan` provider via `pi.registerProvider()` using NaN's OpenAI-comp
 | **Native image models** | `flux-2-klein` and `qwen-image-2.1` registered as pi `type: "image"` models, reachable from codemode and extensions. |
 | **Native MCP media bridge** | The `nan-media` server (10 tools) registered through `pi.registerMcpServer()`, managed with `/nan-mcp`. |
 | **Credits reporting** | `/nan-usage` shows credits balance with a progress bar, per-model breakdown (input / cached / output in M, credits consumed), and billing period — all from `GET /v1/usage` ([#37](https://github.com/gtrabanco/pi-nan-provider/issues/37)). |
-| **Cache-anomaly evidence** | `cf-ray` capture on the repeated `id` + `created` gateway signature ([#17](https://github.com/gtrabanco/pi-nan-provider/issues/17)) plus the deterministic `/nan-debug` collector ([#35](https://github.com/gtrabanco/pi-nan-provider/issues/35)) with per-error evidence and flexible `--interval` windows ([#44](https://github.com/gtrabanco/pi-nan-provider/issues/44)). |
+| **Cache-anomaly evidence** | `cf-ray` capture on the repeated `id` + `created` gateway signature ([#17](https://github.com/gtrabanco/pi-nan-provider/issues/17)) plus the deterministic `/nan-debug` collector ([#35](https://github.com/gtrabanco/pi-nan-provider/issues/35)) with per-error evidence, every response's `cf-ray` joined into `turns.jsonl` (S11), and flexible `--interval` windows ([#44](https://github.com/gtrabanco/pi-nan-provider/issues/44)). |
 | **pi integration** | Model refresh driven by pi's Models runtime, per-model `models.json` overrides, and the extension changelog (`pi.changelogPath`) that pi shows after an update. |
 
 Commands:
@@ -400,6 +400,12 @@ SHA-256 of the request payload. It is **local-only**: no prompt or response
 content, no credentials, no paths, no upload. A write failure never breaks a
 stream.
 
+Independently of any anomaly, every response's `cf-ray` is kept in
+`<agentDir>/nan-response-rays.jsonl` — `response_id`, `cf_ray`, `model`,
+`observed_at`, newest 50,000 lines, local-only (issue #35 S11) — and the
+report joins it into `turns.jsonl` as `cf_ray`, so support gets the rays of
+any pair of calls without waiting for a recurrence.
+
 `/nan-debug` turns that file plus your session transcripts into a redacted,
 reproducible evidence package for NaN:
 
@@ -429,7 +435,7 @@ reproducible evidence package for NaN:
   above write where they say. A flag token is never accepted as the path.
 - The report contains `README.md`, `anonymized_usage.jsonl` (per date/session/
   model totals, stop-reason counts, cache-hit rate), `turns.jsonl` (per-turn
-  usage, stop reason, error class, response id), `errors.jsonl` (one row per
+  usage, stop reason, error class, response id, `cf_ray`), `errors.jsonl` (one row per
   errored turn: class, 200-char message fragment, MD5 hash of the full message,
   input/output tokens, response id), `anomalies.jsonl` (`cf-ray` pair),
   `sessions/` (the raw session JSONL files filtered to the window) and
