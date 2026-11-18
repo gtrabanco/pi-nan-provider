@@ -57,6 +57,10 @@ One observable criterion per `S#`, each naming the check that proves it.
 | C9 | S20 | `anomalies.jsonl` inside the report carries the `cf-ray` pair captured by the anomaly detection, filtered to the window. | `bun test test/issue-35-debug-report.test.ts` exits 0 |
 | C10 | S15, S22, S23 | Two runs over identical inputs produce byte-identical zip output (fixed entry order and timestamps); session and worktree identifiers are MD5 truncated to 12 chars; no path or credential is emitted. | `bun test test/issue-35-debug-report.test.ts` exits 0 |
 | C11 | repo AGENTS.md | The full deterministic gate is green. | `bun test` and `bun run typecheck` exit 0 |
+| C12 | S1 (apply 2026-11-18) | Every blocker B1–B6 of the 2026-11-18 `EXTERNAL VERIFY` receipt is resolved: the full gate is green and each blocker's reproducer behaves as claimed. | `bun test` exits 0; `bun test test/issue-44-nan-debug-interval.test.ts` exits 0 |
+| C13 | S2 (apply 2026-11-18) | The frozen-failure corpus (the B1 layout failure plus one RED test per B2–B5/A3 rule) is recorded failing before any fix lands. | `## Evidence` RED rows dated 2026-11-18 and written before the first P2 row |
+| C14 | S3 (apply 2026-11-18) | Differential: a base copy in `mktemp` scratch and the changed tree differ only by the requested behavior — base stays `427 pass / 0 fail`, changed tree green, typecheck clean on both; no unrequested result change in the pre-existing suites. | `bun test` and `bun run typecheck` exit 0 on both copies |
+| C15 | S4 (apply 2026-11-18) | The sibling sweep re-run after the batch finds no surviving mention asserting the pre-batch truth (stale "never" claims, `2año` usage example, stale report-contents/redaction prose). | `rg -n "aside from|120 chars|full text is available|The raw text is never emitted" src/debug-report.ts` exits 1; `rg -n -- "--interval" README.md README.es.md` exits 0 |
 
 ## Scope notes (assumptions marked as assumptions)
 
@@ -72,6 +76,15 @@ One observable criterion per `S#`, each naming the check that proves it.
   says "either way", so one shape is enough.
 - `--window`'s live `GET /v1/usage` stays permission-gated: tests inject the
   fetch, and no live probe is run for this unit.
+- **Assumption (PR #44, correction batch 2026-11-18):** the open-left interval
+  `- <date>` starts at the default window's start (`rollingWindow(7)` = last 7
+  days inclusive), because #44's own comment says "inicio del window hasta 10
+  nov" and an interval carries no `--window` to read.
+- **Owner amendment (PR #44 §1, correction batch 2026-11-18):** `sessions/`
+  embeds raw session transcripts on the owner's explicit request, so the
+  "never collect prompt/response content, credentials or raw paths" invariant
+  scopes to the root files; `sessions/` carries raw text with only its `cwd`
+  header MD5[:12]-hashed. Credentials stay excluded everywhere.
 
 ## Log
 
@@ -129,6 +142,15 @@ One observable criterion per `S#`, each naming the check that proves it.
   mid-batch, adding `docs/` to `.gitignore`: the new `decisions.md` and
   `external-verify.md` are git-ignored and stay untracked pending the owner's
   decision — not force-added over a fresh owner commit.
+- 2026-11-18 — Correction batch opened from the `EXTERNAL VERIFY` receipt in
+  `external-verify.md` (2026-11-18: NEEDS-DECISION, 6 blockers B1–B6, 4
+  advisories, base `542e707` · head `e045261`; owner: "triage and fix those
+  that deserve to fix …"). Triage: all six blockers and all four advisories
+  deserve the fix; ledgers extended with O14–O22 and PE-010/PE-011 before any
+  code; O6/O7/O9/O10/O13 flipped back to `in-progress` because their validators
+  no longer reproduce at `e045261`. PE-010 verified against the pinned pi
+  1.5.1 dist (raw args, no quote stripping); npm latest confirmed 1.5.7 for
+  the O20 bump target.
 
 ## Evidence
 
