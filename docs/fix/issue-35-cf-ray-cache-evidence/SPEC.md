@@ -189,6 +189,15 @@ One observable criterion per `S#`, each naming the check that proves it.
   path-protection justification + approval records (D-35-03, phase P4) cut in
   this unit's `decisions.md`. Stacked delivery keeps the unit ledger and the
   version line linear (1.5.7 → 1.5.8 → 1.5.9).
+- 2026-11-18 — P4 (RED) → P5 → P6 → P7: corpus cut (0 pass / 1 error,
+  `Cannot find module`), then `src/response-rays.ts` + raySink wiring
+  (`f4a951b`) turned it 9 pass / 0 fail; README EN/ES + CHANGELOG 1.5.9 +
+  `package.json` 1.5.9 + AGENTS bullet (`b9b61ad`, landed one commit before
+  the code commit because two git commands raced on `index.lock` — the failed
+  add was re-run sequentially, no history rewritten); ledgers frozen
+  (`5336817`). All 28 obligation rows re-run green in the foreground and
+  flipped to `verified`; differential vs `7b1fa8b` clean (+9 corpus only).
+  Not pushed — the owner is the external verifier.
 
 ## Evidence
 
@@ -215,3 +224,9 @@ One observable criterion per `S#`, each naming the check that proves it.
 | 2026-11-18 | O19 + O20 docs validators | `rg -n -- "--interval" README.md README.es.md` → exit 0; `rg -n "1\\.5\\.8" package.json CHANGELOG.md` → exit 0; EN/ES header lists both 24 lines, identical structure; both badges `version-1.5.8` | ok |
 | 2026-11-18 | C14 differential base-vs-change | base copy (`git archive origin/main` in `mktemp`): 427 pass / 0 fail / 2024 expect / 36 files + typecheck exit 0; changed tree: 456 pass / 0 fail / 2134 expect / 38 files + typecheck exit 0 — delta = the 15 #44 feature tests + the 14-test correction corpus, zero base test lost or regressed, no unrequested result change | ok |
 | 2026-11-18 | C15 sibling sweep (post-batch) | stale-claim `rg` set all at the expected exits (no `aside from`/`120 chars`/`never emitted`, no absolute "never collected" README line, no advertised `2año`); `errors.jsonl`/`sessions/`/`error_summary` present in README EN+ES; AGENTS #35 bullet extended; rendered template and preview scoped | ok |
+| 2026-11-18 | S11 RED corpus (O23, O24, O25) | `bun test test/issue-35-s11-response-rays.test.ts` → **0 pass / 1 fail / 1 error** (`Cannot find module '../src/response-rays.ts'`) before any `src/` change | ok |
+| 2026-11-18 | O23 + O24 + O25 | `bun test test/issue-35-s11-response-rays.test.ts` → **9 pass / 0 fail / 23 expect** (capture on success and failure, four-field shape, no-id/no-header skip, 3-line cap keeps newest, unwritable path safe, join + rendered `cf_ray`, missing sidecar nulls, reader resilience) | ok |
+| 2026-11-18 | O26 regression pin | anomaly suite → 13 pass / 0 fail / 33 expect; report suite → 8 pass / 0 fail / 69 expect; command suite → 13 pass / 0 fail / 52 expect; interval suite → 14 pass / 0 fail / 73 expect — anomaly record shape and every pre-existing behavior untouched | ok |
+| 2026-11-18 | O28 full gate | `bun test` → 465 pass / 0 fail / 2157 expect / 39 files; `bun run typecheck` → exit 0 | ok |
+| 2026-11-18 | C18 differential base-vs-change | base copy (`git archive 7b1fa8b` in `mktemp`): 456 pass / 0 fail / 2134 expect / 38 files + typecheck exit 0; changed tree: 465 / 0 / 2157 / 39 + typecheck exit 0 — delta = exactly the 9-test S11 corpus, zero base test lost or regressed | ok |
+| 2026-11-18 | O27 docs validators | `bash -c 'rg -q "nan-response-rays" README.md README.es.md && rg -q "1.5.9" package.json CHANGELOG.md'` → exit 0; EN/ES header lists 24/24 lines; both badges `version-1.5.9` | ok |
