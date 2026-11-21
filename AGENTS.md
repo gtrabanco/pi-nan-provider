@@ -416,8 +416,44 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   `src/reasoning-only-stream-guard.ts` (issue #21) keys on that marker;
   earlier comment/message text said "60,000 characters" and was corrected to
   the documented figures.
-- **pi 1.4.0 / pi-ai 1.4.0 compat** (verified 2026-10-24, the current verified
-  baseline): devDependencies bumped 1.3.0 → 1.4.0; **the peer range floor rose to
+- **pi 1.6.0 / pi-ai 1.6.0 compat** (verified 2026-11-21, the current verified
+  baseline; devDependencies 1.5.1 → 1.6.0, package 1.5.8 → 1.6.0, peer range
+  unchanged at `^1.4.0` because nothing here needs 1.6.0). **No `src/` change:** pi-ai
+  `dist/index.d.ts`, `dist/compat.d.ts`, `dist/api/openai-completions.d.ts` and
+  pi-coding-agent `dist/index.d.ts` are byte-identical to 1.5.1, and a base-vs-change
+  capture of every catalog model × `off`/`low`/`max` (tool history + thinking blocks
+  included) is byte-identical on the wire. What DID move, and why it does or does not
+  touch this package:
+  - `detectCompat()` now defaults `supportsDeveloperRole` to **true only for
+    api.openai.com** (#10741), sending `system` everywhere else. The generated catalog
+    pins `supportsDeveloperRole: false` per entry, so NaN's wire never moved — pinned by
+    `test/pi-ai-1-6-0-contract.test.ts`.
+  - `parseChunkUsage` falls back to a **top-level `usage.reasoning_tokens`** when
+    `completion_tokens_details.reasoning_tokens` is absent (0 on 1.5.1). NaN reports the
+    nested field, so this is tolerance only.
+  - `RETRYABLE_PROVIDER_ERROR_PATTERN` gains `connection.?closed`, bare
+    `ECONNRESET|ECONNABORTED|ECONNREFUSED|ETIMEDOUT|EPIPE` (lookaround-guarded),
+    `connection reset by peer` and the Codex websocket lifetime text (#12064, #12128,
+    #12124). Directly relevant to NaN's LiteLLM gateway, which closes SSE streams
+    mid-turn (issue #2): those drops are now retried with no package change. The
+    deterministic NaN 400 stays non-retryable.
+  - `constrained-sampling.js` rejects schema nodes without `type` in strict mode
+    (#12049). Unreachable for NaN: `openai-completions` keeps
+    `supportsStrictMode: false` in `detectCompat()`, so no `strict` field is ever sent
+    (pinned by the same contract test). The `supportsStrictMode` compat key itself is
+    documented and added to the Mistral schema only.
+  - pi-coding-agent: the **breaking** change (extension components `render()` returning
+    `readonly string[]`) does not apply — this package registers no TUI components;
+    `core/model-resolver.d.ts` drops `resolveModelScope` / `restoreModelFromSession`
+    (never imported); `ExtensionRuntime.reportError` is additive. Upstream fixes that
+    help NaN users: MCP `tool_search` tools survive resume/`/reload`, and
+    `AgentSession.reload()` emits `session_start` again under
+    `bindExtensions({})`, so the media MCP server reconnects.
+  - `env-api-keys.js` gains the Qwen Token Plan per-plan variables; `PI_AI_VERSION` is
+    `1.6.0`. Neither is used by this package.
+  Regression test: `test/pi-ai-1-6-0-contract.test.ts` (RED on 1.5.1 for the flat
+  reasoning-token and retry-coverage groups, green on 1.6.0). Issue #45.
+- **pi 1.4.0 / pi-ai 1.4.0 compat** (verified 2026-10-24): devDependencies bumped 1.3.0 → 1.4.0; **the peer range floor rose to
   `"^1.3.0"`** and the version-gated cross-model thinking guard plus
   `src/pi-ai-version.ts` were REMOVED as scheduled (pi-ai >= 1.3.0 drops
   cross-model thinking itself). The pi-ai 1.4.0 type surface only ADDS exports
@@ -587,7 +623,7 @@ uno cite una versión o requisito que el otro no lleve.
 5. **Cita el peer floor real, no la historia.** El peer range se actualiza con cada
    release de pi: lee `package.json` peerDependencies, no AGENTS.md (que documenta
    releases históricos y puede quedar obsoleto). Para este paquete: el floor es
-   `^1.4.0` (desde package 1.5.0), verificado contra pi 1.5.1 / pi-ai 1.5.1.
+   `^1.4.0` (desde package 1.5.0), verificado contra pi 1.6.0 / pi-ai 1.6.0.
 6. **Las cifras de catálogo van contra `scripts/models.generated.ts`, no contra AGENTS.md.**
    AGENTS.md es documentación de releases y puede contener floor o ranges ya antiguos;
    el catálogo generado es la fuente viva de `contextWindow`/`maxTokens`/`reasoningEffortValues`
