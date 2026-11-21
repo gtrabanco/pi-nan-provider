@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-11-21
+
+### Changed
+
+- **Realigned with pi 1.6.0 / pi-ai 1.6.0 (issue #45).** devDependencies
+  `1.5.1 → 1.6.0`; the package version follows the verified pi release line
+  (`1.5.8 → 1.6.0`). The peer range stays `^1.4.0`: nothing in this package
+  needs 1.6.0, and the verified baseline is not the support range.
+
+### Added
+
+- **pi-ai 1.6.0 contract tests** (`test/pi-ai-1-6-0-contract.test.ts`): the NaN
+  `system` role stays `system` even though 1.6.0 flipped the
+  `supportsDeveloperRole` default to OpenAI's own API (#10741), a flat
+  `usage.reasoning_tokens` is now counted, no NaN request carries `strict`
+  tool schemas, and NaN's mid-stream drop texts (`Connection closed.`, bare
+  `ECONNRESET`/`EPIPE`/`ETIMEDOUT`, `connection reset by peer`) are retryable.
+
+### Compatibility notes (upstream 1.6.0 → this package)
+
+- **Type surface unchanged.** pi-ai `index.d.ts`, `compat.d.ts` and
+  `api/openai-completions.d.ts`, and pi-coding-agent `index.d.ts`, are
+  byte-identical to 1.5.1. No `src/` change was needed.
+- **Wire unchanged.** A base-vs-change capture (every catalog model ×
+  `off`/`low`/`max`, with tool history and thinking blocks) is byte-identical
+  between 1.5.1 and 1.6.0 — same request bodies, same reported usage.
+- **Upstream-only wins for NaN users:** more gateway drop wordings are retried
+  automatically, reasoning is counted when a gateway reports it flat, MCP
+  `tool_search` tools survive resume/`/reload` again, and `reload()` re-emits
+  `session_start` so the media MCP server reconnects.
+- **Not affected:** the 1.6.0 breaking change (extension components `render()`
+  returning `readonly string[]`) — this package registers no TUI components;
+  the removed `resolveModelScope`/`restoreModelFromSession` exports — not
+  imported; the new strict-schema guard (#12049) — `openai-completions`
+  defaults `supportsStrictMode: false`, so NaN never sends `strict`.
+
 ## [1.5.8] - 2026-11-18
 
 ### Added

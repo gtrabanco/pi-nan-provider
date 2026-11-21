@@ -1,7 +1,7 @@
 # @gtrabanco/𝜋-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.5.9-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-1.6.0-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 [![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://cloud.nan.builders/r/7GK06FX8)
 
 [NaN Builders](https://cloud.nan.builders/r/7GK06FX8) model provider + MCP nativo para [pi](https://github.com/earendil-works/pi). 
@@ -9,7 +9,7 @@
 Registra el proveedor `nan` vía `pi.registerProvider()` usando la API OpenAI-compatible de NaN (`https://api.nan.builders/v1`), y registra el servidor MCP de media de la comunidad con `pi.registerMcpServer()`.
 
 > [!NOTE]
-> **Requisitos:** pi **≥ 1.4.0** (rango peer `^1.4.0`). El paquete está verificado contra **pi 1.5.1 / pi-ai 1.5.1**; el floor del rango peer solo sube con los re-aligns de menor de pi.
+> **Requisitos:** pi **≥ 1.4.0** (rango peer `^1.4.0`). El paquete está verificado contra **pi 1.6.0 / pi-ai 1.6.0**; el floor del rango peer solo sube con los re-aligns de menor de pi.
 
 ## ✨ Funciones
 
@@ -120,7 +120,7 @@ Puedes sobrescribir el `compat` de cualquier modelo en `~/.pi/agent/models.json`
 
 > Poner `supportsFinishReason: false` restaura el antiguo stall silencioso — no recomendado.
 
-**Escape hatches de compatibilidad de pi-ai 1.5.1** (`~/.pi/agent/models.json`, por modelo): `compat.requiresToolsWithToolHistory: true` restaura el envío de `tools: []` en conversaciones con historial de tools (pi-ai 1.5.1 lo omite por defecto, arreglando los rechazos `tools must not be an empty array` de vLLM 0.20+ detrás de LiteLLM); `compat.requiresNonNullAssistantContent: true` envía `""` en vez de `null` en mensajes de asistente que solo llevan tool calls; `compat.promptCacheKeyMode: "disabled"` garantiza que nunca se envíe `prompt_cache_key` al gateway (el valor por defecto `auto` ya nunca lo activa para NaN).
+**Escape hatches de compatibilidad de pi-ai 1.5.1+** (`~/.pi/agent/models.json`, por modelo, sin cambios en 1.6.0): `compat.requiresToolsWithToolHistory: true` restaura el envío de `tools: []` en conversaciones con historial de tools (pi-ai 1.5.1 lo omite por defecto, arreglando los rechazos `tools must not be an empty array` de vLLM 0.20+ detrás de LiteLLM); `compat.requiresNonNullAssistantContent: true` envía `""` en vez de `null` en mensajes de asistente que solo llevan tool calls; `compat.promptCacheKeyMode: "disabled"` garantiza que nunca se envíe `prompt_cache_key` al gateway (el valor por defecto `auto` ya nunca lo activa para NaN).
 
 **Uso de tokens en streaming:** `supportsUsageInStreaming` es `true` por defecto. El esquema publicado de NaN no documenta `stream_options`, pero el gateway real lo acepta y lo aplica — medido el 2026-09-16 ([#7](https://github.com/gtrabanco/pi-nan-provider/issues/7)): dos llamadas de streaming idénticas por modelo, 0 chunks de usage sin el flag y exactamente 1 con él, en `deepseek-v4-flash`, `glm5.3-flash`, `qwen3.6`, `gemma4` y `mimo-v2.5` (ya eliminado). Por eso pi muestra tokens reales de entrada/salida/reasoning/caché en lugar de ceros. Si un modelo resulta no devolver el usage en streaming, desactívalo por modelo — el sanitizer entonces elimina `stream_options` y el payload vuelve a ser estricto:
 

@@ -322,3 +322,43 @@ Gate after the extension: 424 tests pass / 0 fail, typecheck exit 0.
 
 - Owner verdict (external verify) on commits `5336817`, `b9b61ad`, `f4a951b`
   + this evidence commit, on top of PR #44's branch; nothing pushed.
+
+## 2026-11-21 — issue #45: pi / pi-ai 1.5.1 → 1.6.0 realign
+
+**Done**
+
+- Applied the `sdk-monitor` issue #45 inline. No `chore/pi-sdk-1.6.0` branch
+  existed on `origin` (`gh pr list` empty), so the workflow's `prepare-pr` job
+  never ran; the bump and its verification were done by hand.
+- Ledgers cut first in `docs/fix/issue-45-pi-sdk-1-6-0/SPEC.md` (S1 verbatim,
+  O1–O10, PE-001–PE-009, A1–A6) with the upstream surface comparison recorded
+  as evidence: pi-ai `index.d.ts` / `compat.d.ts` / `api/openai-completions.d.ts`
+  and pi-coding-agent `index.d.ts` are byte-identical to 1.5.1.
+- `test/pi-ai-1-6-0-contract.test.ts` pins the four behaviors this package
+  cares about across the bump: the `system` role survives the
+  `supportsDeveloperRole` default flip (#10741), a flat
+  `usage.reasoning_tokens` is counted, no NaN request carries `strict` tool
+  schemas, and NaN's mid-stream drop texts are retryable (#12064, #12128).
+- `package.json`: devDependencies 1.5.1 → 1.6.0, version 1.5.8 → 1.6.0 (pi
+  minor realign), peer range unchanged at `^1.4.0`; `bun.lock` follows.
+- Docs in-change: README EN/ES verified-against line + badges, CHANGELOG 1.6.0
+  with the compatibility report, AGENTS.md verified-facts bullet + README
+  maintenance rule.
+
+**Checks**
+
+- RED: `bun test test/pi-ai-1-6-0-contract.test.ts` on the pinned 1.5.1 →
+  `6 pass / 6 fail` (flat reasoning token + all five new retry wordings).
+- Green on 1.6.0: same suite → `12 pass / 0 fail / 28 expect`.
+- `bun test` → 477 pass / 0 fail / 2185 expect / 40 files;
+  `bun run typecheck` → exit 0.
+- Differential: canonical payload dump of every catalog model ×
+  `off`/`low`/`max` (tool history + thinking blocks) is byte-identical between
+  1.5.1 and 1.6.0 — `sha256 7179c57b…` for both dumps. No NaN wire change.
+
+**Next**
+
+- Owner verdict on the two commits; nothing pushed, no GitHub comment posted.
+- Pre-existing (not this change): README badges said 1.5.9 while `package.json`
+  was 1.5.8 — both now say 1.6.0; `README.es.md:408` starts a prose line with
+  `#35`, which `rg '^#{2,4} '` reads as a heading (identical at base).
