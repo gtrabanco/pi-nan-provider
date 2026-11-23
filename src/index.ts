@@ -168,6 +168,32 @@ export default async function nanProviderExtension(pi: ExtensionAPI): Promise<vo
 /** Exposed for tests: the env var this package uses for every NaN surface. */
 export { NAN_API_KEY_ENV };
 
+/**
+ * The model-facts catalog (issue #47): a frozen, provenance-carrying record of
+ * what each billed NaN model is. Plain data — no pi-ai Model objects and no
+ * policy — so a consumer can plan context, caching and spend from it without
+ * reading this package's internals.
+ */
+export {
+	NAN_ENDPOINT_FACTS,
+	NAN_FACT_SOURCES,
+	NAN_MODEL_FACTS,
+	NAN_MODEL_FACTS_META,
+	type ModelFactsDeclaration,
+	type NanBillingClass,
+	type NanCacheMode,
+	type NanEndpointFacts,
+	type NanFactCell,
+	type NanFactSource,
+	type NanMaxTokensSemantics,
+	type NanModelCostFact,
+	type NanModelFacts,
+	type NanModelFactsMeta,
+	type NanThinkingBudget,
+	type NanToolCalling,
+	type NanTriState,
+} from "./model-facts.ts";
+
 /** Exposed for advanced consumers that want the typed provider factory directly. */
 export { createNanCompatibleProvider, type OpenAICompatibleProviderConfig } from "./provider-factory.ts";
 export { PROVIDERS, NAN_PROVIDER } from "./providers.ts";

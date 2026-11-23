@@ -36,8 +36,10 @@
 
 import type { GeneratedModelEntry } from "../src/fetch-models.ts";
 import { NON_CHAT_MODEL_IDS } from "../src/fetch-models.ts";
+import { buildModelFacts, overrideFieldKeys } from "../src/model-facts-core.ts";
 import type { ManualModelOverride } from "./manual-overrides.ts";
 import { MANUAL_OVERRIDES, MANUAL_ONLY_MODEL_IDS } from "./manual-overrides.ts";
+import { MODEL_FACTS } from "./model-facts.ts";
 
 const MODELS_DEV_API_URL = "https://models.dev/api.json";
 const SOURCE_PROVIDER_ID = "nan";
@@ -362,7 +364,22 @@ async function main(): Promise<void> {
 		);
 	}
 
+	// Validate the manual facts layer against the catalog just built: a missing
+	// declaration, a ghost id, a value outside its documented union or a cell
+	// without provenance is a build failure, never a silently incomplete export.
 	const fetchedAt = new Date().toISOString();
+	const factsMeta = {
+		source: MODELS_DEV_API_URL,
+		modelsDevProvider: SOURCE_PROVIDER_ID,
+		fetchedAt,
+		modelCount: entries.length,
+	};
+	try {
+		buildModelFacts(entries, MODEL_FACTS, overrideFieldKeys(MANUAL_OVERRIDES), factsMeta);
+	} catch (error) {
+		fail(error instanceof Error ? error.message : String(error));
+	}
+	console.log(`generate-models: model-facts catalog validated (${entries.length} models)`);
 	const allNotes = [
 		...new Set([
 			...skipped,
