@@ -419,3 +419,53 @@ Gate after the extension: 424 tests pass / 0 fail, typecheck exit 0.
   card still describes the pre-fix `max_tokens` exception (the `measured-36`
   probe contradicts it), and `qwen3.8-max`'s docs still state the same
   exception — worth reporting to NaN when the next docs pass happens.
+
+## 2026-11-23 — issue #47 correction batch: receipt advisories folded (1.6.1)
+
+**Done**
+
+- Owner order (same standing text as the #35 batches): triage the 2026-11-23
+  external-verify receipt (0 blockers, 4 advisories) and fix what deserves it.
+  All four folded as one batch (D-47-02):
+  - A1 `src/model-facts-core.ts` interface comment: dropped the false "NaN does
+    not publish rate limits" premise — the docs' Rate limits section exists
+    (checked 2026-11-23, 60 rpm/key + per-model concurrency) — and states the
+    field's absence as the S18/C15 scope decision, keeping the "future field"
+    note. Sibling sweep: the comment was the only surviving false claim;
+    frozen S18 text in SPEC.md keeps its premise by its verbatim contract.
+  - A2/A3 `planning-evidence.md` PE-001/PE-006 claim wording amended to the
+    actual card bullets (deepseek-v4-flash: unqualified `Tool calling`) and
+    rows (gemma4/qwen3.6 carry no Billing row; `credit-standard` rests on
+    "Paid from your credits like every other chat model" + six larger rows).
+    Exported values unchanged — none of the 13 declarations moved.
+  - A4 `NAN_FACT_SOURCES` now `Object.freeze`d at declaration, red-first:
+    one new corpus case failed alone before the freeze (52/1), passes after.
+- Unit `decisions.md` created — it never existed at cut, which is why the
+  checkpoint gate blocked the corpus edit: it now carries the required
+  `path-protection-records@1` justification+approval rows and D-47-01
+  reconstructed from the cut evidence (O13/C20 cited that id; it was dangling).
+
+**Checks**
+
+- RED: `bun test test/issue-47-model-facts.test.ts` → 52 pass / 1 fail (only
+  the new frozen-citation case) before implementation.
+- GREEN: same suite → 53 pass / 0 fail / 824 expect; `bun test` → 530 pass /
+  0 fail / 3009 expect / 41 files (delta = the 1 new test); `bun run
+  typecheck` → exit 0.
+- Shared-code differential (the freeze lands in a generator import): scratch
+  `bun run generate-models` → exit 0, `model-facts catalog validated (13
+  models)`, regenerated-vs-committed diff identical in shape to the pre-batch
+  scratch run (fetchedAt + models.dev family renames only). Live tree never
+  touched by the generator.
+- Validators re-run for the ledger: O13 rg pair exit 0, heading diff exit 0,
+  C18 exit 0; READMEs/CHANGELOG/package.json untouched by this batch.
+- No version move: npm latest is 1.6.0, the branch already carries the
+  pending 1.6.1 — the batch rides the same unreleased patch.
+
+**Next**
+
+- Owner is the external verifier for this batch (correction bounds §9: one
+  recheck of these four, no new cycle from a new finding).
+- Carried follow-ups unchanged: docs still describe the pre-fix qwen3.8-flash /
+  qwen3.8-max `max_tokens` exception; frozen S18 wording is stale but
+  untouchable until the owner rewords the issue.

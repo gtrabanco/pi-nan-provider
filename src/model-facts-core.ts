@@ -72,7 +72,7 @@ export type NanTriState = boolean | "unmeasured";
  * `NAN_MODEL_FACTS_META.sources` resolves it for a consumer. Adding a fact
  * means adding a citation here first; a cell cannot be sourced from nowhere.
  */
-export const NAN_FACT_SOURCES = {
+export const NAN_FACT_SOURCES = Object.freeze({
 	"models.dev":
 		"https://models.dev/api.json, provider \"nan\" — the numeric limits, modalities and reasoning flag come from the generated catalog (fetch date in NAN_MODEL_FACTS_META.fetchedAt)",
 	override:
@@ -91,7 +91,7 @@ export const NAN_FACT_SOURCES = {
 	"measured-36":
 		"issue #36 closing probe, 2026-11-18 — qwen3.8-flash with max_tokens=64 returned completion_tokens=64 (reasoning_tokens=64, empty content), so max_tokens bounds the total again",
 	none: "no source: the cell is the \"unmeasured\" sentinel or a field the catalog does not declare; the entry's notes explain why",
-} as const;
+} as const);
 
 /** Provenance id of a single exported cell. */
 export type NanFactSource = keyof typeof NAN_FACT_SOURCES;
@@ -140,8 +140,10 @@ export interface NanModelCostFact {
 
 /**
  * One model's facts. Plain data only: no pi Model object, no `api`/`baseUrl`,
- * no policy (batching, routing ladders), no rate limits (NaN does not publish
- * them, and a guessed value is worse than none).
+ * no policy (batching, routing ladders), no rate limits — deliberately out of
+ * scope per issue #47 (S18/C15): the docs publish rpm/concurrency figures
+ * (checked 2026-11-23), so their absence here is the frozen scope decision,
+ * and adding the field is a future owner decision.
  */
 export interface NanModelFacts {
 	id: string;

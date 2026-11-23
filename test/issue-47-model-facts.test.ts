@@ -380,6 +380,11 @@ describe("provenance per cell (S5)", () => {
 		expect(NAN_MODEL_FACTS_META.modelCount).toBe(CATALOG_IDS.length);
 		expect(NAN_MODEL_FACTS_META.fetchedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 	});
+
+	test("the citation table itself is frozen, so one consumer cannot rewrite what the next resolves", () => {
+		expect(Object.isFrozen(NAN_FACT_SOURCES)).toBe(true);
+		expect(Object.isFrozen(NAN_MODEL_FACTS_META.sources)).toBe(true);
+	});
 });
 
 describe("one frozen record (S20)", () => {
