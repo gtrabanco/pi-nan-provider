@@ -1,7 +1,7 @@
 # @gtrabanco/𝜋-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.6.0-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-1.6.1-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 [![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://cloud.nan.builders/r/7GK06FX8)
 
 [NaN Builders](https://cloud.nan.builders/r/7GK06FX8) model provider + MCP nativo para [pi](https://github.com/earendil-works/pi). 
@@ -23,6 +23,7 @@ Registra el proveedor `nan` vía `pi.registerProvider()` usando la API OpenAI-co
 | **Reintento de streams truncados** | `supportsFinishReason: true` convierte un stream SSE cerrado antes de `finish_reason` en un error reintentable en vez de un stall silencioso ([#2](https://github.com/gtrabanco/pi-nan-provider/issues/2)). |
 | **Uso de tokens en streaming** | `stream_options.include_usage` activo por defecto, así que pi reporta recuentos reales de entrada/salida/razonamiento/caché ([#4](https://github.com/gtrabanco/pi-nan-provider/issues/4), [#7](https://github.com/gtrabanco/pi-nan-provider/issues/7)). |
 | **Controles de razonamiento** | `reasoningEffortValues` + `thinkingLevelMap` por modelo ([#16](https://github.com/gtrabanco/pi-nan-provider/issues/16)), el guard de stream solo-razonamiento ([#21](https://github.com/gtrabanco/pi-nan-provider/issues/21)) y el campo de tokens máximo por modelo (`qwen3.8-max` mantiene `max_completion_tokens`; `qwen3.8-flash` volvió a `max_tokens` tras el arreglo del gateway de NaN, [#34](https://github.com/gtrabanco/pi-nan-provider/issues/34) → [#36](https://github.com/gtrabanco/pi-nan-provider/issues/36)). |
+| **Export de model facts** | `NAN_MODEL_FACTS` — una entrada congelada y tipada por modelo de chat facturado: límites, tarifas, contrato de razonamiento, protocolo de herramientas, semántica de `max_tokens`, presupuesto de pensamiento, modo de caché y clase de facturación, con un id de procedencia en cada celda ([#47](https://github.com/gtrabanco/pi-nan-provider/issues/47)). |
 | **Cabecera de atribución** | `X-Pi-Provider: gtrabanco/pi-nan-provider@<version>` en cada petición, eliminada cuando la telemetría de instalación de pi está desactivada. |
 | **Modelos de imagen nativos** | `flux-2-klein` y `qwen-image-2.1` registrados como modelos de pi `type: "image"`, accesibles desde codemode y extensiones. |
 | **Puente MCP nativo de media** | El servidor `nan-media` (10 herramientas) registrado con `pi.registerMcpServer()`, gestionado con `/nan-mcp`. |
@@ -456,6 +457,63 @@ redactado y reproducible para NaN:
   excepción: transcripts en bruto incluidos a petición
   ([#44](https://github.com/gtrabanco/pi-nan-provider/issues/44)), solo con
   `cwd` hasheado. Entradas idénticas producen bytes de zip idénticos.
+
+## 🧭 Model facts: `NAN_MODEL_FACTS`
+
+Casi todo lo que este paquete sabe de la flota vivía en este README y en
+comentarios del código. El issue [#47](https://github.com/gtrabanco/pi-nan-provider/issues/47)
+lo convierte en datos: un registro congelado y tipado, exportado desde el punto
+de entrada, para que tus scripts planifiquen contexto, caché y gasto sin leer
+prosa ni entrar en `scripts/`.
+
+```ts
+import { NAN_MODEL_FACTS, NAN_ENDPOINT_FACTS, NAN_MODEL_FACTS_META } from "@gtrabanco/pi-nan-provider";
+
+const facts = NAN_MODEL_FACTS["deepseek-v4-flash"];
+facts.contextWindow;             // 1048576
+facts.maxTokens;                 // 32768
+facts.cost;                      // { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+facts.input;                     // ["text", "image"]
+facts.toolCalling;               // "openai-tools" | "xml"
+facts.maxTokensSemantics;        // "bounds-total" | "bounds-visible-answer"
+facts.thinkingBudget;            // "honoured" | "ignored" | "unmeasured"
+facts.cacheMode;                 // "automatic" | "opt-in" | "unsupported" | "unmeasured"
+facts.billingClass;              // "quota-only" | "credit-standard" | "credit-larger"
+facts.parallelToolCalls;         // boolean | "unmeasured"
+facts.structuredOutput;          // boolean | "unmeasured"
+
+facts.provenance.toolCalling;                  // "docs"
+NAN_MODEL_FACTS_META.sources["docs"];          // URL + fecha de comprobación
+```
+
+- **Hechos, no política.** El registro dice qué *es* un modelo. Cómo lo uses —
+  fases por contexto, una escalera de enrutado, una estrategia de caché — sigue
+  siendo tuyo.
+- **Una entrada por modelo de chat facturado** (13 hoy), con el id de modelo como
+  clave. Los endpoints que no son de chat (embedding, rerank, TTS, STT, imagen,
+  vídeo) no son modelos de chat y no se exportan.
+- **Procedencia por celda.** Cada celda nombra un id de fuente;
+  `NAN_MODEL_FACTS_META.sources` lo resuelve a una URL con su fecha de
+  comprobación o a una medición fechada registrada en este repo. Los ids
+  `override`, `compat` y `catalog-cost` apuntan a las `notes` de la propia
+  entrada, que ya llevan esas citas.
+- **`"unmeasured"` significa que no se afirma nada**, nunca "falso".
+  `parallelToolCalls` es `"unmeasured"` en todos los modelos porque nada
+  documenta ni mide varias llamadas de herramienta por turno; `structuredOutput`
+  es booleano solo donde los docs de NaN documentan `json_object` /
+  `json_schema` para ese modelo.
+- **Techo de prompt frío.** `coldCeilingTokens` es `"unmeasured"` en todas las
+  entradas: la única medición es de extremo a extremo, así que viaja aparte como
+  `NAN_ENDPOINT_FACTS.coldCacheCeilingTokens` (200.000 tokens, medido el
+  2026-10-01) con un `coldCeilingScope` que aclara que es el límite de lectura
+  del proxy de Cloudflare (120 s), no una capacidad del modelo. Dimensiona la
+  primera petición en frío por debajo de ese valor.
+- **Offline y congelado.** El registro se deriva del catálogo generado que se
+  publica más la capa de hechos de build, así que leerlo no hace ninguna llamada
+  de red, y está congelado en profundidad: un consumidor no puede cambiar lo que
+  lee el siguiente. Nunca alimenta el registro del proveedor — el overlay de
+  lectura ([#19](https://github.com/gtrabanco/pi-nan-provider/issues/19)) sigue
+  decidiendo los modelos que ve una sesión.
 
 ## 📊 Modelos
 

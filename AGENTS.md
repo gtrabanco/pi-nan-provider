@@ -317,6 +317,28 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   A model with a confirmed per-token price can still override `cost` through
   `MANUAL_OVERRIDES`; to adopt models.dev's numbers everywhere, delete the constant.
   Regression test: `test/larger-models-2026-11-17.test.ts`.
+- **`NAN_MODEL_FACTS` is the public facts surface (issue #47, package 1.6.1).**
+  `src/model-facts.ts` exports the deep-frozen record keyed by chat model id plus
+  `NAN_ENDPOINT_FACTS` and `NAN_MODEL_FACTS_META`; `src/model-facts-core.ts` owns
+  the value unions, the `NAN_FACT_SOURCES` citation table, the builder guards and
+  the freezer (deliberately free of catalog imports so the generator can validate
+  the entries it just built before writing them); the manual values live in
+  `scripts/model-facts.ts`, next to the override path they belong to. The
+  generator fails when a catalog id has no declaration, a declaration names a
+  ghost id, a value falls outside its documented union, or a cell carries no
+  provenance id — an unsourced cell can never reach a published catalog. Carried
+  cells (limits, cost, modalities, reasoning list/map, compat) are read from the
+  generated catalog entry; the eight new cells come from the manual layer with a
+  per-cell source id. Two rules the data encodes: `"unmeasured"` is never
+  "false" (nothing was measured — `parallelToolCalls` is unmeasured on every
+  model, `structuredOutput` is a boolean only where the docs name
+  `json_object`/`json_schema`), and the cold-prompt ceiling is endpoint-wide, so
+  every `coldCeilingTokens` cell is `"unmeasured"` while the 200,000-token
+  measurement ships as `NAN_ENDPOINT_FACTS.coldCacheCeilingTokens` (measured
+  2026-10-01, scope "not a model capability"). Importing the record performs no
+  network read and never feeds provider registration: the #19 read-time overlay
+  stays the only thing that shapes the models a session sees.
+  Regression test: `test/issue-47-model-facts.test.ts`.
 - A NaN request that still exceeds the destination model's context window (the
   cross-model thinking guard is disabled with `NAN_THINKING_GUARD=0`, the
   inflation is not a `thinking` block, or the window is smaller) gets NaN's

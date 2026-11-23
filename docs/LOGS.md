@@ -362,3 +362,110 @@ Gate after the extension: 424 tests pass / 0 fail, typecheck exit 0.
 - Pre-existing (not this change): README badges said 1.5.9 while `package.json`
   was 1.5.8 — both now say 1.6.0; `README.es.md:408` starts a prose line with
   `#35`, which `rg '^#{2,4} '` reads as a heading (identical at base).
+
+## 2026-11-23 — issue #47: exported typed model-facts catalog (1.6.1)
+
+**Done**
+
+- Applied issue #47 inline. Intent resolved `proceed` (fresh unit, no prior
+  phase state). Base resolved from state, not from `main`: `main` (`b8fcdd9`)
+  is two commits behind `origin/chore/pi-sdk-1.6.0` (`6fcc0b1`), and npm
+  already carries `1.6.0` published from that head, so the unit branches from it
+  and cuts `1.6.1` — publishing from stale `main` would have gone backwards.
+- The issue's open question 2 was the one real ambiguity: the 200,000-token
+  cold ceiling is endpoint-wide, and the repo's own classifier says it is "NOT a
+  model capability". Owner chose **A** (2026-11-23): per-model `"unmeasured"`
+  plus `NAN_ENDPOINT_FACTS.coldCacheCeilingTokens` with its date and scope.
+  Open questions 1 and 3 were settled by research, not assumption: the docs do
+  distinguish "Tool calling (function calling)" from "Tool calling (XML
+  format)", and S19/S20 pin `NAN_MODEL_FACTS` + `NanModelFacts` (no JSON
+  snapshot — S20's is optional and no consumer pins one).
+- Ledgers cut before code (`docs/fix/issue-47-model-facts-catalog/`, gitignored
+  like every unit doc here): O1–O14, PE-001–PE-014, C1–C20.
+- `src/model-facts-core.ts` owns the value unions, the `NAN_FACT_SOURCES`
+  citation table, the builder guards and the deep freezer, and imports no
+  catalog, so the generator can validate the entries it just built instead of a
+  stale generated file. `scripts/model-facts.ts` holds the 13 declarations on
+  the manual-override path; `src/model-facts.ts` builds and freezes the public
+  record; `src/index.ts` exports it.
+- `scripts/generate-models.ts` now fails the build when a catalog id has no
+  declaration, a declaration names a ghost id, a value is outside its documented
+  union, or a cell has no provenance id.
+- Docs in-change: README EN/ES section + Features row, CHANGELOG 1.6.1,
+  `package.json` 1.6.1, both badges, AGENTS bullet.
+
+**Checks**
+
+- RED: `bun test test/issue-47-model-facts.test.ts` → 0 pass / 1 fail / 1 error
+  (`Cannot find module '../scripts/model-facts.ts'`) before implementation.
+- Green: same suite → 52 pass / 0 fail / 822 expect.
+- `bun test` → 529 pass / 0 fail / 3007 expect / 41 files (delta = exactly the
+  52 new tests); `bun run typecheck` → exit 0.
+- Differential against a `6fcc0b1` copy: `baselineModels` / `toModel` /
+  `mergeLiveWithGenerated` capture identical after normalising the package
+  version in `X-Pi-Provider` (the only diff, and it is the requested bump); base
+  suite 477 pass / 0 fail.
+- Scratch `bun run generate-models`: `model-facts catalog validated (13 models)`,
+  and with one declaration renamed it exits 1, names both sides and does not
+  rewrite the catalog. A real regeneration diff shows only `fetchedAt` and
+  models.dev's renamed `extras.family` values — no capability value changed, so
+  the committed catalog was left untouched.
+
+**Next**
+
+- Owner is the external verifier: two commits (`6020fbe` code+tests, `b0d4c41`
+  docs+version), not pushed.
+- Known follow-up surfaced by research, not folded here: `qwen3.8-flash`'s docs
+  card still describes the pre-fix `max_tokens` exception (the `measured-36`
+  probe contradicts it), and `qwen3.8-max`'s docs still state the same
+  exception — worth reporting to NaN when the next docs pass happens.
+
+## 2026-11-23 — issue #47 correction batch: receipt advisories folded (1.6.1)
+
+**Done**
+
+- Owner order (same standing text as the #35 batches): triage the 2026-11-23
+  external-verify receipt (0 blockers, 4 advisories) and fix what deserves it.
+  All four folded as one batch (D-47-02):
+  - A1 `src/model-facts-core.ts` interface comment: dropped the false "NaN does
+    not publish rate limits" premise — the docs' Rate limits section exists
+    (checked 2026-11-23, 60 rpm/key + per-model concurrency) — and states the
+    field's absence as the S18/C15 scope decision, keeping the "future field"
+    note. Sibling sweep: the comment was the only surviving false claim;
+    frozen S18 text in SPEC.md keeps its premise by its verbatim contract.
+  - A2/A3 `planning-evidence.md` PE-001/PE-006 claim wording amended to the
+    actual card bullets (deepseek-v4-flash: unqualified `Tool calling`) and
+    rows (gemma4/qwen3.6 carry no Billing row; `credit-standard` rests on
+    "Paid from your credits like every other chat model" + six larger rows).
+    Exported values unchanged — none of the 13 declarations moved.
+  - A4 `NAN_FACT_SOURCES` now `Object.freeze`d at declaration, red-first:
+    one new corpus case failed alone before the freeze (52/1), passes after.
+- Unit `decisions.md` created — it never existed at cut, which is why the
+  checkpoint gate blocked the corpus edit: it now carries the required
+  `path-protection-records@1` justification+approval rows and D-47-01
+  reconstructed from the cut evidence (O13/C20 cited that id; it was dangling).
+
+**Checks**
+
+- RED: `bun test test/issue-47-model-facts.test.ts` → 52 pass / 1 fail (only
+  the new frozen-citation case) before implementation.
+- GREEN: same suite → 53 pass / 0 fail / 824 expect; `bun test` → 530 pass /
+  0 fail / 3009 expect / 41 files (delta = the 1 new test); `bun run
+  typecheck` → exit 0.
+- Shared-code differential (the freeze lands in a generator import): scratch
+  `bun run generate-models` → exit 0, `model-facts catalog validated (13
+  models)`, regenerated-vs-committed diff identical in shape to the pre-batch
+  scratch run (fetchedAt + models.dev family renames only). Live tree never
+  touched by the generator.
+- Validators re-run for the ledger: O13 rg pair exit 0, heading diff exit 0,
+  C18 exit 0; READMEs/CHANGELOG/package.json untouched by this batch.
+- No version move: npm latest is 1.6.0, the branch already carries the
+  pending 1.6.1 — the batch rides the same unreleased patch.
+
+**Next**
+
+- Owner is the external verifier for this batch (correction bounds §9: one
+  recheck of these four, no new cycle from a new finding).
+- Carried follow-ups unchanged: docs still describe the pre-fix qwen3.8-flash /
+  qwen3.8-max `max_tokens` exception; frozen S18 wording is stale but
+  untouchable until the owner rewords the issue.
