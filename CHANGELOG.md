@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-11-23
+
+### Added
+
+- **`NAN_MODEL_FACTS`: an exported, typed, provenance-carrying model-facts
+  catalog (issue #47).** One frozen entry per billed chat model — limits, cost
+  rates, modalities, reasoning contract and compat, plus the facts that used to
+  live only in prose: `toolCalling` (`openai-tools` / `xml`), `maxTokensSemantics`
+  (total vs visible-answer budget), `thinkingBudget`, `cacheMode`, `billingClass`,
+  `parallelToolCalls`, `structuredOutput` and `coldCeilingTokens`. Every cell
+  carries a provenance id resolved by `NAN_MODEL_FACTS_META.sources`, and the
+  one measurement that is endpoint-wide rather than per-model (the cold-prompt
+  524 ceiling) ships separately as `NAN_ENDPOINT_FACTS` instead of being
+  attributed to every model. Facts only: no policy, no pi Model objects, no
+  network read, and the provider registration path is untouched.
+
 ## [1.6.0] - 2026-11-21
 
 ### Changed
