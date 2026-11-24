@@ -459,7 +459,10 @@ reproducible evidence package for NaN:
   `created`, terminal `status`, `attempt_n` and the request parameters),
   `errors.jsonl` (class, `status`, `cf_ray`, `attempt_n`, the parsed
   `error_type`/`error_code`/`error_param`, the gateway's own message capped at
-  200 chars and an MD5 hash), `http_attempts.jsonl` (one row per attempt plus one
+  200 chars and an MD5 hash; a failed request has no response id, so its
+  `status`/`cf_ray`/`attempt_n` are correlated by model and the turn's span —
+  with concurrent requests to the same model, `http_attempts.jsonl` is the
+  authoritative per-attempt record), `http_attempts.jsonl` (one row per attempt plus one
   `response` row per completed request), `anomalies.jsonl` (the `cf-ray` pair) and
   `metadata.json` (package/pi-ai/pi versions, catalog provenance,
   `error_summary`, `topic_hash`, and `attempt_summary` with status counts, 429

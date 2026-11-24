@@ -179,9 +179,33 @@ export function createHttpAttemptFileSink(
 	};
 }
 
+/** Structural check: a record with a valid kind but missing fields would crash the report. */
+function isAttemptRecord(entry: Record<string, unknown>): entry is Record<string, unknown> & HttpAttemptRecord {
+	return (
+		typeof entry.request_id === "string" &&
+		typeof entry.model === "string" &&
+		typeof entry.attempt_n === "number" &&
+		typeof entry.started_at === "string" &&
+		typeof entry.ended_at === "string" &&
+		(entry.status === null || typeof entry.status === "number") &&
+		typeof entry.headers === "object" &&
+		entry.headers !== null
+	);
+}
+
+function isResponseRecord(entry: Record<string, unknown>): entry is Record<string, unknown> & HttpResponseRecord {
+	return (
+		typeof entry.request_id === "string" &&
+		typeof entry.model === "string" &&
+		typeof entry.attempts === "number" &&
+		typeof entry.ended_at === "string" &&
+		(entry.status === null || typeof entry.status === "number")
+	);
+}
+
 /**
- * Read the sidecar. Malformed lines and unknown record kinds are skipped; a
- * missing file yields an empty list.
+ * Read the sidecar. Malformed lines, unknown record kinds and structurally
+ * incomplete rows are skipped; a missing file yields an empty list.
  */
 export function readHttpAttempts(filePath?: string): HttpAttemptEntry[] {
 	const entries: HttpAttemptEntry[] = [];
@@ -191,11 +215,12 @@ export function readHttpAttempts(filePath?: string): HttpAttemptEntry[] {
 		for (const line of readFileSync(path, "utf8").split("\n")) {
 			if (line.trim().length === 0) continue;
 			try {
-				const entry = JSON.parse(line) as Partial<HttpAttemptEntry>;
-				if (entry.kind === "attempt" && typeof entry.request_id === "string") {
-					entries.push(entry as HttpAttemptRecord);
-				} else if (entry.kind === "response" && typeof entry.request_id === "string") {
-					entries.push(entry as HttpResponseRecord);
+				const entry = JSON.parse(line) as unknown;
+				if (!isObject(entry)) continue;
+				if (entry.kind === "attempt" && isAttemptRecord(entry)) {
+					entries.push(entry as unknown as HttpAttemptRecord);
+				} else if (entry.kind === "response" && isResponseRecord(entry)) {
+					entries.push(entry as unknown as HttpResponseRecord);
 				}
 			} catch {
 				// A corrupted line must not break the collector.

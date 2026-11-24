@@ -821,8 +821,9 @@ export function parseGatewayError(message: string | undefined): {
  */
 export function scrubHome(text: string, home: string = osHomedir()): string {
 	if (home.length === 0) return text;
-	// A trailing separator would turn `~/x` into `~~/x`; only whole segments count.
-	return text.split(home).join("~");
+	// Require a path boundary so `/home/agent2` is never rewritten as `~2`.
+	const escaped = home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	return text.replace(new RegExp(`${escaped}(?=/|$)`, "g"), "~");
 }
 
 /**
@@ -1235,7 +1236,7 @@ function renderReadme(report: DebugReport, versions: Record<string, string>): st
 		"",
 		"- `anonymized_usage.jsonl` — one aggregated row per date/session/model: token counters, turn count, stop-reason counts, cache-hit rate, anomaly signatures.",
 		"- `turns.jsonl` — one row per assistant turn: model, usage counters, stop reason, classified error, response id, `cf_ray` (Cloudflare trace id, null when uncaptured), gateway `created`, terminal `status`, `attempt_n`, and the request parameters (`reasoning_effort`, `max_tokens`, the field actually sent, `stream`).",
-		"- `errors.jsonl` — one row per errored turn: class, `status`, `cf_ray`, `attempt_n`, the parsed gateway body (`error_type`, `error_code`, `error_param`), its message (200 chars max) and the MD5 hash of the full message. Transport errors carry no message, hash or path.",
+		"- `errors.jsonl` — one row per errored turn: class, `status`, `cf_ray`, `attempt_n`, the parsed gateway body (`error_type`, `error_code`, `error_param`), its message (200 chars max) and the MD5 hash of the full message. Transport errors carry no message, hash or path. A failed request has no response id, so those three attempt cells are correlated by model and the turn's own span; with concurrent requests to the same model treat them as best-effort — `http_attempts.jsonl` is the authoritative per-attempt record.",
 		"- `http_attempts.jsonl` — one `kind: \"attempt\"` row per HTTP attempt: status, whitelisted response headers, `started_at`/`ended_at`/`latency_ms`, `attempt_n`, `payload_bytes`, request parameters, process-scoped inflight/60 s counters and the transport error class. One `kind: \"response\"` row per completed request carries the gateway `response_id`/`created`. Retries pi-ai hides from the transcript are rows here.",
 		"- `anomalies.jsonl` — duplicate `id`/`created` pairs captured by the provider, with both `cf-ray` values (see issue #35).",
 		"- `metadata.json` — versions, catalog provenance, window, `topic_hash`, redaction counters and `attempt_summary` (status counts, 429 ratio per model and per model-hour, longest 429 streak).",

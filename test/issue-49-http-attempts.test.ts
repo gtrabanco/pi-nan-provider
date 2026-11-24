@@ -525,10 +525,36 @@ describe("issue #49 — bounded best-effort sidecar (O8)", () => {
 		await expect(runOne(api, okFetch())).resolves.toBeUndefined();
 	});
 
-	test("the reader tolerates a missing or corrupted file", () => {
+	test("the reader tolerates a missing file and skips corrupted or incomplete rows", () => {
 		expect(readHttpAttempts(join(scratch(), "absent.jsonl"))).toEqual([]);
 		const path = join(scratch(), HTTP_ATTEMPTS_FILE);
-		writeFileSync(path, ["not-json", JSON.stringify({ kind: "attempt", request_id: "r1" }), ""].join("\n"));
-		expect(readHttpAttempts(path).map((entry) => entry.kind)).toEqual(["attempt"]);
+		writeFileSync(
+			path,
+			[
+				"not-json",
+				// A valid kind with missing fields would crash the report's window filter.
+				JSON.stringify({ kind: "attempt", request_id: "r-incomplete" }),
+				JSON.stringify({
+					kind: "attempt",
+					request_id: "r1",
+					attempt_n: 1,
+					model: "qwen3.6",
+					started_at: NOW.toISOString(),
+					ended_at: NOW.toISOString(),
+					latency_ms: 0,
+					status: 200,
+					headers: {},
+					payload_bytes: null,
+					request: null,
+					inflight_process_at_start: 0,
+					inflight_same_model_at_start: 0,
+					starts_last_60s_process: 1,
+					starts_last_60s_same_model: 1,
+					error_type: null,
+				}),
+				"",
+			].join("\n"),
+		);
+		expect(readHttpAttempts(path).map((entry) => entry.request_id)).toEqual(["r1"]);
 	});
 });

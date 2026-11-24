@@ -465,8 +465,11 @@ redactado y reproducible para NaN:
   `responseId`, `cf_ray`, `created` del gateway, `status` terminal, `attempt_n` y
   los parámetros de la petición), `errors.jsonl` (clase, `status`, `cf_ray`,
   `attempt_n`, los campos parseados `error_type`/`error_code`/`error_param`, el
-  mensaje del propio gateway limitado a 200 caracteres y un hash MD5),
-  `http_attempts.jsonl` (una fila por intento más una fila `response` por
+  mensaje del propio gateway limitado a 200 caracteres y un hash MD5; una
+  petición fallida no tiene response id, así que su `status`/`cf_ray`/`attempt_n`
+  se correlacionan por modelo y por el span del turno — con peticiones
+  concurrentes al mismo modelo, `http_attempts.jsonl` es el registro autoritativo
+  por intento), `http_attempts.jsonl` (una fila por intento más una fila `response` por
   petición completada), `anomalies.jsonl` (el par de `cf-ray`) y `metadata.json`
   (versiones de paquete, pi-ai y pi; procedencia del catálogo; `error_summary`;
   `topic_hash`; y `attempt_summary` con conteos por status, ratios de 429 por
