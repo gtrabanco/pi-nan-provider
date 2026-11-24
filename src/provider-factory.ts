@@ -41,6 +41,7 @@ import { withContextOverflowClassification } from "./context-overflow-classifier
 import { withReasoningOnlyStreamGuard } from "./reasoning-only-stream-guard.ts";
 import { createCacheAnomalyFileSink, withCacheAnomalyCapture, type CacheAnomalySink } from "./cache-anomaly.ts";
 import { createResponseRayFileSink, type ResponseRaySink } from "./response-rays.ts";
+import { createHttpAttemptFileSink, withHttpAttemptCapture, type HttpAttemptSink } from "./http-attempts.ts";
 import { NAN_IMAGE_API, baselineImageModels, createNanImagesApi } from "./images.ts";
 import {
 	baselineModels,
@@ -77,6 +78,8 @@ export interface NanCompatibleProviderOptions {
 	cacheAnomalySink?: CacheAnomalySink;
 	/** Sink for the per-response cf-ray sidecar (issue #35 S11); defaults to the agent-dir JSONL file. */
 	responseRaySink?: ResponseRaySink;
+	/** Sink for the HTTP attempt sidecar (issue #49); defaults to the agent-dir JSONL file. */
+	httpAttemptSink?: HttpAttemptSink;
 }
 
 /**
@@ -306,18 +309,25 @@ export async function createNanCompatibleProvider(
 			// middle → guard (marker detection), innermost → sanitizer (payload).
 			// The guard's onProviderStreamEvent hook sees the raw response chunks
 			// (NOT onPayload, which only receives the outgoing request params).
-			// Outermost: cache-anomaly evidence capture (issue #35). It only adds
-			// observation hooks (onResponse for `cf-ray`, onProviderStreamEvent for
-			// the raw id/created pair) and never rewrites the stream. Since S11 it
-			// also appends every observed cf-ray to the response-ray sidecar.
-			api: withCacheAnomalyCapture(
-				withContextOverflowClassification(
-					withReasoningOnlyStreamGuard(wrapApiForStrictSanitization(apiFactory())),
+			// Outermost: the HTTP attempt tap (issue #49) injects `options.fetch`
+			// and observes every attempt, including the retries pi-ai hides and the
+			// 429s that never reach `onResponse`. It only adds the fetch wrapper and
+			// observation hooks; the stream is untouched.
+			// Next: cache-anomaly evidence capture (issue #35), which adds the
+			// `cf-ray`/id/created observation and the response-ray sidecar.
+			// Then: classifier (error rewrites), guard (marker detection), sanitizer
+			// (payload) — innermost.
+			api: withHttpAttemptCapture(
+				withCacheAnomalyCapture(
+					withContextOverflowClassification(
+						withReasoningOnlyStreamGuard(wrapApiForStrictSanitization(apiFactory())),
+					),
+					{
+						sink: options.cacheAnomalySink ?? createCacheAnomalyFileSink(),
+						raySink: options.responseRaySink ?? createResponseRayFileSink(),
+					},
 				),
-				{
-					sink: options.cacheAnomalySink ?? createCacheAnomalyFileSink(),
-					raySink: options.responseRaySink ?? createResponseRayFileSink(),
-				},
+				{ sink: options.httpAttemptSink ?? createHttpAttemptFileSink() },
 			),
 		}),
 		overlayMap,
