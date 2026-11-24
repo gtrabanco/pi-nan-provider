@@ -450,7 +450,7 @@ reproducible evidence package for NaN:
   deterministic — no LLM calls. The topic, when you use one, goes before the flag.
 - Content is opt-in and **off by default**: `--include-prompts` embeds the
   window-filtered transcripts under `sessions/` with tool calls and results
-  stripped; `--include-tools` keeps them (it implies prompts); `--all` equals
+  stripped (their `cwd` header stays MD5-hashed); `--include-tools` keeps them (it implies prompts); `--all` equals
   both plus `usage_window.json`. The preview states what will be shared before
   `--emit` writes anything.
 - The default artifact contains `README.md`, `anonymized_usage.jsonl` (per

@@ -430,6 +430,22 @@ describe("issue #49 — opt-in content flags (O13)", () => {
 		expect(transcript).toContain(TOOL_OUTPUT_SECRET);
 	});
 
+	test("the artifact README scopes the never-collected claims around the opt-in transcripts", async () => {
+		const agentDir = fixtureAgentDir();
+		const report = await buildDebugReport({ agentDir, now: NOW, windowDays: 1 });
+		const rendered = renderDebugReport(report, join(agentDir, "sessions"), { includePrompts: true });
+		const transcript = Object.entries(rendered.files).find(([name]) => name.startsWith("sessions/"))![1];
+		const readme = rendered.files["README.md"]!;
+
+		// Transcripts are raw by request (S17): pi-side exception text with an
+		// absolute path survives in them (only `cwd` is hashed), so the README's
+		// never-collected claim must carry the transcripts qualifier — the
+		// EXTERNAL VERIFY 2026-11-24 blocker.
+		expect(transcript).toContain("/home/agent/secret-transport");
+		expect(readme).toContain("outside the opt-in `sessions/` transcripts");
+		expect(readme).toContain("their `cwd` header is still MD5-hashed");
+	});
+
 	test("http_attempts.jsonl carries only window-filtered rows", async () => {
 		const agentDir = fixtureAgentDir();
 		writeFileSync(

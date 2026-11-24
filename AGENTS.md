@@ -638,7 +638,8 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   request body would break the call). The default report carries no prompt,
   response or tool content: `sessions/` is opt-in (`--include-prompts`,
   tool calls stripped; `--include-tools` keeps them; `--all` also puts
-  `usage_window.json` in the zip), `topic` is a `topic_hash`, and
+  `usage_window.json` in the zip), embedded transcripts keep only their
+  `cwd` header MD5-hashed, `topic` is a `topic_hash`, and
   `errors.jsonl` stores only gateway-body fields. `errors.jsonl` correlates a
   failed logical request to its terminal attempt by model + the turn's own span
   (pi records no response id for a failure), leaving the cells null when

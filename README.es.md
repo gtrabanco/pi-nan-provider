@@ -456,7 +456,8 @@ redactado y reproducible para NaN:
   determinista — sin llamadas a LLM. El tema, si usas uno, va antes del flag.
 - El contenido es opcional y está **desactivado por defecto**:
   `--include-prompts` embebe los transcripts filtrados por la ventana bajo
-  `sessions/` sin tool calls ni resultados; `--include-tools` los conserva
+  `sessions/` sin tool calls ni resultados (solo su cabecera `cwd` queda
+  hasheada en MD5); `--include-tools` los conserva
   (implica prompts); `--all` equivale a ambos más `usage_window.json`. El
   resumen previo indica qué se va a compartir antes de que `--emit` escriba nada.
 - El artefacto por defecto contiene `README.md`, `anonymized_usage.jsonl`

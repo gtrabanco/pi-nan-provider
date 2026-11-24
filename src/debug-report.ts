@@ -472,8 +472,10 @@ const ERROR_PATTERNS: ReadonlyArray<readonly [DebugErrorClass, RegExp]> = [
 
 /**
  * Map a raw `errorMessage` to a fixed class. Rows, previews and aggregates
- * only ever see this class; the raw text reaches the report solely as
- * `errors.jsonl`'s 200-character fragment plus its MD5 hash (PR #44).
+ * only ever see this class; a raw message reaches the report solely as
+ * `errors.jsonl`'s 200-character fragment plus its MD5 hash, and only when it
+ * is a gateway error body (PR #44; scoped by issue #49 — transport/local
+ * exception text never reaches the report).
  */
 export function classifyErrorMessage(message: string | undefined): DebugErrorClass | null {
 	if (typeof message !== "string" || message.length === 0) return null;
@@ -1246,7 +1248,7 @@ function renderReadme(report: DebugReport, versions: Record<string, string>): st
 		"- Prompt, response or tool content unless you opt in: `--include-prompts` embeds the window-filtered raw transcripts under `sessions/` with tool calls and results stripped; `--include-tools` keeps them; `--all` equals both and also includes `usage_window.json`.",
 		"- Credentials, auth headers, or any response header outside the whitelist (`cf-ray`, `x-request-id`, `retry-after`, `retry-after-ms`, `x-should-retry`, `rate-limit-*`).",
 		"- Request or response bodies: the tap stores `payload_bytes`, never the payload.",
-		"- Local absolute paths and pi-side exception text. Session ids and worktree labels are MD5-truncated to 16 chars (no per-report salt, so the same session links across reports); a surviving server message has the home directory scrubbed to `~`.",
+		"- Local absolute paths and pi-side exception text — outside the opt-in `sessions/` transcripts, raw by request: their `cwd` header is still MD5-hashed. Session ids and worktree labels are MD5-truncated to 16 chars (no per-report salt, so the same session links across reports); a surviving server message has the home directory scrubbed to `~`.",
 		"- Raw error text: `errors.jsonl` keeps only the fields of a gateway error body, never a local exception message.",
 		"",
 		"## `inflight_*` is process-scoped",

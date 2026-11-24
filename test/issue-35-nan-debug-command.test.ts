@@ -251,7 +251,7 @@ describe("issue #35 — /nan-debug command flow", () => {
 		await commands[0]!.handler("", ctx);
 
 		expect(calls).toBe(0);
-		expect(existsSync(join(agentDir, "nan-debug-report", "usage_window.json"))).toBe(false);
+		expect(existsSync(join(agentDir, debugReportDirName(NOW), "usage_window.json"))).toBe(false);
 	});
 
 	test("invalid arguments print usage and write nothing", async () => {
