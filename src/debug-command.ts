@@ -15,9 +15,9 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { NAN_API_KEY_ENV, resolveStoredNanApiKey, tryResolveNanApiKeyViaRegistry } from "./mcp/api-key.ts";
 import {
 	DEBUG_USAGE_LINE,
-	NAN_DEBUG_REPORT_DIR,
-	NAN_DEBUG_ZIP,
 	buildDebugReport,
+	debugReportDirName,
+	debugReportZipName,
 	fetchDebugUsageWindow,
 	parseDebugArgs,
 	renderDebugReport,
@@ -91,7 +91,10 @@ export function registerNanDebugCommand(pi: ExtensionAPI, deps: NanDebugCommandD
 					fetchUsage: parsed.args.windowProvided ? (deps.fetchUsage ?? fetchDebugUsageWindow) : undefined,
 					sessionsDir,
 				});
-				rendered = renderDebugReport(report, sessionsDir);
+				rendered = renderDebugReport(report, sessionsDir, {
+					includePrompts: parsed.args.includePrompts,
+					includeTools: parsed.args.includeTools,
+				});
 			} catch (error) {
 				ctx.ui.notify(
 					`nan-debug failed to collect the report: ${error instanceof Error ? error.message : String(error)}`,
@@ -102,14 +105,16 @@ export function registerNanDebugCommand(pi: ExtensionAPI, deps: NanDebugCommandD
 
 			const explicitZipTarget = parsed.args.out ? expandHomePath(parsed.args.out, deps.homedir ?? osHomedir()) : undefined;
 			const explicitZip = explicitZipTarget?.endsWith(".zip") ? explicitZipTarget : undefined;
+			// Default names carry the emission timestamp (UTC) so consecutive runs
+			// never overwrite each other; an explicit `--out` is respected verbatim.
 			const outDir = explicitZip
 				? explicitZip.replace(/\.zip$/, "")
-				: (explicitZipTarget ?? join(agentDir, NAN_DEBUG_REPORT_DIR));
-			const zipPath = explicitZip ?? (explicitZipTarget ? `${explicitZipTarget}.zip` : join(agentDir, NAN_DEBUG_ZIP));
+				: (explicitZipTarget ?? join(agentDir, debugReportDirName(now)));
+			const zipPath = explicitZip ?? (explicitZipTarget ? `${explicitZipTarget}.zip` : join(agentDir, debugReportZipName(now)));
 
 			try {
 				writeDebugReport(rendered.files, outDir);
-				if (parsed.args.emit) writeDebugZip(rendered.files, zipPath);
+				if (parsed.args.emit) writeDebugZip(rendered.files, zipPath, { includeUsageWindow: parsed.args.all });
 			} catch (error) {
 				ctx.ui.notify(
 					`nan-debug wrote nothing: ${error instanceof Error ? error.message : String(error)}`,

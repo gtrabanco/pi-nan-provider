@@ -18,6 +18,7 @@ import {
 	type DebugWindow,
 } from "../src/debug-report.ts";
 import { registerNanDebugCommand } from "../src/debug-command.ts";
+import { debugReportDirName, debugReportZipName } from "../src/debug-report.ts";
 
 const NOW = new Date("2026-11-11T12:00:00.000Z");
 let scratchDirs: string[] = [];
@@ -89,14 +90,30 @@ describe("issue #35 — /nan-debug argument parsing", () => {
 		const parsed = parseDebugArgs("");
 		expect(parsed.ok).toBe(true);
 		if (!parsed.ok) return;
-		expect(parsed.args).toEqual({ windowDays: DEFAULT_DEBUG_WINDOW_DAYS, windowProvided: false, emit: false });
+		expect(parsed.args).toEqual({
+			windowDays: DEFAULT_DEBUG_WINDOW_DAYS,
+			windowProvided: false,
+			emit: false,
+			includePrompts: false,
+			includeTools: false,
+			all: false,
+		});
 	});
 
 	test("accepts a topic, --window, --out and --emit in any order", () => {
 		const parsed = parseDebugArgs("cache --window 3 --out /tmp/report --emit");
 		expect(parsed.ok).toBe(true);
 		if (!parsed.ok) return;
-		expect(parsed.args).toEqual({ topic: "cache", windowDays: 3, windowProvided: true, out: "/tmp/report", emit: true });
+		expect(parsed.args).toEqual({
+			topic: "cache",
+			windowDays: 3,
+			windowProvided: true,
+			out: "/tmp/report",
+			emit: true,
+			includePrompts: false,
+			includeTools: false,
+			all: false,
+		});
 	});
 
 	test("accepts --window and a topic with no other flags", () => {
@@ -144,9 +161,10 @@ describe("issue #35 — /nan-debug command flow", () => {
 
 		await commands[0]!.handler("cache --window 2", ctx);
 
-		expect(existsSync(join(agentDir, "nan-debug-report", "README.md"))).toBe(true);
-		expect(existsSync(join(agentDir, "nan-debug-report", "anonymized_usage.jsonl"))).toBe(true);
-		expect(existsSync(join(agentDir, "nan-debug-report.zip"))).toBe(false);
+		const dir = join(agentDir, debugReportDirName(NOW));
+		expect(existsSync(join(dir, "README.md"))).toBe(true);
+		expect(existsSync(join(dir, "anonymized_usage.jsonl"))).toBe(true);
+		expect(existsSync(join(agentDir, debugReportZipName(NOW)))).toBe(false);
 		expect(notifications).toHaveLength(1);
 		expect(notifications[0]!.message).toContain("nan-debug report — 2026-11-10 → 2026-11-11");
 		expect(notifications[0]!.message).toContain("Run with --emit");
@@ -160,8 +178,9 @@ describe("issue #35 — /nan-debug command flow", () => {
 
 		await commands[0]!.handler("--window 2 --emit", ctx);
 
-		expect(existsSync(join(agentDir, "nan-debug-report.zip"))).toBe(true);
-		expect(notifications[0]!.message).toContain(join(agentDir, "nan-debug-report.zip"));
+		const zip = join(agentDir, debugReportZipName(NOW));
+		expect(existsSync(zip)).toBe(true);
+		expect(notifications[0]!.message).toContain(zip);
 	});
 
 	test("--out sets the report directory and the zip path", async () => {
@@ -212,7 +231,7 @@ describe("issue #35 — /nan-debug command flow", () => {
 		await commands[0]!.handler("--window 2", ctx);
 
 		expect(calls).toEqual([{ window: { start: "2026-11-10", end: "2026-11-11", days: 2 }, apiKey: "sk-test" }]);
-		expect(existsSync(join(agentDir, "nan-debug-report", "usage_window.json"))).toBe(true);
+		expect(existsSync(join(agentDir, debugReportDirName(NOW), "usage_window.json"))).toBe(true);
 	});
 
 	test("without --window no usage request is made", async () => {
@@ -246,6 +265,6 @@ describe("issue #35 — /nan-debug command flow", () => {
 		expect(notifications).toHaveLength(1);
 		expect(notifications[0]!.level).toBe("warning");
 		expect(notifications[0]!.message).toContain("Usage: /nan-debug");
-		expect(existsSync(join(agentDir, "nan-debug-report"))).toBe(false);
+		expect(existsSync(join(agentDir, debugReportDirName(NOW)))).toBe(false);
 	});
 });
