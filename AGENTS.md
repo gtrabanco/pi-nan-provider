@@ -592,8 +592,8 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   called by openai-completions right after the HTTP response). The gateway
   `id`/`created` pair comes from raw `onProviderStreamEvent` chunks: pi-ai copies
   only `chunk.id` into `AssistantMessage.responseId`, and `created` is never
-  persisted. `src/cache-anomaly.ts` wraps the provider api outermost
-  (`withCacheAnomalyCapture`), compares each completed stream against the
+  persisted. `src/cache-anomaly.ts` wraps the provider api immediately inside
+  the #49 attempt tap (`withCacheAnomalyCapture`), compares each completed stream against the
   previous one **per model**, and on the #17 signature (same `id` + `created`)
   appends one record to `<agentDir>/nan-cache-anomalies.jsonl`. Bursts record
   the first pair once; a differing signature resets the baseline. The record is
@@ -603,10 +603,8 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   `src/debug-report.ts` reads `<agentDir>/sessions/**/*.jsonl` (filename date
   prefix, else mtime), extracts only assistant `provider: "nan"` turns, and
   renders the 2026-11-10 report shape plus `turns.jsonl`. PR #44 (2026-11-18)
-  adds `errors.jsonl` rows and `error_summary` in `metadata.json`, embeds the
-  window-filtered raw transcripts under `sessions/` (their `cwd` header is
-  MD5-hashed; root files stay redacted — the transcripts are the owner's
-  explicit ask, issue #44), and adds `--interval` (day-granular windows capped
+  adds `errors.jsonl` rows and `error_summary` in `metadata.json` and adds
+  `--interval` (day-granular windows capped
   at 90 days, mutually exclusive with `--window`; its value joins tokens up to
   the next `--` flag because pi passes slash-command args raw). Since 1.5.9
   every response's `cf-ray` is appended by the same wrapper to
@@ -616,8 +614,36 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   2026-11-18; null when uncaptured). The zip is built by
   `src/zip.ts` (store method, sorted entries, fixed 1980-01-01 timestamps)
   because `Bun.Archive` is Bun-only and pi also runs on Node. Session/worktree
-  labels are MD5[:12]; `errorMessage` maps to
+  labels are MD5[:16] since issue #49 (no salt, so a session links across
+  reports); `errorMessage` maps to
   `overflow|rate_limited|invalid_request|transport|other`.
+
+- **HTTP attempt tap (issue #49, verified 2026-11-24 on pi-ai 1.6.0):**
+  `CreateProviderOptions` has **no** `fetch` field — issue #49's claim that
+  "`createProvider` acepta el `fetch` en options" is wrong for the pinned
+  version. `fetch` is a `StreamOptions` field forwarded to the OpenAI client
+  (`dist/api/openai-completions.js:createClient`). `retryProviderRequest`
+  retries by re-invoking the same client with `maxRetries: 0`, and `onResponse`
+  fires only **after** that loop, so a rejected attempt never reaches it.
+  `src/http-attempts.ts` therefore wraps the provider api outermost
+  (`withHttpAttemptCapture`) and injects `StreamOptions.fetch` — the only tap
+  that sees every attempt, including a 429 that never produced a gateway `id`.
+  It appends one `attempt` row per fetch (status, whitelisted headers, ms
+  timing, `attempt_n`, `payload_bytes`, request parameters, process-scoped
+  inflight/60 s counters) and one `response` row per completed request
+  (`response_id`/`created`) to `<agentDir>/nan-http-attempts.jsonl`, bounded to
+  50k lines and best-effort. `onPayload` is awaited once per logical request
+  before the retry loop, so the payload size and parameters measured there hold
+  for every attempt; the request body itself is never read (consuming the SDK's
+  request body would break the call). The default report carries no prompt,
+  response or tool content: `sessions/` is opt-in (`--include-prompts`,
+  tool calls stripped; `--include-tools` keeps them; `--all` also puts
+  `usage_window.json` in the zip), `topic` is a `topic_hash`, and
+  `errors.jsonl` stores only gateway-body fields. `errors.jsonl` correlates a
+  failed logical request to its terminal attempt by model + the turn's own span
+  (pi records no response id for a failure), leaving the cells null when
+  nothing matches. Regression tests: `test/issue-49-http-attempts.test.ts`,
+  `test/issue-49-debug-report.test.ts`, `test/issue-49-nan-debug-command.test.ts`.
   Regression tests: `test/issue-35-cache-anomaly-capture.test.ts`,
   `test/issue-35-debug-report.test.ts`, `test/issue-35-nan-debug-command.test.ts`.
 

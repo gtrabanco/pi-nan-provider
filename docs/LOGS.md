@@ -469,3 +469,41 @@ Gate after the extension: 424 tests pass / 0 fail, typecheck exit 0.
 - Carried follow-ups unchanged: docs still describe the pre-fix qwen3.8-flash /
   qwen3.8-max `max_tokens` exception; frozen S18 wording is stale but
   untouchable until the owner rewords the issue.
+
+## 2026-11-24 — issue #49: per-attempt HTTP evidence for `/nan-debug` + emission-timestamped artifact
+
+**Done**
+
+- Applied issue #49 inline (unit `docs/fix/issue-49-nan-debug-http-attempts/`):
+  intent `proceed`, ledgers O1–O22 / PE-001–PE-014 frozen, criteria C1–C26,
+  RED corpus first, then implementation.
+- New `src/http-attempts.ts`: wraps the provider api and injects
+  `StreamOptions.fetch` (pi-ai 1.6.0's `createProvider` has no `fetch` option,
+  so S15's premise was corrected). One `attempt` row per fetch — including
+  pi-ai's retries and a 429 that never produced a gateway id — with status,
+  whitelisted headers, ms timing, `attempt_n`, `payload_bytes`, request
+  parameters and process-scoped inflight/60 s counters; one `response` row per
+  completed request with `response_id`/`created`. Bounded to 50k lines,
+  best-effort, local-only. Wired outermost in `src/provider-factory.ts`.
+- `src/debug-report.ts`: `turns.jsonl` gains `created`/`status`/`attempt_n`/
+  `request`; `errors.jsonl` gains `status`/`cf_ray`/`attempt_n` and the parsed
+  gateway body (no transport or local path text); `http_attempts.jsonl` and
+  `metadata.attempt_summary` added.
+- Contract change: the default artifact carries no prompt/response/tool
+  content; `--include-prompts`, `--include-tools`, `--all` opt in; `topic` is
+  hashed; labels are MD5[:16]; `usage_window.json` stays out of the zip unless
+  `--all`. Default names carry the emission timestamp UTC
+  (`nan-debug-report-YYYY-MM-DDTHH:mm:ss`, zip `T…-…-…`).
+- README EN/ES, CHANGELOG 1.6.2, `package.json` 1.6.2, AGENTS.md updated.
+
+**Checks**
+
+- RED before code: 0 pass / 3 fail / 3 errors (missing module).
+- `bun test` → 567 pass / 0 fail / 3187 expect / 44 files; typecheck exit 0.
+- Differential vs `42c8de1`: base 530/0/3009/41 + typecheck 0; head delta is
+  exactly the 37 new tests (plus 2 ordered #35 cases), no base test lost.
+
+**Next**
+
+- Owner is the external verifier: verdict on the handoff. No open obligation
+  rows; unit ledgers are on disk (docs/ is gitignored by owner decision).
