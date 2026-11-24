@@ -507,3 +507,41 @@ Gate after the extension: 424 tests pass / 0 fail, typecheck exit 0.
 
 - Owner is the external verifier: verdict on the handoff. No open obligation
   rows; unit ledgers are on disk (docs/ is gitignored by owner decision).
+
+## 2026-11-24 — issue #49 external verify + correction batch
+
+**Done**
+
+- External verify (read-only) on `feat/49-nan-debug-http-attempts`
+  (base `42c8de1` → head `e1a5a81`): NEEDS-DECISION, 1 blocker + 6 advisories;
+  receipt persisted in `docs/fix/issue-49-nan-debug-http-attempts/external-verify.md`.
+- One §9 correction batch, red-first: the blocker test was added to
+  `test/issue-49-debug-report.test.ts` (1 fail at line 445 before any `src/`
+  change), then the artifact README claim was scoped at
+  `src/debug-report.ts:1249` to "outside the opt-in `sessions/` transcripts"
+  (raw by request; `cwd` guarantee kept documented) and C19's wording aligned.
+- Advisories fixed in the same batch: stale #44 comment at
+  `src/debug-report.ts:476`; vacuous old-path assertion at
+  `test/issue-35-nan-debug-command.test.ts:254` re-pointed at
+  `debugReportDirName(NOW)`; false base-count annotations corrected in the unit
+  ledgers (Evidence O20/O22 rows, `decisions.md` path-protection, PE-011 —
+  measured base is 13/52 with identical titles); O22's validator cell repaired
+  (documents the `node_modules` symlink) and re-run green; `cwd` guarantee
+  re-documented in README EN/ES, AGENTS and the artifact README.
+- Not fixed, reported instead: `usage_window.json` default-zip direction vs
+  S20 (decision-required, owner); root README absolute credentials claim
+  (base-present at `42c8de1`).
+
+**Checks**
+
+- `bun test` → 568 pass / 0 fail / 3190 expect / 44 files; `bun run typecheck`
+  → exit 0; O19 rg validators + README EN/ES header diff → exit 0.
+- Repaired O22 validator cell verbatim → base copy 530 pass / 0 fail / 3009
+  expect / 41 files, exit 0; head − base = +38 tests (37 handoff + 1 blocker).
+- Rendered artifact README differential vs pre-fix: exactly the one scoped
+  bullet, in both default and `--include-prompts` renders.
+
+**Next**
+
+- Owner delta-verifies the batch (blockers-only recheck); A5 awaits the
+  owner's decision on the S20 direction.
