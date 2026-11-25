@@ -1,7 +1,7 @@
 # @gtrabanco/𝜋-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.6.1-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-1.6.2-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 [![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://cloud.nan.builders/r/7GK06FX8)
 
 [NaN Builders](https://cloud.nan.builders/r/7GK06FX8) model provider + MCP nativo para [pi](https://github.com/earendil-works/pi). 
@@ -28,7 +28,7 @@ Registra el proveedor `nan` vía `pi.registerProvider()` usando la API OpenAI-co
 | **Modelos de imagen nativos** | `flux-2-klein` y `qwen-image-2.1` registrados como modelos de pi `type: "image"`, accesibles desde codemode y extensiones. |
 | **Puente MCP nativo de media** | El servidor `nan-media` (10 herramientas) registrado con `pi.registerMcpServer()`, gestionado con `/nan-mcp`. |
 | **Informe de créditos** | `/nan-usage` muestra saldo de créditos con barra de progreso, desglose por modelo (input / cached / output en M, créditos consumidos) y periodo de facturación — todo desde `GET /v1/usage` ([#37](https://github.com/gtrabanco/pi-nan-provider/issues/37)). |
-| **Evidencia de anomalías de caché** | Captura de `cf-ray` sobre la firma repetida `id` + `created` del gateway ([#17](https://github.com/gtrabanco/pi-nan-provider/issues/17)) más el recolector determinista `/nan-debug` ([#35](https://github.com/gtrabanco/pi-nan-provider/issues/35)) con evidencia de errores por turno, el `cf-ray` de cada respuesta unido a `turns.jsonl` (S11) y ventanas flexibles `--interval` ([#44](https://github.com/gtrabanco/pi-nan-provider/issues/44)). |
+| **Evidencia de anomalías de caché** | Captura de `cf-ray` sobre la firma repetida `id` + `created` del gateway ([#17](https://github.com/gtrabanco/pi-nan-provider/issues/17)) más el recolector determinista `/nan-debug` ([#35](https://github.com/gtrabanco/pi-nan-provider/issues/35)) con evidencia de errores por turno, el `cf-ray` de cada respuesta unido a `turns.jsonl` (S11), ventanas flexibles `--interval` ([#44](https://github.com/gtrabanco/pi-nan-provider/issues/44)) y el tap de intentos HTTP ([#49](https://github.com/gtrabanco/pi-nan-provider/issues/49)): status, cabeceras de la whitelist, reintentos invisibles (`attempt_n`), concurrencia/RPM del proceso y `payload_bytes` — el zip no lleva prompt ni tool content salvo que lo pidas. |
 | **Integración con pi** | Refresco de modelos dirigido por el runtime Models de pi, overrides por modelo en `models.json` y el changelog de la extensión (`pi.changelogPath`) que pi muestra tras una actualización. |
 
 Comandos:
@@ -37,7 +37,7 @@ Comandos:
 | :--- | :--- |
 | `/nan-mcp` | Gestionar el puente MCP de media (`status` / `enable` / `disable`) |
 | `/nan-usage [1-90]` | Saldo de créditos con barra de uso, desglose por modelo (in / cached / out en M · créditos cr) y totales históricos |
-| `/nan-debug [tema] [--window N] [--interval FLEX] [--out ruta] [--emit]` | Paquete de evidencia reproducible y redactado para NaN |
+| `/nan-debug [tema] [--window N] [--interval FLEX] [--out ruta] [--emit] [--include-prompts] [--include-tools] [--all]` | Paquete de evidencia reproducible y redactado para NaN; el contenido es opcional |
 
 ---
 
@@ -410,21 +410,43 @@ guarda en `<agentDir>/nan-response-rays.jsonl` — `response_id`, `cf_ray`,
 soporte tiene los rays de cualquier par de llamadas sin esperar a una
 recurrencia.
 
-`/nan-debug` convierte ese fichero y tus transcripts en un paquete de evidencia
+Cada **intento HTTP** — incluidos los reintentos que pi-ai oculta y los 429 que
+nunca producen un id de gateway — se guarda en
+`<agentDir>/nan-http-attempts.jsonl`
+(issue [#49](https://github.com/gtrabanco/pi-nan-provider/issues/49)): status,
+las cabeceras de respuesta de la whitelist (`cf-ray`, `x-request-id`,
+`Retry-After`, `x-should-retry`, `rate-limit-*`), inicio/fin en milisegundos más
+`latency_ms`, `attempt_n`, `payload_bytes`, los parámetros de la petición
+(`reasoning_effort`, `max_tokens`, el campo realmente enviado, `stream`) y los
+contadores de concurrencia e inicios en 60 s, que son del proceso. El informe
+embebe las filas filtradas por la ventana como `http_attempts.jsonl`, así que un
+solo zip responde *qué intento falló, con qué status y cabeceras y tras cuántos
+reintentos*.
+
+`/nan-debug` convierte esos ficheros y tus transcripts en un paquete de evidencia
 redactado y reproducible para NaN:
 
 ```text
-/nan-debug                          # últimos 7 días, escribe <agentDir>/nan-debug-report/
+/nan-debug                          # últimos 7 días; escribe <agentDir>/nan-debug-report-<fecha-hora de emisión>/
 /nan-debug cache --window 2         # etiqueta de tema + ventana de 2 días
-/nan-debug --window 2 --emit        # además escribe <agentDir>/nan-debug-report.zip
+/nan-debug --window 2 --emit        # además escribe <agentDir>/nan-debug-report-<fecha-hora de emisión>.zip
+/nan-debug cache --include-prompts --emit   # embebe los transcripts en bruto (sin tool calls)
+/nan-debug --all --emit             # transcripts + tool calls + usage_window.json (el volcado previo a #49)
 /nan-debug cache --out ~/evidence --emit
 /nan-debug --interval 5min          # intervalos relativos: 5min, 2h, 3d, 1mes
 /nan-debug --interval "2026-11-10 - 2026-11-11 17:30"  # rangos, extremos abiertos y puntos únicos también
 ```
 
+- El directorio y el zip por defecto llevan la fecha-hora de **emisión** en UTC
+  (`nan-debug-report-YYYY-MM-DDTHH:mm:ss`; el zip usa `-` en vez de `:` para que
+  el nombre sea portable), así que ejecuciones consecutivas no se machacan. La
+  ventana reportada vive en `metadata.window`. Un `--out` explícito se respeta
+  tal cual.
 - `--window N` (1–90 días) consulta además `GET /v1/usage` para el mismo periodo
   con tu clave guardada y escribe `usage_window.json`; sin el flag no se hace
-  ninguna petición. Esa llamada en vivo consume el límite de peticiones.
+  ninguna petición. Esa llamada en vivo consume el límite de peticiones. La
+  ventana de usage queda fuera del zip salvo con `--all`: identifica tu
+  cuenta/tier.
 - `--interval <desc>` sustituye a `--window` (usar ambos es un error) y acepta
   intervalos relativos (`5min`, `2h`, `3d`, `1mes`), rangos fecha/hora
   (`2026-11-10 - 2026-11-11 17:30`, `10:30 - 11:00`, cruce de medianoche
@@ -432,31 +454,48 @@ redactado y reproducible para NaN:
   año-mes (`2026-11 - 2026-12`) y puntos únicos (`2026-11-10`,
   `2026-11-10T10:00:00Z`). El span máximo es de 90 días y el parseo es
   determinista — sin llamadas a LLM. El tema, si usas uno, va antes del flag.
+- El contenido es opcional y está **desactivado por defecto**:
+  `--include-prompts` embebe los transcripts filtrados por la ventana bajo
+  `sessions/` sin tool calls ni resultados (solo su cabecera `cwd` queda
+  hasheada en MD5); `--include-tools` los conserva
+  (implica prompts); `--all` equivale a ambos más `usage_window.json`. El
+  resumen previo indica qué se va a compartir antes de que `--emit` escriba nada.
+- El artefacto por defecto contiene `README.md`, `anonymized_usage.jsonl`
+  (totales por fecha/sesión/modelo, conteo de `stopReason`, tasa de acierto de
+  caché), `turns.jsonl` (uso por turno, `stopReason`, clase de error,
+  `responseId`, `cf_ray`, `created` del gateway, `status` terminal, `attempt_n` y
+  los parámetros de la petición), `errors.jsonl` (clase, `status`, `cf_ray`,
+  `attempt_n`, los campos parseados `error_type`/`error_code`/`error_param`, el
+  mensaje del propio gateway limitado a 200 caracteres y un hash MD5; una
+  petición fallida no tiene response id, así que su `status`/`cf_ray`/`attempt_n`
+  se correlacionan por modelo y por el span del turno — con peticiones
+  concurrentes al mismo modelo, `http_attempts.jsonl` es el registro autoritativo
+  por intento), `http_attempts.jsonl` (una fila por intento más una fila `response` por
+  petición completada), `anomalies.jsonl` (el par de `cf-ray`) y `metadata.json`
+  (versiones de paquete, pi-ai y pi; procedencia del catálogo; `error_summary`;
+  `topic_hash`; y `attempt_summary` con conteos por status, ratios de 429 por
+  modelo/hora y la racha de 429 más larga). **No** lleva contenido de prompt,
+  respuesta ni tool.
 - El zip se escribe **solo** con `--emit`; la ejecución por defecto escribe el
   informe local e imprime un resumen.
 - `--out <ruta>` escribe el informe donde lo indiques (y, con `--emit`,
   `<ruta>.zip`); un `~/` inicial se expande a tu directorio home, así que los
   ejemplos de arriba escriben donde dicen. Un token de flag nunca se acepta
   como ruta.
-- El informe contiene `README.md`, `anonymized_usage.jsonl` (totales por
-  fecha/sesión/modelo, conteo de `stopReason`, tasa de acierto de caché),
-  `turns.jsonl` (uso por turno, `stopReason`, clase de error, `responseId`,
-  `cf_ray`),
-  `errors.jsonl` (una fila por turno con error: clase, fragmento de 200
-  caracteres del mensaje, hash MD5 del mensaje completo, tokens de entrada/
-  salida, `responseId`), `anomalies.jsonl` (par de `cf-ray`), `sessions/` (los
-  JSONL de sesión en bruto filtrados por la ventana) y `metadata.json`
-  (versiones de paquete, pi-ai y pi; procedencia del catálogo;
-  `error_summary`).
-- Las etiquetas de sesión y worktree son MD5 truncado a 12 caracteres (incluida
-  la cabecera `cwd` dentro de `sessions/`); `errorMessage` se reduce a
-  `overflow | rate_limited | invalid_request | transport | other`, y
-  `errors.jsonl` conserva como mucho 200 caracteres del mensaje en bruto más
-  un hash MD5. Las credenciales nunca se recogen en ningún sitio; el contenido
-  de prompt/respuesta nunca se recoge en los ficheros raíz — `sessions/` es la
-  excepción: transcripts en bruto incluidos a petición
-  ([#44](https://github.com/gtrabanco/pi-nan-provider/issues/44)), solo con
-  `cwd` hasheado. Entradas idénticas producen bytes de zip idénticos.
+- El `topic` va hasheado en el artefacto (`topic_hash`, MD5[:16]); el resumen de
+  consola es solo local. Las etiquetas de sesión y worktree son MD5 truncado a
+  16 caracteres (sin salt por informe, para enlazar la misma sesión entre
+  informes). `errors.jsonl` nunca guarda texto de transporte ni excepciones del
+  lado pi, un mensaje del servidor que sobreviva tiene tu home sustituido por
+  `~`, y las credenciales y toda cabecera fuera de la whitelist nunca se
+  recogen.
+- `inflight_process_at_start` y `starts_last_60s_process*` son del proceso de pi:
+  **no** son la concurrencia/RPM de tu clave si otros clientes la comparten.
+  Une el log de todos los clientes para cifras por clave.
+- **No público.** El artefacto es para soporte de NaN: `cf-ray`, `response_id` y
+  los timestamps al milisegundo no se anonimizan a propósito, y
+  `anomalies.jsonl` huella el payload de la petición con SHA-256. Entradas
+  idénticas siguen produciendo bytes de zip idénticos.
 
 ## 🧭 Model facts: `NAN_MODEL_FACTS`
 

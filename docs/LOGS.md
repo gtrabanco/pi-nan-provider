@@ -469,3 +469,79 @@ Gate after the extension: 424 tests pass / 0 fail, typecheck exit 0.
 - Carried follow-ups unchanged: docs still describe the pre-fix qwen3.8-flash /
   qwen3.8-max `max_tokens` exception; frozen S18 wording is stale but
   untouchable until the owner rewords the issue.
+
+## 2026-11-24 — issue #49: per-attempt HTTP evidence for `/nan-debug` + emission-timestamped artifact
+
+**Done**
+
+- Applied issue #49 inline (unit `docs/fix/issue-49-nan-debug-http-attempts/`):
+  intent `proceed`, ledgers O1–O22 / PE-001–PE-014 frozen, criteria C1–C26,
+  RED corpus first, then implementation.
+- New `src/http-attempts.ts`: wraps the provider api and injects
+  `StreamOptions.fetch` (pi-ai 1.6.0's `createProvider` has no `fetch` option,
+  so S15's premise was corrected). One `attempt` row per fetch — including
+  pi-ai's retries and a 429 that never produced a gateway id — with status,
+  whitelisted headers, ms timing, `attempt_n`, `payload_bytes`, request
+  parameters and process-scoped inflight/60 s counters; one `response` row per
+  completed request with `response_id`/`created`. Bounded to 50k lines,
+  best-effort, local-only. Wired outermost in `src/provider-factory.ts`.
+- `src/debug-report.ts`: `turns.jsonl` gains `created`/`status`/`attempt_n`/
+  `request`; `errors.jsonl` gains `status`/`cf_ray`/`attempt_n` and the parsed
+  gateway body (no transport or local path text); `http_attempts.jsonl` and
+  `metadata.attempt_summary` added.
+- Contract change: the default artifact carries no prompt/response/tool
+  content; `--include-prompts`, `--include-tools`, `--all` opt in; `topic` is
+  hashed; labels are MD5[:16]; `usage_window.json` stays out of the zip unless
+  `--all`. Default names carry the emission timestamp UTC
+  (`nan-debug-report-YYYY-MM-DDTHH:mm:ss`, zip `T…-…-…`).
+- README EN/ES, CHANGELOG 1.6.2, `package.json` 1.6.2, AGENTS.md updated.
+
+**Checks**
+
+- RED before code: 0 pass / 3 fail / 3 errors (missing module).
+- `bun test` → 567 pass / 0 fail / 3187 expect / 44 files; typecheck exit 0.
+- Differential vs `42c8de1`: base 530/0/3009/41 + typecheck 0; head delta is
+  exactly the 37 new tests (plus 2 ordered #35 cases), no base test lost.
+
+**Next**
+
+- Owner is the external verifier: verdict on the handoff. No open obligation
+  rows; unit ledgers are on disk (docs/ is gitignored by owner decision).
+
+## 2026-11-24 — issue #49 external verify + correction batch
+
+**Done**
+
+- External verify (read-only) on `feat/49-nan-debug-http-attempts`
+  (base `42c8de1` → head `e1a5a81`): NEEDS-DECISION, 1 blocker + 6 advisories;
+  receipt persisted in `docs/fix/issue-49-nan-debug-http-attempts/external-verify.md`.
+- One §9 correction batch, red-first: the blocker test was added to
+  `test/issue-49-debug-report.test.ts` (1 fail at line 445 before any `src/`
+  change), then the artifact README claim was scoped at
+  `src/debug-report.ts:1249` to "outside the opt-in `sessions/` transcripts"
+  (raw by request; `cwd` guarantee kept documented) and C19's wording aligned.
+- Advisories fixed in the same batch: stale #44 comment at
+  `src/debug-report.ts:476`; vacuous old-path assertion at
+  `test/issue-35-nan-debug-command.test.ts:254` re-pointed at
+  `debugReportDirName(NOW)`; false base-count annotations corrected in the unit
+  ledgers (Evidence O20/O22 rows, `decisions.md` path-protection, PE-011 —
+  measured base is 13/52 with identical titles); O22's validator cell repaired
+  (documents the `node_modules` symlink) and re-run green; `cwd` guarantee
+  re-documented in README EN/ES, AGENTS and the artifact README.
+- Not fixed, reported instead: `usage_window.json` default-zip direction vs
+  S20 (decision-required, owner); root README absolute credentials claim
+  (base-present at `42c8de1`).
+
+**Checks**
+
+- `bun test` → 568 pass / 0 fail / 3190 expect / 44 files; `bun run typecheck`
+  → exit 0; O19 rg validators + README EN/ES header diff → exit 0.
+- Repaired O22 validator cell verbatim → base copy 530 pass / 0 fail / 3009
+  expect / 41 files, exit 0; head − base = +38 tests (37 handoff + 1 blocker).
+- Rendered artifact README differential vs pre-fix: exactly the one scoped
+  bullet, in both default and `--include-prompts` renders.
+
+**Next**
+
+- Owner delta-verifies the batch (blockers-only recheck); A5 awaits the
+  owner's decision on the S20 direction.

@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2] - 2026-11-24
+
+### Added
+
+- **`/nan-debug` now carries per-attempt HTTP evidence (issue #49).** A
+  provider-level tap injects `StreamOptions.fetch`, so every HTTP attempt is
+  recorded — including the retries pi-ai hides and the `429`s that never produce
+  a gateway `id`. Each `nan-http-attempts.jsonl` row carries status, the
+  whitelisted response headers (`cf-ray`, `x-request-id`, `Retry-After`,
+  `x-should-retry`, `rate-limit-*`), millisecond timing, `attempt_n`,
+  `payload_bytes`, the request parameters and the process-scoped inflight/60 s
+  counters. The report embeds the window-filtered rows as `http_attempts.jsonl`.
+- `turns.jsonl` gains the gateway `created`, the terminal `status`, `attempt_n`
+  and the request parameters; `errors.jsonl` gains `status`, `cf_ray`,
+  `attempt_n` and the parsed OpenAI-style `error_type`/`error_code`/`error_param`;
+  `metadata.json` gains `attempt_summary` (status counts, 429 ratios per
+  model/hour, longest 429 streak).
+
+### Changed
+
+- **The shared artifact carries no content by default.** `sessions/` is opt-in
+  (`--include-prompts`, with tool calls stripped; `--include-tools` keeps them;
+  `--all` equals both plus `usage_window.json`), `topic` is hashed, path labels
+  are MD5[:16], transport/local error text is never stored, and
+  `usage_window.json` stays out of the zip unless `--all`. The preview states
+  exactly what will be shared.
+- **The default report directory and zip are named after the emission
+  timestamp** (`nan-debug-report-YYYY-MM-DDTHH:mm:ss`, UTC; the zip uses `-`
+  instead of `:`), so consecutive runs no longer overwrite each other. `--out`
+  is respected verbatim.
+
 ## [1.6.1] - 2026-11-23
 
 ### Added

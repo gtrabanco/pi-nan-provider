@@ -8,41 +8,55 @@
  * the per-response ray sidecar (`nan-response-rays.jsonl`, issue #35 S11),
  * and renders a report that can be shared verbatim.
  *
- * Contract (issue #35, scoped by PR #44):
+ * Contract (issue #35, scoped by PR #44 and issue #49):
  *   - no LLM, no network unless `--window` explicitly asks for `/v1/usage`;
- *   - the redacted root files never collect prompt/response content,
- *     credentials or raw paths — `sessions/` is the owner-requested exception
- *     (PR #44): raw transcripts with only the `cwd` header MD5-hashed;
- *   - session and worktree identifiers are MD5-truncated to 12 chars;
+ *   - the default artifact never collects prompt, response or tool content,
+ *     credentials or raw paths: `sessions/` is opt-in (`--include-prompts`,
+ *     tool calls stripped; `--include-tools` keeps them) and `cwd` is
+ *     MD5-hashed whenever it is embedded;
+ *   - session and worktree identifiers are MD5-truncated to 16 chars;
+ *   - `topic` is hashed (`topic_hash`), never stored in clear;
  *   - error text in rows and the preview is reduced to a fixed class;
- *     `errors.jsonl` carries at most 200 characters of the raw message plus
- *     an MD5 hash of the full text, which appears nowhere else;
+ *     `errors.jsonl` stores only the gateway body's own fields (message capped
+ *     at 200 chars plus an MD5 hash) and never transport/local exception text;
+ *   - `usage_window.json` stays local unless `--all` puts it in the zip;
  *   - the same inputs produce byte-identical zip bytes.
  *
  * The report layout matches the 2026-11-10 anonymized dataset: one aggregated
  * `anonymized_usage.jsonl` row per (date, session, model), plus `turns.jsonl`
- * with the per-turn detail the issue asks for (`response_id`, `created` = null
- * because pi does not persist it, usage, stop reason, error class).
+ * with the per-turn detail the issue asks for (`response_id`, `created` and
+ * `attempt_n` joined from the HTTP attempt tap, usage, stop reason, error class)
+ * and `http_attempts.jsonl` with one row per HTTP attempt.
  */
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { homedir as osHomedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { PI_AI_VERSION } from "@earendil-works/pi-ai";
 import { VERSION as PI_VERSION, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { GENERATED_CATALOG_META } from "../scripts/models.generated.ts";
 import { CACHE_ANOMALY_FILE, defaultCacheAnomalyPath, type CacheAnomalyRecord } from "./cache-anomaly.ts";
+import {
+	HTTP_ATTEMPTS_FILE,
+	defaultHttpAttemptPath,
+	readHttpAttempts,
+	type HttpAttemptEntry,
+	type HttpAttemptRecord,
+	type HttpResponseRecord,
+} from "./http-attempts.ts";
 import { RESPONSE_RAYS_FILE, readResponseRays } from "./response-rays.ts";
 import { fetchUsageReport, rollingWindow, type UsageWindow } from "./usage.ts";
 import { createZip } from "./zip.ts";
 
 export const DEFAULT_DEBUG_WINDOW_DAYS = 7;
 export const MAX_DEBUG_WINDOW_DAYS = 90;
-export const NAN_DEBUG_REPORT_DIR = "nan-debug-report";
-export const NAN_DEBUG_ZIP = "nan-debug-report.zip";
+
+/** Prefix of the default report directory and zip names. */
+export const NAN_DEBUG_REPORT_PREFIX = "nan-debug-report";
 
 export const DEBUG_USAGE_LINE =
-	"Usage: /nan-debug [topic] [--window N] [--interval FLEXIBLE] [--out file] [--emit] — collects a redacted NaN evidence report locally; --emit writes the shareable zip.\n\nIntervals: '5min', '2h', '3d', '1mes', '2026-11-10 - 2026-11-11 17:30', '10:30 - 11:00', '2026-11-10 -', max 90 days, mutually exclusive with --window.";
+	"Usage: /nan-debug [topic] [--window N] [--interval FLEXIBLE] [--out file] [--emit] [--include-prompts] [--include-tools] [--all] — collects a redacted NaN evidence report locally; --emit writes the shareable zip.\n\nContent flags: default shares no prompt/response/tool content; --include-prompts embeds raw transcripts; --include-tools also keeps tool calls/results; --all equals both plus usage_window.json.\n\nIntervals: '5min', '2h', '3d', '1mes', '2026-11-10 - 2026-11-11 17:30', '10:30 - 11:00', '2026-11-10 -', max 90 days, mutually exclusive with --window.";
 
 /** A flexible time window with ISO-capable boundaries (YYYY-MM-DD or full ISO 8601). */
 export interface DebugWindow {
@@ -74,6 +88,29 @@ export interface SinglePoint {
 	point: string; // ISO string
 }
 
+// ── Artifact naming ───────────────────────────────────────────────────────
+
+function utcStamp(now: Date, separator: string): string {
+	const iso = now.toISOString();
+	// YYYY-MM-DDTHH:mm:ss in UTC; the date and time parts are already fixed-width.
+	return `${iso.slice(0, 10)}T${iso.slice(11, 19).replace(/:/g, separator)}`;
+}
+
+/**
+ * Default report directory name: `nan-debug-report-YYYY-MM-DDTHH:mm:ss` (UTC).
+ * `:` is legal in a POSIX directory name but not on Windows, so the separator
+ * follows the platform. The emission timestamp distinguishes runs; the
+ * reported window lives in `metadata.window`.
+ */
+export function debugReportDirName(now: Date, platform: NodeJS.Platform = process.platform): string {
+	return `${NAN_DEBUG_REPORT_PREFIX}-${utcStamp(now, platform === "win32" ? "-" : ":")}`;
+}
+
+/** Default zip name: the same stamp with `:` sanitized, since zip readers and Windows both dislike it. */
+export function debugReportZipName(now: Date): string {
+	return `${NAN_DEBUG_REPORT_PREFIX}-${utcStamp(now, "-")}.zip`;
+}
+
 // ── Argument parsing ──────────────────────────────────────────────────────
 
 export interface DebugArgs {
@@ -86,6 +123,12 @@ export interface DebugArgs {
 	interval?: string;
 	out?: string;
 	emit: boolean;
+	/** Embed raw transcripts (prompts and responses) in `sessions/`. */
+	includePrompts: boolean;
+	/** Also keep tool calls and their results; implies `includePrompts`. */
+	includeTools: boolean;
+	/** `--include-prompts --include-tools`, plus `usage_window.json` in the zip. */
+	all: boolean;
 }
 
 export type ParseDebugArgsResult = { ok: true; args: DebugArgs } | { ok: false; error: string };
@@ -95,12 +138,35 @@ const TOPIC_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/;
 /** Parse `/nan-debug` arguments. Deterministic; no filesystem or clock access. */
 export function parseDebugArgs(input: string): ParseDebugArgsResult {
 	const tokens = input.trim().split(/\s+/).filter(Boolean);
-	const args: DebugArgs = { windowDays: DEFAULT_DEBUG_WINDOW_DAYS, windowProvided: false, emit: false };
+	const args: DebugArgs = {
+		windowDays: DEFAULT_DEBUG_WINDOW_DAYS,
+		windowProvided: false,
+		emit: false,
+		includePrompts: false,
+		includeTools: false,
+		all: false,
+	};
 
 	for (let i = 0; i < tokens.length; i++) {
 		const token = tokens[i]!;
 		if (token === "--emit") {
 			args.emit = true;
+			continue;
+		}
+		if (token === "--include-prompts") {
+			args.includePrompts = true;
+			continue;
+		}
+		if (token === "--include-tools") {
+			// "incluye además": tool calls only exist inside a transcript.
+			args.includeTools = true;
+			args.includePrompts = true;
+			continue;
+		}
+		if (token === "--all") {
+			args.all = true;
+			args.includePrompts = true;
+			args.includeTools = true;
 			continue;
 		}
 		if (token === "--window") {
@@ -406,8 +472,10 @@ const ERROR_PATTERNS: ReadonlyArray<readonly [DebugErrorClass, RegExp]> = [
 
 /**
  * Map a raw `errorMessage` to a fixed class. Rows, previews and aggregates
- * only ever see this class; the raw text reaches the report solely as
- * `errors.jsonl`'s 200-character fragment plus its MD5 hash (PR #44).
+ * only ever see this class; a raw message reaches the report solely as
+ * `errors.jsonl`'s 200-character fragment plus its MD5 hash, and only when it
+ * is a gateway error body (PR #44; scoped by issue #49 — transport/local
+ * exception text never reaches the report).
  */
 export function classifyErrorMessage(message: string | undefined): DebugErrorClass | null {
 	if (typeof message !== "string" || message.length === 0) return null;
@@ -453,7 +521,14 @@ export interface DebugTurn {
 	response_id: string | null;
 	/** Cloudflare trace id joined from the response-ray sidecar; null when uncaptured. */
 	cf_ray: string | null;
+	/** Gateway `created` joined from the attempt tap; null when not observed. */
 	created: number | null;
+	/** HTTP status of the terminal attempt; null when no attempt was observed. */
+	status: number | null;
+	/** Attempts the logical request made (retries included); null when unobserved. */
+	attempt_n: number | null;
+	/** Request parameters of that logical request; null when unobserved. */
+	request: DebugRequestParams | null;
 	input: number;
 	output: number;
 	cache_read: number;
@@ -478,13 +553,21 @@ export interface DebugCounts {
 	};
 }
 
+/** Request parameters carried by `turns.jsonl` (issue #49 S13). */
+export interface DebugRequestParams {
+	reasoning_effort: string | null;
+	max_tokens: number | null;
+	max_tokens_field: "max_tokens" | "max_completion_tokens" | null;
+	stream: boolean | null;
+}
+
 /** One row per turn that had an error — written to errors.jsonl. */
 export interface DebugErrorRecord {
 	/** ISO 8601 timestamp of the turn. */
 	timestamp: string;
-	/** MD5[12] of the session file. */
+	/** MD5[16] of the session file. */
 	session_id: string;
-	/** MD5[12] of the worktree cwd. */
+	/** MD5[16] of the worktree cwd. */
 	worktree_label: string;
 	/** Model that returned the error. */
 	model: string;
@@ -492,10 +575,22 @@ export interface DebugErrorRecord {
 	error: DebugErrorClass;
 	/** The stop reason (usually "error"). */
 	stop_reason: string;
-	/** The full error message, truncated to 200 chars. */
-	message_truncated: string;
-	/** MD5 hash of the full error message (so the original is never in the output). */
-	message_hash: string;
+	/** HTTP status of the terminal attempt, when the tap observed one. */
+	status: number | null;
+	/** `cf-ray` of the terminal attempt, when observed. */
+	cf_ray: string | null;
+	/** Attempts of that logical request, when correlated. */
+	attempt_n: number | null;
+	/** The gateway error body, truncated to 200 chars; null when absent. */
+	message_truncated: string | null;
+	/** MD5[16] of the full gateway message; null when absent. */
+	message_hash: string | null;
+	/** `error.type` from an OpenAI-style gateway body. */
+	error_type: string | null;
+	/** `error.code` from an OpenAI-style gateway body. */
+	error_code: string | null;
+	/** `error.param` from an OpenAI-style gateway body. */
+	error_param: string | null;
 	/** Response id if present. */
 	response_id: string | null;
 	/** Input tokens for context. */
@@ -512,6 +607,8 @@ export interface DebugReport {
 	turns: DebugTurn[];
 	errors: DebugErrorRecord[];
 	anomalies: CacheAnomalyRecord[];
+	/** Window-filtered attempt/response rows embedded as `http_attempts.jsonl`. */
+	httpAttempts: HttpAttemptEntry[];
 	counts: DebugCounts;
 	metadata: Record<string, unknown>;
 	usageWindow?: unknown;
@@ -534,13 +631,19 @@ export interface BuildDebugReportOptions {
 	anomalyFile?: string;
 	/** Per-response ray sidecar; defaults to the agent-dir file (issue #35 S11). */
 	raysFile?: string;
+	/** HTTP attempt sidecar; defaults to the agent-dir file (issue #49). */
+	attemptsFile?: string;
 	sessionsDir?: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 function md5Short(value: string): string {
-	return createHash("md5").update(value).digest("hex").slice(0, 12);
+	return createHash("md5").update(value).digest("hex").slice(0, 16);
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
 }
 
 function numberOrZero(value: unknown): number {
@@ -595,29 +698,6 @@ function listSessionFilesFiltered(root: string, window: DebugWindow): string[] {
 		const fileDate = sessionFileDate(file);
 		return fileDate >= window.start.slice(0, 10) && fileDate <= window.end.slice(0, 10);
 	});
-}
-
-/**
- * Embed a raw session transcript with only its `cwd` header hashed: `sessions/`
- * ships the transcript verbatim on the PR #44 owner request, but raw paths
- * must never reach any rendered file. Lines without a `cwd` key, and lines
- * that no longer parse as JSON, pass through untouched (EV-2026-11-18 B5).
- */
-function scrubSessionTranscript(text: string): string {
-	if (!text.includes('"cwd"')) return text;
-	return text
-		.split("\n")
-		.map((line) => {
-			if (!line.includes('"cwd"')) return line;
-			try {
-				const entry = JSON.parse(line) as Record<string, unknown>;
-				if (typeof entry.cwd === "string") entry.cwd = md5Short(entry.cwd);
-				return JSON.stringify(entry);
-			} catch {
-				return line;
-			}
-		})
-		.join("\n");
 }
 
 /** Date of a session file: the ISO-timestamp filename prefix, else its mtime. */
@@ -698,6 +778,168 @@ function inWindow(date: string, window: DebugWindow): boolean {
 	return date >= window.start.slice(0, 10) && date <= window.end.slice(0, 10);
 }
 
+function readAttempts(file: string): HttpAttemptEntry[] {
+	try {
+		return readHttpAttempts(file);
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * Parse an OpenAI-style gateway error body out of a transcript `errorMessage`.
+ * pi-ai may prefix the JSON with its own status text, so the first `{` to the
+ * last `}` is tried. Returns null when the text is not a gateway error body —
+ * local exception text is never reinterpreted as one.
+ */
+export function parseGatewayError(message: string | undefined): {
+	type: string | null;
+	code: string | null;
+	param: string | null;
+	message: string | null;
+} | null {
+	if (typeof message !== "string" || message.length === 0) return null;
+	const start = message.indexOf("{");
+	const end = message.lastIndexOf("}");
+	if (start === -1 || end <= start) return null;
+	try {
+		const parsed = JSON.parse(message.slice(start, end + 1)) as unknown;
+		if (!isObject(parsed) || !isObject(parsed.error)) return null;
+		const error = parsed.error;
+		return {
+			type: typeof error.type === "string" ? error.type : null,
+			code: typeof error.code === "string" ? error.code : null,
+			param: typeof error.param === "string" ? error.param : null,
+			message: typeof error.message === "string" ? error.message : null,
+		};
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Replace the user's home directory with `~` so a surviving free-text fragment
+ * cannot leak the account name or a project path (issue #49 S26).
+ */
+export function scrubHome(text: string, home: string = osHomedir()): string {
+	if (home.length === 0) return text;
+	// Require a path boundary so `/home/agent2` is never rewritten as `~2`.
+	const escaped = home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	return text.replace(new RegExp(`${escaped}(?=/|$)`, "g"), "~");
+}
+
+/**
+ * Correlate an errored turn with the terminal attempt of its logical request.
+ * pi's transcript records no response id for a failed request, so the join is
+ * model + the turn's own span: an attempt that ended while the turn was
+ * running, extended by pi-ai's 60 s max server-requested retry delay. No match
+ * means null, never a guess.
+ */
+export function findTerminalAttempt(
+	attempts: readonly HttpAttemptRecord[],
+	model: string,
+	turnEndMs: number,
+	durationMs: number,
+): HttpAttemptRecord | null {
+	const lower = turnEndMs - Math.max(0, durationMs) - 65_000;
+	const upper = turnEndMs + 2_000;
+	let best: HttpAttemptRecord | null = null;
+	for (const attempt of attempts) {
+		if (attempt.model !== model) continue;
+		const ended = Date.parse(attempt.ended_at);
+		if (!Number.isFinite(ended) || ended < lower || ended > upper) continue;
+		if (!best) {
+			best = attempt;
+			continue;
+		}
+		const bestEnded = Date.parse(best.ended_at);
+		if (ended > bestEnded || (ended === bestEnded && attempt.attempt_n > best.attempt_n)) best = attempt;
+	}
+	return best;
+}
+
+interface AttemptSummary {
+	total: number;
+	by_status: Record<string, number>;
+	by_model: Array<{ model: string; attempts: number; rate_limited: number; rate_limited_pct: number }>;
+	by_model_hour: Array<{
+		model: string;
+		hour: string;
+		attempts: number;
+		rate_limited: number;
+		rate_limited_pct: number;
+	}>;
+	longest_429_streak: { model: string; length: number; started_at: string; ended_at: string } | null;
+}
+
+function pct(part: number, total: number): number {
+	return total > 0 ? Math.round((part / total) * 1000) / 10 : 0;
+}
+
+/** CSV-style aggregates over the window's attempts (issue #49 S14). */
+export function summarizeAttempts(attempts: readonly HttpAttemptRecord[]): AttemptSummary {
+	const ordered = [...attempts].sort((a, b) => a.started_at.localeCompare(b.started_at));
+	const byStatus: Record<string, number> = {};
+	const perModel = new Map<string, { attempts: number; rateLimited: number }>();
+	const perModelHour = new Map<string, { model: string; hour: string; attempts: number; rateLimited: number }>();
+
+	for (const attempt of ordered) {
+		const statusKey = attempt.status === null ? "null" : String(attempt.status);
+		byStatus[statusKey] = (byStatus[statusKey] ?? 0) + 1;
+		const model = perModel.get(attempt.model) ?? { attempts: 0, rateLimited: 0 };
+		model.attempts += 1;
+		if (attempt.status === 429) model.rateLimited += 1;
+		perModel.set(attempt.model, model);
+
+		const hour = attempt.started_at.slice(0, 13);
+		const key = `${attempt.model}\u0000${hour}`;
+		const bucket = perModelHour.get(key) ?? { model: attempt.model, hour, attempts: 0, rateLimited: 0 };
+		bucket.attempts += 1;
+		if (attempt.status === 429) bucket.rateLimited += 1;
+		perModelHour.set(key, bucket);
+	}
+
+	// Longest run of consecutive 429s per model, in start order.
+	let streak: AttemptSummary["longest_429_streak"] = null;
+	let current: { model: string; length: number; started_at: string; ended_at: string } | null = null;
+	for (const attempt of ordered) {
+		if (attempt.status === 429) {
+			if (current && current.model === attempt.model) {
+				current.length += 1;
+				current.ended_at = attempt.ended_at;
+			} else {
+				current = { model: attempt.model, length: 1, started_at: attempt.started_at, ended_at: attempt.ended_at };
+			}
+			if (!streak || current.length > streak.length) streak = { ...current };
+		} else {
+			current = null;
+		}
+	}
+
+	return {
+		total: ordered.length,
+		by_status: byStatus,
+		by_model: [...perModel.entries()]
+			.map(([model, counts]) => ({
+				model,
+				attempts: counts.attempts,
+				rate_limited: counts.rateLimited,
+				rate_limited_pct: pct(counts.rateLimited, counts.attempts),
+			}))
+			.sort((a, b) => a.model.localeCompare(b.model)),
+		by_model_hour: [...perModelHour.values()]
+			.map((bucket) => ({
+				model: bucket.model,
+				hour: bucket.hour,
+				attempts: bucket.attempts,
+				rate_limited: bucket.rateLimited,
+				rate_limited_pct: pct(bucket.rateLimited, bucket.attempts),
+			}))
+			.sort((a, b) => (a.hour === b.hour ? a.model.localeCompare(b.model) : a.hour.localeCompare(b.hour))),
+		longest_429_streak: streak,
+	};
+}
+
 // ── Report building ───────────────────────────────────────────────────────
 
 export async function buildDebugReport(options: BuildDebugReportOptions = {}): Promise<DebugReport> {
@@ -720,6 +962,16 @@ export async function buildDebugReport(options: BuildDebugReportOptions = {}): P
 	const rayByResponseId = readResponseRays(options.raysFile ?? join(agentDir, RESPONSE_RAYS_FILE));
 
 	const anomalies = readAnomalies(anomalyFile).filter((record) => inWindow(record.detected_at.slice(0, 10), window));
+
+	// HTTP attempt tap (issue #49): one row per attempt plus one per response.
+	const attemptEntries = readAttempts(
+		options.attemptsFile ?? (options.agentDir ? join(agentDir, HTTP_ATTEMPTS_FILE) : defaultHttpAttemptPath()),
+	).filter((entry) => inWindow((entry.kind === "attempt" ? entry.started_at : entry.ended_at).slice(0, 10), window));
+	const attemptsOnly = attemptEntries.filter((entry): entry is HttpAttemptRecord => entry.kind === "attempt");
+	const responseByResponseId = new Map<string, HttpResponseRecord>();
+	for (const entry of attemptEntries) {
+		if (entry.kind === "response" && entry.response_id) responseByResponseId.set(entry.response_id, entry);
+	}
 
 	const turns: DebugTurn[] = [];
 	const errors: DebugErrorRecord[] = [];
@@ -744,7 +996,7 @@ export async function buildDebugReport(options: BuildDebugReportOptions = {}): P
 		if (rawTurns.length === 0) continue;
 
 		const sessionId = md5Short(file);
-		const worktreeLabel = cwd ? md5Short(cwd) : "000000000000";
+		const worktreeLabel = cwd ? md5Short(cwd) : "0000000000000000";
 		sessionIds.add(sessionId);
 		worktreeLabels.add(worktreeLabel);
 
@@ -762,6 +1014,19 @@ export async function buildDebugReport(options: BuildDebugReportOptions = {}): P
 					? raw.timestamp
 					: new Date(numberOrZero(message.timestamp)).toISOString();
 			const dateOfTurn = isoDateOf(timestamp) ?? date;
+			const durationMs = numberOrZero(message.durationMs);
+
+			// A successful logical request joins by response id: the tap's
+			// `response` row carries the gateway `created`, terminal status,
+			// attempt count and request parameters the transcript never had.
+			const responseRow = responseId !== null ? (responseByResponseId.get(responseId) ?? null) : null;
+			const terminalForResponse =
+				responseRow !== null
+					? (attemptsOnly.find(
+							(attempt) =>
+								attempt.request_id === responseRow.request_id && attempt.attempt_n === responseRow.attempts,
+						) ?? null)
+					: null;
 
 			models.add(model);
 			turns.push({
@@ -774,21 +1039,30 @@ export async function buildDebugReport(options: BuildDebugReportOptions = {}): P
 				stop_reason: stopReason,
 				error: errorClass,
 				response_id: responseId,
-				cf_ray: responseId !== null ? (rayByResponseId.get(responseId) ?? null) : null,
-				created: null,
+				cf_ray:
+					responseId !== null
+						? (rayByResponseId.get(responseId) ?? terminalForResponse?.headers["cf-ray"] ?? null)
+						: null,
+				created: responseRow?.created ?? null,
+				status: responseRow?.status ?? null,
+				attempt_n: responseRow?.attempts ?? null,
+				request: responseRow?.request ?? null,
 				input: numberOrZero(usage.input),
 				output: numberOrZero(usage.output),
 				cache_read: numberOrZero(usage.cacheRead),
 				cache_write: numberOrZero(usage.cacheWrite),
 				reasoning: numberOrZero(usage.reasoning),
 				total: numberOrZero(usage.totalTokens),
-				model_ms: numberOrZero(message.durationMs),
+				model_ms: durationMs,
 			});
 
-			// Track errors separately for errors.jsonl
+			// Track errors separately for errors.jsonl. A failed logical request
+			// has no response id, so the terminal attempt is correlated by model
+			// and the turn's own span; no match leaves the cells null.
 			if (errorClass) {
-				const msgTruncated = errorMessage?.slice(0, 200) ?? "";
-				const msgHash = errorMessage ? createHash("md5").update(errorMessage).digest("hex").slice(0, 12) : "";
+				const terminal = findTerminalAttempt(attemptsOnly, model, Date.parse(timestamp), durationMs);
+				const gatewayError = parseGatewayError(errorMessage);
+				const serverMessage = gatewayError?.message ? scrubHome(gatewayError.message) : null;
 				errors.push({
 					timestamp,
 					session_id: sessionId,
@@ -796,8 +1070,14 @@ export async function buildDebugReport(options: BuildDebugReportOptions = {}): P
 					model,
 					error: errorClass,
 					stop_reason: stopReason,
-					message_truncated: msgTruncated,
-					message_hash: msgHash,
+					status: terminal?.status ?? null,
+					cf_ray: terminal?.headers["cf-ray"] ?? null,
+					attempt_n: terminal?.attempt_n ?? null,
+					message_truncated: serverMessage !== null ? serverMessage.slice(0, 200) : null,
+					message_hash: serverMessage !== null && errorMessage ? md5Short(errorMessage) : null,
+					error_type: gatewayError?.type ?? null,
+					error_code: gatewayError?.code ?? null,
+					error_param: gatewayError?.param ?? null,
 					response_id: responseId,
 					input: numberOrZero(usage.input),
 					output: numberOrZero(usage.output),
@@ -858,7 +1138,9 @@ export async function buildDebugReport(options: BuildDebugReportOptions = {}): P
 	const versions = { provider: packageVersion(), pi_ai: PI_AI_VERSION, pi: PI_VERSION };
 	const metadata: Record<string, unknown> = {
 		generated_at: generatedAt,
-		topic: options.topic ?? null,
+		// Free text: hashed so a descriptive topic cannot name a client or project
+		// in the shared artifact (issue #49 S25).
+		topic_hash: options.topic ? md5Short(options.topic) : null,
 		window,
 		versions,
 		catalog: {
@@ -877,6 +1159,7 @@ export async function buildDebugReport(options: BuildDebugReportOptions = {}): P
 			total: errors.length,
 			byClass: { ...errorCounts },
 		},
+		attempt_summary: summarizeAttempts(attemptsOnly),
 	};
 
 	const report: DebugReport = {
@@ -889,6 +1172,7 @@ export async function buildDebugReport(options: BuildDebugReportOptions = {}): P
 		),
 		errors: errors.sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
 		anomalies,
+		httpAttempts: attemptEntries,
 		counts: {
 			sessions: sessionIds.size,
 			turns: turns.length,
@@ -931,30 +1215,49 @@ export interface RenderedReport {
 	preview: string;
 }
 
+/** Opt-in content flags; the default artifact carries no prompt or tool content. */
+export interface DebugRenderOptions {
+	/** Embed the window-filtered raw transcripts under `sessions/`. */
+	includePrompts?: boolean;
+	/** Keep tool calls and their results; implies `includePrompts`. */
+	includeTools?: boolean;
+}
+
 function renderReadme(report: DebugReport, versions: Record<string, string>): string {
+	const topic = report.topic ? "(hashed for sharing)" : "(none)";
 	return [
 		"# nan-debug report",
 		"",
-		`Generated by \`/nan-debug\` (issue #35) on ${report.generatedAt}. Local-only: nothing was uploaded.`,
+		`Generated by \`/nan-debug\` (issue #35; HTTP attempt evidence from issue #49) on ${report.generatedAt}. Local-only: nothing was uploaded.`,
+		`Artifact name: ${NAN_DEBUG_REPORT_PREFIX}-<emission timestamp, UTC> — the name identifies when the report was emitted, not the window it reports.`,
 		"",
 		`Window: ${report.window.start} → ${report.window.end} (${report.window.days}d)`,
-		`Topic: ${report.topic ?? "(none)"}`,
+		`Topic: ${topic}`,
 		"",
 		"## What is collected",
 		"",
 		"- `anonymized_usage.jsonl` — one aggregated row per date/session/model: token counters, turn count, stop-reason counts, cache-hit rate, anomaly signatures.",
-		"- `turns.jsonl` — one row per assistant turn: model, usage counters, stop reason, classified error, response id, `cf_ray` (Cloudflare trace id from `<agentDir>/nan-response-rays.jsonl`, null when uncaptured), `created` (null when the transcript has none), duration.",
-		"- `errors.jsonl` — one row per turn that produced an error: error class, truncated message (200 chars max), MD5 hash of the full message, input/output tokens for context.",
+		"- `turns.jsonl` — one row per assistant turn: model, usage counters, stop reason, classified error, response id, `cf_ray` (Cloudflare trace id, null when uncaptured), gateway `created`, terminal `status`, `attempt_n`, and the request parameters (`reasoning_effort`, `max_tokens`, the field actually sent, `stream`).",
+		"- `errors.jsonl` — one row per errored turn: class, `status`, `cf_ray`, `attempt_n`, the parsed gateway body (`error_type`, `error_code`, `error_param`), its message (200 chars max) and the MD5 hash of the full message. Transport errors carry no message, hash or path. A failed request has no response id, so those three attempt cells are correlated by model and the turn's own span; with concurrent requests to the same model treat them as best-effort — `http_attempts.jsonl` is the authoritative per-attempt record.",
+		"- `http_attempts.jsonl` — one `kind: \"attempt\"` row per HTTP attempt: status, whitelisted response headers, `started_at`/`ended_at`/`latency_ms`, `attempt_n`, `payload_bytes`, request parameters, process-scoped inflight/60 s counters and the transport error class. One `kind: \"response\"` row per completed request carries the gateway `response_id`/`created`. Retries pi-ai hides from the transcript are rows here.",
 		"- `anomalies.jsonl` — duplicate `id`/`created` pairs captured by the provider, with both `cf-ray` values (see issue #35).",
-		"- `sessions/` — the raw session JSONL files filtered to the window, so you can inspect the full transcript locally.",
-		"- `metadata.json` — versions, catalog provenance, window, redaction counters.",
+		"- `metadata.json` — versions, catalog provenance, window, `topic_hash`, redaction counters and `attempt_summary` (status counts, 429 ratio per model and per model-hour, longest 429 streak).",
 		"",
 		"## What is never collected",
 		"",
-		"- Prompt or response content in the root files — except under `sessions/`, which embeds your raw session transcripts on request (issue #44); only their `cwd` header is MD5-truncated to 12 chars.",
-		"- Raw file paths or worktree names outside transcripts (labels are MD5-truncated to 12 chars).",
-		"- Credentials or auth headers, in any file.",
-		"- Full error messages: `errors.jsonl` keeps at most 200 characters plus an MD5 hash of the full text.",
+		"- Prompt, response or tool content unless you opt in: `--include-prompts` embeds the window-filtered raw transcripts under `sessions/` with tool calls and results stripped; `--include-tools` keeps them; `--all` equals both and also includes `usage_window.json`.",
+		"- Credentials, auth headers, or any response header outside the whitelist (`cf-ray`, `x-request-id`, `retry-after`, `retry-after-ms`, `x-should-retry`, `rate-limit-*`).",
+		"- Request or response bodies: the tap stores `payload_bytes`, never the payload.",
+		"- Local absolute paths and pi-side exception text — outside the opt-in `sessions/` transcripts, raw by request: their `cwd` header is still MD5-hashed. Session ids and worktree labels are MD5-truncated to 16 chars (no per-report salt, so the same session links across reports); a surviving server message has the home directory scrubbed to `~`.",
+		"- Raw error text: `errors.jsonl` keeps only the fields of a gateway error body, never a local exception message.",
+		"",
+		"## `inflight_*` is process-scoped",
+		"",
+		"A tap inside one pi process sees only that process's attempts. `inflight_process_at_start` and `starts_last_60s_process*` are therefore **not** the concurrency or RPM of your API key when several clients share it; the reference CSV's key-wide counts require merging the logs of every client.",
+		"",
+		"## Not public",
+		"",
+		"This report is for NaN support, not for publication. `cf-ray`, `response_id` and millisecond timestamps are deliberately not anonymized — support correlates their logs with them. `payload_sha256` in `anomalies.jsonl` fingerprints a prompt. The default artifact carries no prompt or response content; `sessions/` (with `--include-prompts` / `--include-tools` / `--all`) and `usage_window.json` (billing period and credits: account/tier identity) are private material.",
 		"",
 		"## Versions",
 		"",
@@ -965,28 +1268,75 @@ function renderReadme(report: DebugReport, versions: Record<string, string>): st
 	].join("\n");
 }
 
-export function renderDebugReport(report: DebugReport, sessionsDir?: string): RenderedReport {
+/**
+ * Strip content the caller did not opt into from one raw transcript line:
+ * `toolResult` entries are dropped whole and `toolCall` blocks are removed from
+ * assistant messages. `cwd` is hashed in every line that carries it.
+ */
+function scrubSessionTranscript(text: string, includeTools: boolean): string {
+	const kept: string[] = [];
+	for (const line of text.split("\n")) {
+		if (line.trim().length === 0) continue;
+		let entry: Record<string, unknown>;
+		try {
+			entry = JSON.parse(line) as Record<string, unknown>;
+		} catch {
+			kept.push(line);
+			continue;
+		}
+		if (typeof entry.cwd === "string") entry.cwd = md5Short(entry.cwd);
+		if (!includeTools && isObject(entry.message)) {
+			const message = entry.message;
+			if (message.role === "toolResult") continue;
+			if (Array.isArray(message.content)) {
+				message.content = message.content.filter(
+					(block) => !(isObject(block) && block.type === "toolCall"),
+				);
+			}
+		}
+		kept.push(JSON.stringify(entry));
+	}
+	return kept.join("\n");
+}
+
+export function renderDebugReport(
+	report: DebugReport,
+	sessionsDir?: string,
+	options: DebugRenderOptions = {},
+): RenderedReport {
 	const versions = (report.metadata as { versions: Record<string, string> }).versions;
+	const includePrompts = options.includePrompts === true || options.includeTools === true;
+	const includeTools = options.includeTools === true;
+
+	const metadata = { ...report.metadata } as Record<string, unknown>;
+	metadata.redaction = {
+		...((isObject(metadata.redaction) ? metadata.redaction : {}) as Record<string, unknown>),
+		transcripts_included: includePrompts,
+		tool_calls_included: includeTools,
+	};
+
 	const files: Record<string, string> = {
 		"README.md": renderReadme(report, versions),
 		"anonymized_usage.jsonl": report.rows.map((row) => JSON.stringify(row)).join("\n") + (report.rows.length > 0 ? "\n" : ""),
 		"turns.jsonl": report.turns.map((turn) => JSON.stringify(turn)).join("\n") + (report.turns.length > 0 ? "\n" : ""),
 		"errors.jsonl": report.errors.map((err) => JSON.stringify(err)).join("\n") + (report.errors.length > 0 ? "\n" : ""),
+		"http_attempts.jsonl": report.httpAttempts.map((entry) => JSON.stringify(entry)).join("\n") + (report.httpAttempts.length > 0 ? "\n" : ""),
 		"anomalies.jsonl": report.anomalies.map((record) => JSON.stringify(record)).join("\n") + (report.anomalies.length > 0 ? "\n" : ""),
-		"metadata.json": `${JSON.stringify(report.metadata, null, 2)}\n`,
+		"metadata.json": `${JSON.stringify(metadata, null, 2)}\n`,
 	};
 	if (report.usageWindow !== undefined) {
 		files["usage_window.json"] = `${JSON.stringify(report.usageWindow, null, 2)}\n`;
 	}
 
-	// Include session JSONL files filtered by the window.
-	if (sessionsDir) {
+	// Transcripts are opt-in: the default artifact carries no prompt, response
+	// or tool content at all (issue #49 S20/S21).
+	if (sessionsDir && includePrompts) {
 		try {
 			const sessionFiles = listSessionFilesFiltered(sessionsDir, report.window);
 			for (const file of sessionFiles) {
 				const content = readFileSync(file, "utf8");
 				const relPath = file.startsWith(sessionsDir) ? file.slice(sessionsDir.length + 1) : basename(file);
-				files[`sessions/${relPath}`] = scrubSessionTranscript(content);
+				files[`sessions/${relPath}`] = scrubSessionTranscript(content, includeTools);
 			}
 		} catch {
 			// If sessionsDir doesn't exist or can't be read, skip session files.
@@ -1009,14 +1359,28 @@ export function renderDebugReport(report: DebugReport, sessionsDir?: string): Re
 		.map(([kind, count]) => `${kind}: ${count}`)
 		.join(" · ");
 
+	const attemptSummary = (report.metadata as { attempt_summary?: { total: number; by_status: Record<string, number> } })
+		.attempt_summary;
+	const attempt429 = attemptSummary?.by_status["429"] ?? 0;
+	const attempt5xx = Object.entries(attemptSummary?.by_status ?? {})
+		.filter(([status]) => Number(status) >= 500)
+		.reduce((sum, [, count]) => sum + count, 0);
+	const attemptsLine =
+		attemptSummary && attemptSummary.total > 0
+			? `http attempts: ${attemptSummary.total} (429: ${attempt429} · 5xx: ${attempt5xx})`
+			: "http attempts: 0";
+
 	const preview = [
 		`nan-debug report — ${report.window.start} → ${report.window.end} (window: ${report.window.days}d)`,
 		`sessions: ${report.counts.sessions} · turns: ${report.counts.turns} · models: ${report.counts.models.length}`,
+		attemptsLine,
 		`errors: ${errorCounts.total} total${errorParts.length > 0 ? ` (${errorParts})` : ""}`,
 		`per-model avg tokens/turn: ${perModel.length > 0 ? perModel : "(none)"}`,
 		`anomalies: ${report.counts.anomalies.duplicateIdCreated} duplicate id/created pairs · ${report.counts.anomalies.reasoningOnlyStream} reasoning-only stream · ${report.counts.anomalies.contextOverflow} context overflow`,
-		`redaction: ${report.counts.sessions} session ids hashed · ${(report.metadata as { redaction: { worktree_labels_hashed: number } }).redaction.worktree_labels_hashed} paths hashed · 0 prompt/response bytes collected (root files; sessions/ excepted)`,
-		"→ nothing shared yet. Run with --emit to write nan-debug-report.zip",
+		`redaction: ${report.counts.sessions} session ids hashed · ${(report.metadata as { redaction: { worktree_labels_hashed: number } }).redaction.worktree_labels_hashed} paths hashed · 0 prompt/response bytes collected`,
+		"sharing: shared by default = usage, turns, errors, http attempts, anomalies, metadata — no prompts, no tool calls",
+		"→ --include-prompts embeds raw transcripts · --include-tools adds tool calls/results · --all adds both plus usage_window.json",
+		`→ nothing shared yet. Run with --emit to write ${NAN_DEBUG_REPORT_PREFIX}-<timestamp>.zip`,
 	].join("\n");
 
 	return { files, preview };
@@ -1031,9 +1395,20 @@ export function writeDebugReport(files: Record<string, string>, outDir: string):
 	}
 }
 
-export function writeDebugZip(files: Record<string, string>, zipPath: string): void {
+export interface WriteDebugZipOptions {
+	/** `--all` only: `usage_window.json` identifies the account/tier and stays local otherwise. */
+	includeUsageWindow?: boolean;
+}
+
+export function writeDebugZip(
+	files: Record<string, string>,
+	zipPath: string,
+	options: WriteDebugZipOptions = {},
+): void {
 	mkdirSync(dirname(zipPath), { recursive: true });
-	const entries = Object.entries(files).map(([name, data]) => ({ name, data }));
+	const entries = Object.entries(files)
+		.filter(([name]) => options.includeUsageWindow === true || name !== "usage_window.json")
+		.map(([name, data]) => ({ name, data }));
 	writeFileSync(zipPath, createZip(entries));
 }
 

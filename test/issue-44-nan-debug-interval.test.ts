@@ -44,7 +44,7 @@ afterEach(() => {
 });
 
 function md5Short(value: string): string {
-	return createHash("md5").update(value).digest("hex").slice(0, 12);
+	return createHash("md5").update(value).digest("hex").slice(0, 16);
 }
 
 function assistantLine(timestamp: string, extra: Record<string, unknown> = {}): string {
@@ -172,6 +172,9 @@ describe("issue #44 — frozen failures: --interval argument boundary (B3)", () 
 				windowProvided: true,
 				out: "/tmp/report",
 				emit: true,
+				includePrompts: false,
+				includeTools: false,
+				all: false,
 			});
 		}
 		expect(parseDebugArgs("").ok).toBe(true);
@@ -243,19 +246,52 @@ describe("issue #44 — frozen failures: error_summary metadata (B2)", () => {
 // ── PR #44 §1 claim pins: errors.jsonl shape, 200-char cap, preview format ──
 
 describe("issue #44 — errors.jsonl and preview claims", () => {
-	test("message_truncated caps at 200 chars and message_hash hashes the full text", async () => {
+	test("a transport error drops its message; a gateway body is capped at 200 chars", async () => {
 		const agentDir = fixtureAgentDir();
 		const report = await buildDebugReport({ agentDir, now: NOW, windowDays: 7 });
 		const rendered = renderDebugReport(report);
 		const row = JSON.parse(rendered.files["errors.jsonl"]!.trim().split("\n")[0]!);
 
+		// Issue #49 S23/S26: transport texts and local exception paths are never stored.
 		expect(LONG_ERROR.length).toBeGreaterThan(200);
-		expect(row.message_truncated).toBe(LONG_ERROR.slice(0, 200));
-		expect(row.message_truncated).toHaveLength(200);
-		expect(row.message_hash).toBe(md5Short(LONG_ERROR));
+		expect(row.message_truncated).toBeNull();
+		expect(row.message_hash).toBeNull();
 		expect(row.error).toBe("transport");
 		expect(row.model).toBe("qwen3.6");
 		expect(rendered.files["errors.jsonl"]).not.toContain(LONG_ERROR);
+
+		// A gateway error body keeps its own message, capped at 200 chars.
+		const gatewayDir = scratch();
+		const dir = join(gatewayDir, "sessions", "--x--");
+		mkdirSync(dir, { recursive: true });
+		const gateway = JSON.stringify({
+			error: { message: "g".repeat(300), type: "invalid_request_error", code: "bad", param: "messages" },
+		});
+		writeFileSync(
+			join(dir, "2026-11-10T10-00-00-000Z_g.jsonl"),
+			[
+				JSON.stringify({ type: "session", cwd: CWD_SECRET }),
+				JSON.stringify({
+					type: "message",
+					message: {
+						role: "assistant",
+						provider: "nan",
+						model: "qwen3.6",
+						stopReason: "error",
+						errorMessage: gateway,
+						usage: { input: 1, output: 0, totalTokens: 1 },
+					},
+				}),
+				"",
+			].join("\n"),
+		);
+		const gatewayReport = await buildDebugReport({ agentDir: gatewayDir, now: NOW, windowDays: 7 });
+		const gatewayRow = gatewayReport.errors[0]!;
+		expect(gatewayRow.message_truncated).toHaveLength(200);
+		expect(gatewayRow.message_hash).toBe(md5Short(gateway));
+		expect(gatewayRow.error_type).toBe("invalid_request_error");
+		expect(gatewayRow.error_code).toBe("bad");
+		expect(gatewayRow.error_param).toBe("messages");
 	});
 
 	test("preview renders the documented errors line", async () => {
@@ -273,7 +309,8 @@ describe("issue #44 — frozen failures: sessions/ redaction scope (B5)", () => 
 		const agentDir = fixtureAgentDir();
 		const sessionsDir = join(agentDir, "sessions");
 		const report = await buildDebugReport({ agentDir, now: NOW, windowDays: 7, sessionsDir });
-		const rendered = renderDebugReport(report, sessionsDir);
+		// Issue #49: transcripts are opt-in; `sessions/` only exists with the flag.
+		const rendered = renderDebugReport(report, sessionsDir, { includePrompts: true });
 
 		const names = Object.keys(rendered.files);
 		expect(names.some((name) => name.startsWith("sessions/"))).toBe(true);
@@ -302,7 +339,10 @@ describe("issue #44 — frozen failures: sessions/ redaction scope (B5)", () => 
 		const rendered = renderDebugReport(report, sessionsDir);
 		const readme = rendered.files["README.md"]!;
 
-		expect(readme).toContain("`sessions/`");
+		// The default artifact promises no content and documents the opt-in instead
+		// of an absolute "never collected" claim (issue #49 S21/S24).
+		expect(readme).toContain("--include-prompts");
+		expect(readme).toContain("## Not public");
 		expect(readme).not.toMatch(/^- Prompt or response content\.$/m);
 	});
 });

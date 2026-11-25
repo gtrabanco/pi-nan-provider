@@ -36,7 +36,7 @@ afterEach(() => {
 });
 
 function md5Short(value: string): string {
-	return createHash("md5").update(value).digest("hex").slice(0, 12);
+	return createHash("md5").update(value).digest("hex").slice(0, 16);
 }
 
 interface Turn {
@@ -206,7 +206,9 @@ describe("issue #35 — report rows and metadata", () => {
 		const report = await buildDebugReport({ agentDir, now: NOW, windowDays: 2, topic: "cache" });
 		const metadata = report.metadata as Record<string, any>;
 
-		expect(metadata.topic).toBe("cache");
+		// Issue #49 S25: free-text topic is hashed in the artifact.
+		expect(metadata.topic_hash).toBe(md5Short("cache"));
+		expect(metadata.topic).toBeUndefined();
 		expect(metadata.generated_at).toBe(NOW.toISOString());
 		expect(metadata.versions.provider).toMatch(/^\d+\.\d+\.\d+/);
 		expect(metadata.versions.pi_ai).toMatch(/^\d+\.\d+\.\d+/);
@@ -230,7 +232,8 @@ describe("issue #35 — report rows and metadata", () => {
 		expect(rendered.preview).toContain("sessions: 2 · turns: 4 · models: 2");
 		expect(rendered.preview).toContain("anomalies: 1 duplicate id/created pairs · 1 reasoning-only stream · 0 context overflow");
 		expect(rendered.preview).toContain("prompt/response bytes collected");
-		expect(rendered.preview).toContain("Run with --emit to write nan-debug-report.zip");
+		// Issue #49: the emit target is the emission-timestamped zip.
+		expect(rendered.preview).toContain("Run with --emit to write nan-debug-report-<timestamp>.zip");
 	});
 
 	test("no prompt/response content or raw paths in any rendered file", async () => {
@@ -255,14 +258,19 @@ describe("issue #35 — report rows and metadata", () => {
 			"anomalies.jsonl",
 			"anonymized_usage.jsonl",
 			"errors.jsonl",
+			"http_attempts.jsonl",
 			"metadata.json",
 			"turns.jsonl",
 		]) {
 			expect(names).toContain(name);
 		}
-		// `sessions/` carries the window-filtered raw transcripts (the 2026-10-01
-		// fixture session stays out), with only the `cwd` header hashed.
-		expect(names.filter((name) => name.startsWith("sessions/")).sort()).toEqual([
+		// Issue #49 S20: the default artifact carries no transcript at all.
+		expect(names.filter((name) => name.startsWith("sessions/"))).toEqual([]);
+
+		// Opt-in: `sessions/` carries the window-filtered raw transcripts (the
+		// 2026-10-01 fixture session stays out), with only the `cwd` header hashed.
+		const withPrompts = renderDebugReport(report, join(agentDir, "sessions"), { includePrompts: true });
+		expect(Object.keys(withPrompts.files).filter((name) => name.startsWith("sessions/")).sort()).toEqual([
 			"sessions/--home-agent-project--/2026-11-10T10-00-00-000Z_a.jsonl",
 			"sessions/--home-agent-project--/2026-11-11T11-00-00-000Z_b.jsonl",
 		]);
