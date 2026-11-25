@@ -14,14 +14,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recorded — including the retries pi-ai hides and the `429`s that never produce
   a gateway `id`. Each `nan-http-attempts.jsonl` row carries status, the
   whitelisted response headers (`cf-ray`, `x-request-id`, `Retry-After`,
-  `x-should-retry`, `rate-limit-*`), millisecond timing, `attempt_n`,
-  `payload_bytes`, the request parameters and the process-scoped inflight/60 s
-  counters. The report embeds the window-filtered rows as `http_attempts.jsonl`.
+  `x-should-retry`, `rate-limit-*`), the gateway `error_type`/`error_code` of a
+  non-2xx body, millisecond `time_to_header_ms`, `attempt_n`, `payload_bytes`,
+  the request parameters and the process-scoped inflight/60 s counters. The
+  per-request `response` row adds `duration_ms`, token `usage` and the raw
+  `finish_reason`. The report embeds the window-filtered rows as
+  `http_attempts.jsonl`, with a mapping table to the reference attempt CSV.
 - `turns.jsonl` gains the gateway `created`, the terminal `status`, `attempt_n`
   and the request parameters; `errors.jsonl` gains `status`, `cf_ray`,
   `attempt_n` and the parsed OpenAI-style `error_type`/`error_code`/`error_param`;
-  `metadata.json` gains `attempt_summary` (status counts, 429 ratios per
-  model/hour, longest 429 streak).
+  the parser accepts both the raw HTTP envelope and the `status: {inner object}`
+  shape pi-ai actually writes; `metadata.json` gains `attempt_summary` (status
+  counts, 429 ratios per model/hour, longest 429 streak).
 
 ### Changed
 

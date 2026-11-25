@@ -635,7 +635,13 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   50k lines and best-effort. `onPayload` is awaited once per logical request
   before the retry loop, so the payload size and parameters measured there hold
   for every attempt; the request body itself is never read (consuming the SDK's
-  request body would break the call). The default report carries no prompt,
+  request body would break the call). A non-2xx response is cloned and at most
+  8 KB are read to keep only `error.type`/`error.code` (never the body or its
+  message). A fetch rejection sets `transport_error` (the exception name), while
+  `error_type`/`error_code` stay the gateway's. `time_to_header_ms` is start →
+  headers; the response row carries `duration_ms` (first attempt start →
+  completion), `usage` and the raw `finish_reason`, so the artifact is a
+  superset of the reporter's per-attempt CSV. The default report carries no prompt,
   response or tool content: `sessions/` is opt-in (`--include-prompts`,
   tool calls stripped; `--include-tools` keeps them; `--all` also puts
   `usage_window.json` in the zip), embedded transcripts keep only their
@@ -643,7 +649,12 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   `errors.jsonl` stores only gateway-body fields. `errors.jsonl` correlates a
   failed logical request to its terminal attempt by model + the turn's own span
   (pi records no response id for a failure), leaving the cells null when
-  nothing matches. Regression tests: `test/issue-49-http-attempts.test.ts`,
+  nothing matches. `parseGatewayError` accepts BOTH shapes that reach the
+  transcript: the raw HTTP body `{"error":{…}}` and pi-ai's normalized
+  `429: {"message":…,"type":…,"code":…}` (verified against the pinned SDK:
+  `formatProviderError(normalizeProviderError(APIError.generate(...)))` emits
+  the inner object without the `error` envelope — requiring `parsed.error`
+  alone silently nulled every structured field). Regression tests: `test/issue-49-http-attempts.test.ts`,
   `test/issue-49-debug-report.test.ts`, `test/issue-49-nan-debug-command.test.ts`.
   Regression tests: `test/issue-35-cache-anomaly-capture.test.ts`,
   `test/issue-35-debug-report.test.ts`, `test/issue-35-nan-debug-command.test.ts`.

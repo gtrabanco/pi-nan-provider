@@ -1,7 +1,7 @@
 # @gtrabanco/𝜋-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.6.2-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-1.6.3-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 [![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://cloud.nan.builders/r/7GK06FX8)
 
 [NaN Builders](https://cloud.nan.builders/r/7GK06FX8) model provider + a native MCP server for [pi](https://github.com/earendil-works/pi). 
@@ -413,10 +413,13 @@ produce a gateway id — is kept in `<agentDir>/nan-http-attempts.jsonl`
 the whitelisted response headers (`cf-ray`, `x-request-id`, `Retry-After`,
 `x-should-retry`, `rate-limit-*`), millisecond start/end plus `latency_ms`,
 `attempt_n`, `payload_bytes`, the request parameters (`reasoning_effort`,
-`max_tokens`, the field actually sent, `stream`) and the process-scoped
-inflight/60 s counters. The report embeds the window-filtered rows as
-`http_attempts.jsonl`, so one zip answers *which attempt failed, with which
-status and headers, after how many retries*.
+`max_tokens`, the field actually sent, `stream`), the gateway
+`error_type`/`error_code` of a non-2xx body and the process-scoped inflight/60 s
+counters. `time_to_header_ms` is start → headers (the early-rejection signal,
+e.g. the 237 ms median); the full request duration, token `usage` and raw
+`finish_reason` ride the per-request `response` row. The report embeds the
+window-filtered rows as `http_attempts.jsonl`, so one zip answers *which attempt
+failed, with which status and headers, after how many retries*.
 
 `/nan-debug` turns those files plus your session transcripts into a redacted,
 reproducible evidence package for NaN:
@@ -458,7 +461,8 @@ reproducible evidence package for NaN:
   (per-turn usage, stop reason, error class, response id, `cf_ray`, gateway
   `created`, terminal `status`, `attempt_n` and the request parameters),
   `errors.jsonl` (class, `status`, `cf_ray`, `attempt_n`, the parsed
-  `error_type`/`error_code`/`error_param`, the gateway's own message capped at
+  `error_type`/`error_code`/`error_param` (both the raw HTTP envelope and the
+  `status: {inner object}` shape pi-ai writes), the gateway's own message capped at
   200 chars and an MD5 hash; a failed request has no response id, so its
   `status`/`cf_ray`/`attempt_n` are correlated by model and the turn's span —
   with concurrent requests to the same model, `http_attempts.jsonl` is the

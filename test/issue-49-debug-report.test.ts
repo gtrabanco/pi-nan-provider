@@ -15,7 +15,7 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 
@@ -29,6 +29,11 @@ import {
 import { HTTP_ATTEMPTS_FILE, type HttpAttemptRecord, type HttpResponseRecord } from "../src/http-attempts.ts";
 
 const NOW = new Date("2026-11-24T12:00:00.000Z");
+// The home-scrub contract keys on the running user's home directory, so the
+// fixture must derive its embedded path from it — a literal like
+// /home/agent only scrubs on machines whose home actually is /home/agent.
+const HOME_DIR = homedir();
+const HOME_EMBEDDED_PATH = join(HOME_DIR, "projects", "x");
 const CWD_SECRET = "/home/agent/projects/client-acme";
 const PROMPT_LITERAL = "PROMPT-SECRET-LITERAL";
 const TOOL_ARG_SECRET = "TOOL-ARG-SECRET";
@@ -66,7 +71,7 @@ function attempt(overrides: Partial<HttpAttemptRecord>): HttpAttemptRecord {
 		model: "qwen3.6",
 		started_at: "2026-11-24T09:59:58.000Z",
 		ended_at: "2026-11-24T09:59:58.200Z",
-		latency_ms: 200,
+		time_to_header_ms: 200,
 		status: 200,
 		headers: {},
 		payload_bytes: 100,
@@ -76,6 +81,8 @@ function attempt(overrides: Partial<HttpAttemptRecord>): HttpAttemptRecord {
 		starts_last_60s_process: 1,
 		starts_last_60s_same_model: 1,
 		error_type: null,
+		error_code: null,
+		transport_error: null,
 		...overrides,
 	};
 }
@@ -90,7 +97,12 @@ function response(overrides: Partial<HttpResponseRecord>): HttpResponseRecord {
 		status: 200,
 		attempts: 2,
 		ended_at: "2026-11-24T09:59:59.900Z",
+		duration_ms: 3900,
 		request: { reasoning_effort: "low", max_tokens: 512, max_tokens_field: "max_tokens", stream: true },
+		usage: { prompt_tokens: 100, completion_tokens: 10, reasoning_tokens: 0, cache_read_tokens: 0 },
+		finish_reason: "stop",
+		error_type: null,
+		error_code: null,
 		...overrides,
 	};
 }
@@ -287,6 +299,41 @@ describe("issue #49 — errors join (O10, O20)", () => {
 		expect(serialized.error_param).toBeNull();
 	});
 
+	test("parses the error string pi-ai actually writes (no error envelope)", async () => {
+		const agentDir = scratch();
+		const dir = join(agentDir, "sessions", "--x--");
+		mkdirSync(dir, { recursive: true });
+		// pi-ai's formatProviderError yields `<status>: <inner error object>` — the raw
+		// HTTP body wraps it in `error`, the transcript does not.
+		const normalized =
+			'429: {"message":"Rate limit reached. Please retry shortly.","type":"rate_limit_error","code":"rate_limit_exceeded","param":null}';
+		writeFileSync(
+			join(dir, "2026-11-24T10-00-00-000Z_a.jsonl"),
+			[
+				JSON.stringify({ type: "session", cwd: CWD_SECRET }),
+				JSON.stringify({
+					type: "message",
+					message: {
+						role: "assistant",
+						provider: "nan",
+						model: "qwen3.6",
+						stopReason: "error",
+						errorMessage: normalized,
+						usage: { input: 1, output: 0, totalTokens: 1 },
+					},
+				}),
+				"",
+			].join("\n"),
+		);
+		const report = await buildDebugReport({ agentDir, now: NOW, windowDays: 1 });
+		const row = report.errors[0]!;
+		expect(row.error).toBe("rate_limited");
+		expect(row.error_type).toBe("rate_limit_error");
+		expect(row.error_code).toBe("rate_limit_exceeded");
+		expect(row.error_param).toBeNull();
+		expect(row.message_truncated).toBe("Rate limit reached. Please retry shortly.");
+	});
+
 	test("a transport error stores no message, hash, path or exception text", async () => {
 		const agentDir = fixtureAgentDir();
 		const report = await buildDebugReport({ agentDir, now: NOW, windowDays: 1 });
@@ -307,7 +354,7 @@ describe("issue #49 — errors join (O10, O20)", () => {
 		const dir = join(agentDir, "sessions", "--x--");
 		mkdirSync(dir, { recursive: true });
 		const body = JSON.stringify({
-			error: { message: "bad request in /home/agent/projects/x", type: "invalid_request_error", code: "bad", param: "messages" },
+			error: { message: `bad request in ${HOME_EMBEDDED_PATH}`, type: "invalid_request_error", code: "bad", param: "messages" },
 		});
 		writeFileSync(
 			join(dir, "2026-11-24T10-00-00-000Z_a.jsonl"),
@@ -329,8 +376,8 @@ describe("issue #49 — errors join (O10, O20)", () => {
 		);
 		const report = await buildDebugReport({ agentDir, now: NOW, windowDays: 1 });
 		const rendered = renderDebugReport(report);
-		expect(rendered.files["errors.jsonl"]).toContain("/home/agent/projects/x".replace("/home/agent", "~"));
-		expect(rendered.files["errors.jsonl"]).not.toContain("/home/agent");
+		expect(rendered.files["errors.jsonl"]).toContain("~/projects/x");
+		expect(rendered.files["errors.jsonl"]).not.toContain(HOME_DIR);
 	});
 });
 
