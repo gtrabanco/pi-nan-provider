@@ -45,7 +45,11 @@ afterEach(() => {
 	scratchDirs = [];
 });
 
-function message(model: string, responseId: string): AssistantMessage {
+function message(
+	model: string,
+	responseId: string,
+	usage: { input?: number; output?: number; reasoning?: number; cacheRead?: number } = {},
+): AssistantMessage {
 	return {
 		role: "assistant",
 		provider: "nan",
@@ -54,11 +58,12 @@ function message(model: string, responseId: string): AssistantMessage {
 		responseId,
 		content: [{ type: "text", text: "answer" }],
 		usage: {
-			input: 1,
-			output: 1,
-			cacheRead: 0,
+			input: usage.input ?? 1,
+			output: usage.output ?? 1,
+			cacheRead: usage.cacheRead ?? 0,
 			cacheWrite: 0,
-			totalTokens: 2,
+			reasoning: usage.reasoning,
+			totalTokens: (usage.input ?? 1) + (usage.output ?? 1),
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 		},
 		stopReason: "stop",
@@ -69,6 +74,8 @@ function message(model: string, responseId: string): AssistantMessage {
 interface AttemptScript {
 	status?: number;
 	headers?: Record<string, string>;
+	/** Response body (error bodies only; the tap must not store it). */
+	body?: string;
 	/** Reject the fetch instead of returning a response. */
 	reject?: Error;
 }
@@ -80,7 +87,7 @@ function scriptedFetch(scripts: AttemptScript[]): typeof fetch {
 		const script = scripts[index++];
 		if (!script) throw new Error("fetch script exhausted");
 		if (script.reject) throw script.reject;
-		return new Response(null, { status: script.status ?? 200, headers: script.headers });
+		return new Response(script.body ?? null, { status: script.status ?? 200, headers: script.headers });
 	}) as unknown as typeof fetch;
 }
 
@@ -94,6 +101,8 @@ interface ScriptedOptions {
 	responseId?: string;
 	model?: string;
 	maxAttempts?: number;
+	finishReason?: string;
+	usage?: { input?: number; output?: number; reasoning?: number; cacheRead?: number };
 }
 
 /**
@@ -121,11 +130,15 @@ function scriptedApi(options: ScriptedOptions): ProviderStreams {
 			if (status >= 400) throw Object.assign(new Error(`HTTP ${status}`), { status });
 			if (onEvent) {
 				await onEvent(
-					{ id: options.responseId ?? "chatcmpl-1", created: options.created ?? 1, choices: [] },
+					{
+						id: options.responseId ?? "chatcmpl-1",
+						created: options.created ?? 1,
+						choices: options.finishReason ? [{ finish_reason: options.finishReason }] : [],
+					},
 					{ id: model },
 				);
 			}
-			return message(model, options.responseId ?? "chatcmpl-1");
+			return message(model, options.responseId ?? "chatcmpl-1", options.usage);
 		}
 		throw new Error("retries exhausted");
 	};
@@ -200,7 +213,7 @@ describe("issue #49 — attempt tap (O1, O2, O3)", () => {
 			"x-should-retry": "true",
 			"x-ratelimit-remaining-requests": "7",
 		});
-		expect(attempts[0]!.latency_ms).toBeGreaterThanOrEqual(0);
+		expect(attempts[0]!.time_to_header_ms).toBeGreaterThanOrEqual(0);
 		expect(attempts[0]!.error_type).toBeNull();
 		expect(attempts[1]!.headers).toEqual({ "cf-ray": "ray-200" });
 		expect(attempts.every((a) => a.request_id === "req-logical-1")).toBe(true);
@@ -241,8 +254,57 @@ describe("issue #49 — attempt tap (O1, O2, O3)", () => {
 
 		const attempt = entries.find((entry): entry is HttpAttemptRecord => entry.kind === "attempt")!;
 		expect(attempt.status).toBeNull();
-		expect(attempt.error_type).toBe("TypeError");
+		expect(attempt.transport_error).toBe("TypeError");
+		expect(attempt.error_type).toBeNull();
 		expect(JSON.stringify(entries)).not.toContain("/home/agent/secret");
+	});
+
+	test("a non-2xx attempt carries the gateway error type and code, never the body", async () => {
+		const { entries, sink } = recordedSink();
+		const body = JSON.stringify({
+			error: {
+				message: "Rate limit reached. Please retry shortly.",
+				type: "rate_limit_error",
+				code: "rate_limit_exceeded",
+				param: null,
+			},
+		});
+		const api = withHttpAttemptCapture(scriptedApi({ maxAttempts: 1 }), { sink, now: () => NOW });
+		await runOne(api, scriptedFetch([{ status: 429, headers: { "cf-ray": "ray" }, body }]));
+
+		const attempt = entries.find((entry): entry is HttpAttemptRecord => entry.kind === "attempt")!;
+		expect(attempt.error_type).toBe("rate_limit_error");
+		expect(attempt.error_code).toBe("rate_limit_exceeded");
+		// The body/message is never stored on the attempt row.
+		const serialized = JSON.stringify(entries);
+		expect(serialized).not.toContain("Rate limit reached");
+		expect(serialized).not.toContain("Please retry shortly");
+	});
+
+	test("a completed response carries duration, usage and the raw finish_reason", async () => {
+		const { entries, sink } = recordedSink();
+		let clock = NOW.getTime();
+		const api = withHttpAttemptCapture(
+			scriptedApi({
+				responseId: "chatcmpl-u",
+				created: 9,
+				finishReason: "length",
+				usage: { input: 100, output: 20, reasoning: 5, cacheRead: 7 },
+			}),
+			{ sink, now: () => new Date((clock += 1000)) },
+		);
+		await runOne(api, okFetch());
+
+		const response = entries.find((entry): entry is HttpResponseRecord => entry.kind === "response")!;
+		expect(response.finish_reason).toBe("length");
+		expect(response.usage).toEqual({
+			prompt_tokens: 100,
+			completion_tokens: 20,
+			reasoning_tokens: 5,
+			cache_read_tokens: 7,
+		});
+		expect(response.duration_ms).toBeGreaterThanOrEqual(0);
+		expect(response.attempts).toBe(1);
 	});
 
 	test("a retried request keeps one response row with the terminal attempt count", async () => {
@@ -310,12 +372,12 @@ describe("issue #49 — payload, request parameters and redaction shape (O6, O7)
 		expect(Object.keys(attempt).sort()).toEqual([
 			"attempt_n",
 			"ended_at",
+			"error_code",
 			"error_type",
 			"headers",
 			"inflight_process_at_start",
 			"inflight_same_model_at_start",
 			"kind",
-			"latency_ms",
 			"model",
 			"payload_bytes",
 			"request",
@@ -324,6 +386,8 @@ describe("issue #49 — payload, request parameters and redaction shape (O6, O7)
 			"starts_last_60s_process",
 			"starts_last_60s_same_model",
 			"status",
+			"time_to_header_ms",
+			"transport_error",
 		]);
 		expect(attempt.payload_bytes).toBeGreaterThan(0);
 		const serialized = JSON.stringify(entries);
@@ -482,7 +546,7 @@ describe("issue #49 — bounded best-effort sidecar (O8)", () => {
 				model: "qwen3.6",
 				started_at: NOW.toISOString(),
 				ended_at: NOW.toISOString(),
-				latency_ms: 1,
+				time_to_header_ms: 1,
 				status: 200,
 				headers: {},
 				payload_bytes: 1,
@@ -492,6 +556,8 @@ describe("issue #49 — bounded best-effort sidecar (O8)", () => {
 				starts_last_60s_process: 1,
 				starts_last_60s_same_model: 1,
 				error_type: null,
+				error_code: null,
+				transport_error: null,
 			});
 		}
 		const lines = readFileSync(path, "utf8").trim().split("\n");
@@ -514,7 +580,12 @@ describe("issue #49 — bounded best-effort sidecar (O8)", () => {
 				status: 200,
 				attempts: 1,
 				ended_at: NOW.toISOString(),
+				duration_ms: 1,
 				request: null,
+				usage: null,
+				finish_reason: null,
+				error_type: null,
+				error_code: null,
 			}),
 		).not.toThrow();
 
@@ -541,7 +612,7 @@ describe("issue #49 — bounded best-effort sidecar (O8)", () => {
 					model: "qwen3.6",
 					started_at: NOW.toISOString(),
 					ended_at: NOW.toISOString(),
-					latency_ms: 0,
+					time_to_header_ms: 0,
 					status: 200,
 					headers: {},
 					payload_bytes: null,
@@ -551,6 +622,8 @@ describe("issue #49 — bounded best-effort sidecar (O8)", () => {
 					starts_last_60s_process: 1,
 					starts_last_60s_same_model: 1,
 					error_type: null,
+					error_code: null,
+					transport_error: null,
 				}),
 				"",
 			].join("\n"),

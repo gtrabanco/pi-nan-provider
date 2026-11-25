@@ -804,14 +804,17 @@ export function parseGatewayError(message: string | undefined): {
 	if (start === -1 || end <= start) return null;
 	try {
 		const parsed = JSON.parse(message.slice(start, end + 1)) as unknown;
-		if (!isObject(parsed) || !isObject(parsed.error)) return null;
-		const error = parsed.error;
-		return {
-			type: typeof error.type === "string" ? error.type : null,
-			code: typeof error.code === "string" ? error.code : null,
-			param: typeof error.param === "string" ? error.param : null,
-			message: typeof error.message === "string" ? error.message : null,
-		};
+		if (!isObject(parsed)) return null;
+		// Two shapes reach the transcript: the raw HTTP body wraps the error in
+		// `error`, while pi-ai's `formatProviderError` writes the inner object
+		// directly after the status (`429: {"message":…,"type":…,"code":…}`).
+		const error = isObject(parsed.error) ? parsed.error : parsed;
+		const type = typeof error.type === "string" ? error.type : null;
+		const code = typeof error.code === "string" ? error.code : null;
+		const param = typeof error.param === "string" ? error.param : null;
+		const text = typeof error.message === "string" ? error.message : null;
+		if (type === null && code === null && text === null) return null;
+		return { type, code, param, message: text };
 	} catch {
 		return null;
 	}
@@ -1075,8 +1078,8 @@ export async function buildDebugReport(options: BuildDebugReportOptions = {}): P
 					attempt_n: terminal?.attempt_n ?? null,
 					message_truncated: serverMessage !== null ? serverMessage.slice(0, 200) : null,
 					message_hash: serverMessage !== null && errorMessage ? md5Short(errorMessage) : null,
-					error_type: gatewayError?.type ?? null,
-					error_code: gatewayError?.code ?? null,
+					error_type: gatewayError?.type ?? terminal?.error_type ?? null,
+					error_code: gatewayError?.code ?? terminal?.error_code ?? null,
 					error_param: gatewayError?.param ?? null,
 					response_id: responseId,
 					input: numberOrZero(usage.input),
@@ -1239,7 +1242,7 @@ function renderReadme(report: DebugReport, versions: Record<string, string>): st
 		"- `anonymized_usage.jsonl` — one aggregated row per date/session/model: token counters, turn count, stop-reason counts, cache-hit rate, anomaly signatures.",
 		"- `turns.jsonl` — one row per assistant turn: model, usage counters, stop reason, classified error, response id, `cf_ray` (Cloudflare trace id, null when uncaptured), gateway `created`, terminal `status`, `attempt_n`, and the request parameters (`reasoning_effort`, `max_tokens`, the field actually sent, `stream`).",
 		"- `errors.jsonl` — one row per errored turn: class, `status`, `cf_ray`, `attempt_n`, the parsed gateway body (`error_type`, `error_code`, `error_param`), its message (200 chars max) and the MD5 hash of the full message. Transport errors carry no message, hash or path. A failed request has no response id, so those three attempt cells are correlated by model and the turn's own span; with concurrent requests to the same model treat them as best-effort — `http_attempts.jsonl` is the authoritative per-attempt record.",
-		"- `http_attempts.jsonl` — one `kind: \"attempt\"` row per HTTP attempt: status, whitelisted response headers, `started_at`/`ended_at`/`latency_ms`, `attempt_n`, `payload_bytes`, request parameters, process-scoped inflight/60 s counters and the transport error class. One `kind: \"response\"` row per completed request carries the gateway `response_id`/`created`. Retries pi-ai hides from the transcript are rows here.",
+		"- `http_attempts.jsonl` — one `kind: \"attempt\"` row per HTTP attempt: `status`, the gateway `error_type`/`error_code` parsed from a non-2xx body, whitelisted response headers, `started_at`/`ended_at`/`time_to_header_ms` (start → headers: the early-rejection signal, not the body read), `attempt_n`, `payload_bytes`, request parameters and the process-scoped inflight/60 s counters. `transport_error` is the fetch-rejection class (`TypeError`, `AbortError`, …), never its message. One `kind: \"response\"` row per completed request carries the gateway `response_id`/`created`, the terminal `status`, the attempt count, `duration_ms` (first attempt start → completion, retries included), the token `usage` (`prompt_tokens`/`completion_tokens`/`reasoning_tokens`/`cache_read_tokens`) and the raw `finish_reason`. Retries pi-ai hides from the transcript are rows here.",
 		"- `anomalies.jsonl` — duplicate `id`/`created` pairs captured by the provider, with both `cf-ray` values (see issue #35).",
 		"- `metadata.json` — versions, catalog provenance, window, `topic_hash`, redaction counters and `attempt_summary` (status counts, 429 ratio per model and per model-hour, longest 429 streak).",
 		"",
@@ -1250,6 +1253,18 @@ function renderReadme(report: DebugReport, versions: Record<string, string>): st
 		"- Request or response bodies: the tap stores `payload_bytes`, never the payload.",
 		"- Local absolute paths and pi-side exception text — outside the opt-in `sessions/` transcripts, raw by request: their `cwd` header is still MD5-hashed. Session ids and worktree labels are MD5-truncated to 16 chars (no per-report salt, so the same session links across reports); a surviving server message has the home directory scrubbed to `~`.",
 		"- Raw error text: `errors.jsonl` keeps only the fields of a gateway error body, never a local exception message.",
+		"",
+		"## Mapping to the reference attempt CSV",
+		"",
+		"- `start_utc`/`end_utc` → `started_at`/`ended_at` (UTC, milliseconds).",
+		"- `first_byte_ms` → `time_to_header_ms`; the full request duration → `duration_ms` on the `response` row.",
+		"- `status`, `error_type`, `error_code` → same names (from the gateway JSON body); a fetch rejection sets `transport_error` instead.",
+		"- `request_size`/`prompt_chars` → `payload_bytes` (serialized body bytes only — the body itself is never stored).",
+		"- `prompt_tokens`/`completion_tokens`/`reasoning_tokens`/`finish_reason` → `response.usage.*` / `response.finish_reason`.",
+		"- `response_id` → `response.response_id`.",
+		"- `inflight_key_at_start` → `inflight_process_at_start`; `inflight_same_model_at_start` keeps its name.",
+		"- `starts_last_60s_key`/`starts_last_60s_same_model` → `starts_last_60s_process`/`starts_last_60s_same_model`.",
+		"- `over_documented_limit` is not emitted: NaN's limits are not baked into the provider, and both raw counters are exported so support can apply the documented values themselves.",
 		"",
 		"## `inflight_*` is process-scoped",
 		"",

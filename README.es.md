@@ -417,11 +417,14 @@ nunca producen un id de gateway — se guarda en
 las cabeceras de respuesta de la whitelist (`cf-ray`, `x-request-id`,
 `Retry-After`, `x-should-retry`, `rate-limit-*`), inicio/fin en milisegundos más
 `latency_ms`, `attempt_n`, `payload_bytes`, los parámetros de la petición
-(`reasoning_effort`, `max_tokens`, el campo realmente enviado, `stream`) y los
-contadores de concurrencia e inicios en 60 s, que son del proceso. El informe
-embebe las filas filtradas por la ventana como `http_attempts.jsonl`, así que un
-solo zip responde *qué intento falló, con qué status y cabeceras y tras cuántos
-reintentos*.
+(`reasoning_effort`, `max_tokens`, el campo realmente enviado, `stream`), el
+`error_type`/`error_code` del cuerpo no-2xx y los contadores de concurrencia e
+inicios en 60 s, que son del proceso. `time_to_header_ms` es inicio → cabeceras
+(la señal de rechazo temprano, p. ej. la mediana de 237 ms); la duración total,
+el `usage` de tokens y el `finish_reason` en bruto van en la fila `response` de
+cada petición. El informe embebe las filas filtradas por la ventana como
+`http_attempts.jsonl`, así que un solo zip responde *qué intento falló, con qué
+status y cabeceras y tras cuántos reintentos*.
 
 `/nan-debug` convierte esos ficheros y tus transcripts en un paquete de evidencia
 redactado y reproducible para NaN:
@@ -465,7 +468,9 @@ redactado y reproducible para NaN:
   caché), `turns.jsonl` (uso por turno, `stopReason`, clase de error,
   `responseId`, `cf_ray`, `created` del gateway, `status` terminal, `attempt_n` y
   los parámetros de la petición), `errors.jsonl` (clase, `status`, `cf_ray`,
-  `attempt_n`, los campos parseados `error_type`/`error_code`/`error_param`, el
+  `attempt_n`, los campos parseados `error_type`/`error_code`/`error_param`
+  (tanto el envoltorio HTTP en bruto como la forma `status: {objeto interno}`
+  que escribe pi-ai), el
   mensaje del propio gateway limitado a 200 caracteres y un hash MD5; una
   petición fallida no tiene response id, así que su `status`/`cf_ray`/`attempt_n`
   se correlacionan por modelo y por el span del turno — con peticiones

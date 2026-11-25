@@ -75,8 +75,10 @@ export interface HttpAttemptRecord {
 	attempt_n: number;
 	model: string;
 	started_at: string;
+	/** When the response headers arrived (or the fetch rejected). */
 	ended_at: string;
-	latency_ms: number;
+	/** Start → response headers; the early-rejection signal (not the full body read). */
+	time_to_header_ms: number;
 	status: number | null;
 	/** Whitelisted response headers only. */
 	headers: Record<string, string>;
@@ -88,8 +90,12 @@ export interface HttpAttemptRecord {
 	/** Attempts started in this process in the previous 60 s, this one included. */
 	starts_last_60s_process: number;
 	starts_last_60s_same_model: number;
-	/** Fetch rejection class (`error.name`), null when a response arrived. */
+	/** Gateway `error.type` from a non-2xx error body; null otherwise. */
 	error_type: string | null;
+	/** Gateway `error.code` from a non-2xx error body; null otherwise. */
+	error_code: string | null;
+	/** Fetch-rejection class (`error.name`), null when a response arrived. */
+	transport_error: string | null;
 }
 
 /** One completed logical request, joining the gateway id back to the turn. */
@@ -104,7 +110,21 @@ export interface HttpResponseRecord {
 	/** Total attempts this logical request made. */
 	attempts: number;
 	ended_at: string;
+	/** First attempt start → completion (retries and backoff included). */
+	duration_ms: number | null;
 	request: HttpAttemptRequestParams | null;
+	/** Token counts the gateway reported for the completed request. */
+	usage: {
+		prompt_tokens: number;
+		completion_tokens: number;
+		reasoning_tokens: number;
+		cache_read_tokens: number;
+	} | null;
+	/** Raw OpenAI `finish_reason` from the last chunk; null when absent. */
+	finish_reason: string | null;
+	/** Gateway error type when the error arrived inside a 200 SSE stream. */
+	error_type: string | null;
+	error_code: string | null;
 }
 
 export type HttpAttemptEntry = HttpAttemptRecord | HttpResponseRecord;
@@ -187,6 +207,7 @@ function isAttemptRecord(entry: Record<string, unknown>): entry is Record<string
 		typeof entry.attempt_n === "number" &&
 		typeof entry.started_at === "string" &&
 		typeof entry.ended_at === "string" &&
+		typeof entry.time_to_header_ms === "number" &&
 		(entry.status === null || typeof entry.status === "number") &&
 		typeof entry.headers === "object" &&
 		entry.headers !== null
@@ -199,6 +220,7 @@ function isResponseRecord(entry: Record<string, unknown>): entry is Record<strin
 		typeof entry.model === "string" &&
 		typeof entry.attempts === "number" &&
 		typeof entry.ended_at === "string" &&
+		(entry.duration_ms === null || typeof entry.duration_ms === "number") &&
 		(entry.status === null || typeof entry.status === "number")
 	);
 }
@@ -263,12 +285,64 @@ function isObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }
 
+/** Cap on the error body read; gateway error bodies are small, this bounds memory. */
+const MAX_ERROR_BODY_BYTES = 8_192;
+
+/**
+ * Read only the `type`/`code` of a non-2xx gateway error body. The response is
+ * cloned (never consumed) and at most `MAX_ERROR_BODY_BYTES` are read, so the
+ * error message, the body and any user content are never stored. Returns nulls
+ * when the body is not a JSON error or cannot be read.
+ */
+async function readGatewayErrorFields(response: Response): Promise<{ type: string | null; code: string | null }> {
+	const empty = { type: null, code: null };
+	const body = response.clone().body;
+	if (!body) return empty;
+	let text = "";
+	let bytes = 0;
+	try {
+		const reader = body.getReader();
+		const decoder = new TextDecoder();
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			if (value) {
+				bytes += value.byteLength;
+				text += decoder.decode(value, { stream: true });
+			}
+			if (bytes >= MAX_ERROR_BODY_BYTES) {
+				await reader.cancel().catch(() => undefined);
+				break;
+			}
+		}
+		if (bytes < MAX_ERROR_BODY_BYTES) text += decoder.decode();
+	} catch {
+		return empty;
+	}
+	const start = text.indexOf("{");
+	const end = text.lastIndexOf("}");
+	if (start === -1 || end <= start) return empty;
+	try {
+		const parsed = JSON.parse(text.slice(start, end + 1)) as unknown;
+		if (!isObject(parsed)) return empty;
+		// Same two shapes the transcript parser accepts: wrapped or inner object.
+		const error = isObject(parsed.error) ? parsed.error : parsed;
+		return { type: asString(error.type), code: asString(error.code) };
+	} catch {
+		return empty;
+	}
+}
+
 function asString(value: unknown): string | null {
 	return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function asNumber(value: unknown): number | null {
 	return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function numberOrZero(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 /** The request parameters and serialized size of the final outgoing payload. */
@@ -364,7 +438,22 @@ export function withHttpAttemptCapture(api: ProviderStreams, options: HttpAttemp
 			created: number | null;
 			attempts: number;
 			lastStatus: number | null;
-		} = { payloadBytes: null, request: null, id: null, created: null, attempts: 0, lastStatus: null };
+			firstStart: number | null;
+			finishReason: string | null;
+			streamErrorType: string | null;
+			streamErrorCode: string | null;
+		} = {
+			payloadBytes: null,
+			request: null,
+			id: null,
+			created: null,
+			attempts: 0,
+			lastStatus: null,
+			firstStart: null,
+			finishReason: null,
+			streamErrorType: null,
+			streamErrorCode: null,
+		};
 
 		const userOnPayload = opts.onPayload;
 		opts.onPayload = async (payload: unknown, model: unknown) => {
@@ -384,6 +473,14 @@ export function withHttpAttemptCapture(api: ProviderStreams, options: HttpAttemp
 				if (id) state.id = id;
 				const created = asNumber(chunk.created);
 				if (created !== null) state.created = created;
+				const choices = chunk.choices;
+				if (Array.isArray(choices) && isObject(choices[0]) && typeof choices[0].finish_reason === "string") {
+					state.finishReason = choices[0].finish_reason;
+				}
+				if (isObject(chunk.error)) {
+					state.streamErrorType = asString(chunk.error.type);
+					state.streamErrorCode = asString(chunk.error.code);
+				}
 			}
 			if (typeof userOnStreamEvent === "function") {
 				return (userOnStreamEvent as (c: unknown, m: unknown) => unknown)(chunk, model);
@@ -395,6 +492,7 @@ export function withHttpAttemptCapture(api: ProviderStreams, options: HttpAttemp
 		const tapFetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
 			const at = now().getTime();
 			pruneStarts(at);
+			if (state.firstStart === null) state.firstStart = at;
 			const concurrent = countOpen(at, modelId);
 			const recentStarts = starts.filter((start) => start.at >= at - START_WINDOW_MS).length + 1;
 			const recentSameModel =
@@ -404,9 +502,17 @@ export function withHttpAttemptCapture(api: ProviderStreams, options: HttpAttemp
 			open.push(tracked);
 			starts.push({ model: modelId, at });
 
-			const record = (status: number | null, headers: Record<string, string>, errorType: string | null): void => {
-				const ended = now();
-				tracked.end = ended.getTime();
+			const record = (
+				endedMs: number,
+				status: number | null,
+				headers: Record<string, string>,
+				errorType: string | null,
+				errorCode: string | null,
+				transportError: string | null,
+			): void => {
+				// The HTTP attempt ends when the headers arrive; the body read below is
+				// instrumentation, so it must not inflate the concurrency counters.
+				tracked.end = endedMs;
 				state.lastStatus = status;
 				const entry: HttpAttemptRecord = {
 					kind: "attempt",
@@ -414,8 +520,8 @@ export function withHttpAttemptCapture(api: ProviderStreams, options: HttpAttemp
 					attempt_n,
 					model: modelId,
 					started_at: new Date(at).toISOString(),
-					ended_at: ended.toISOString(),
-					latency_ms: Math.max(0, ended.getTime() - at),
+					ended_at: new Date(endedMs).toISOString(),
+					time_to_header_ms: Math.max(0, endedMs - at),
 					status,
 					headers,
 					payload_bytes: state.payloadBytes,
@@ -425,6 +531,8 @@ export function withHttpAttemptCapture(api: ProviderStreams, options: HttpAttemp
 					starts_last_60s_process: recentStarts,
 					starts_last_60s_same_model: recentSameModel,
 					error_type: errorType,
+					error_code: errorCode,
+					transport_error: transportError,
 				};
 				try {
 					options.sink.record(entry);
@@ -435,11 +543,20 @@ export function withHttpAttemptCapture(api: ProviderStreams, options: HttpAttemp
 
 			try {
 				const response = await baseFetch(input, init);
-				record(response.status, pickResponseHeaders(response.headers), null);
+				const headerMs = now().getTime();
+				const gatewayError = response.status >= 400 ? await readGatewayErrorFields(response) : null;
+				record(
+					headerMs,
+					response.status,
+					pickResponseHeaders(response.headers),
+					gatewayError?.type ?? null,
+					gatewayError?.code ?? null,
+					null,
+				);
 				return response;
 			} catch (error) {
 				const name = isObject(error) && typeof error.name === "string" && error.name.length > 0 ? error.name : "Error";
-				record(null, {}, name);
+				record(now().getTime(), null, {}, null, null, name);
 				throw error;
 			}
 		}) as typeof fetch;
@@ -452,6 +569,14 @@ export function withHttpAttemptCapture(api: ProviderStreams, options: HttpAttemp
 				const ended = now();
 				// pi-ai persists only the id; prefer the raw chunk, fall back to it.
 				const responseId = state.id ?? asString(message?.responseId);
+				const usage = isObject(message?.usage)
+					? {
+							prompt_tokens: numberOrZero(message?.usage.input),
+							completion_tokens: numberOrZero(message?.usage.output),
+							reasoning_tokens: numberOrZero(message?.usage.reasoning),
+							cache_read_tokens: numberOrZero(message?.usage.cacheRead),
+						}
+					: null;
 				const entry: HttpResponseRecord = {
 					kind: "response",
 					request_id: requestId,
@@ -461,7 +586,12 @@ export function withHttpAttemptCapture(api: ProviderStreams, options: HttpAttemp
 					status: state.lastStatus,
 					attempts: state.attempts,
 					ended_at: ended.toISOString(),
+					duration_ms: state.firstStart === null ? null : Math.max(0, ended.getTime() - state.firstStart),
 					request: state.request,
+					usage,
+					finish_reason: state.finishReason,
+					error_type: state.streamErrorType,
+					error_code: state.streamErrorCode,
 				};
 				try {
 					options.sink.record(entry);

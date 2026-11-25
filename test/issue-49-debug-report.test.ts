@@ -71,7 +71,7 @@ function attempt(overrides: Partial<HttpAttemptRecord>): HttpAttemptRecord {
 		model: "qwen3.6",
 		started_at: "2026-11-24T09:59:58.000Z",
 		ended_at: "2026-11-24T09:59:58.200Z",
-		latency_ms: 200,
+		time_to_header_ms: 200,
 		status: 200,
 		headers: {},
 		payload_bytes: 100,
@@ -81,6 +81,8 @@ function attempt(overrides: Partial<HttpAttemptRecord>): HttpAttemptRecord {
 		starts_last_60s_process: 1,
 		starts_last_60s_same_model: 1,
 		error_type: null,
+		error_code: null,
+		transport_error: null,
 		...overrides,
 	};
 }
@@ -95,7 +97,12 @@ function response(overrides: Partial<HttpResponseRecord>): HttpResponseRecord {
 		status: 200,
 		attempts: 2,
 		ended_at: "2026-11-24T09:59:59.900Z",
+		duration_ms: 3900,
 		request: { reasoning_effort: "low", max_tokens: 512, max_tokens_field: "max_tokens", stream: true },
+		usage: { prompt_tokens: 100, completion_tokens: 10, reasoning_tokens: 0, cache_read_tokens: 0 },
+		finish_reason: "stop",
+		error_type: null,
+		error_code: null,
 		...overrides,
 	};
 }
@@ -290,6 +297,41 @@ describe("issue #49 — errors join (O10, O20)", () => {
 		expect(serialized.error_type).toBe("rate_limit_error");
 		expect(serialized.error_code).toBe("rate_limit_exceeded");
 		expect(serialized.error_param).toBeNull();
+	});
+
+	test("parses the error string pi-ai actually writes (no error envelope)", async () => {
+		const agentDir = scratch();
+		const dir = join(agentDir, "sessions", "--x--");
+		mkdirSync(dir, { recursive: true });
+		// pi-ai's formatProviderError yields `<status>: <inner error object>` — the raw
+		// HTTP body wraps it in `error`, the transcript does not.
+		const normalized =
+			'429: {"message":"Rate limit reached. Please retry shortly.","type":"rate_limit_error","code":"rate_limit_exceeded","param":null}';
+		writeFileSync(
+			join(dir, "2026-11-24T10-00-00-000Z_a.jsonl"),
+			[
+				JSON.stringify({ type: "session", cwd: CWD_SECRET }),
+				JSON.stringify({
+					type: "message",
+					message: {
+						role: "assistant",
+						provider: "nan",
+						model: "qwen3.6",
+						stopReason: "error",
+						errorMessage: normalized,
+						usage: { input: 1, output: 0, totalTokens: 1 },
+					},
+				}),
+				"",
+			].join("\n"),
+		);
+		const report = await buildDebugReport({ agentDir, now: NOW, windowDays: 1 });
+		const row = report.errors[0]!;
+		expect(row.error).toBe("rate_limited");
+		expect(row.error_type).toBe("rate_limit_error");
+		expect(row.error_code).toBe("rate_limit_exceeded");
+		expect(row.error_param).toBeNull();
+		expect(row.message_truncated).toBe("Rate limit reached. Please retry shortly.");
 	});
 
 	test("a transport error stores no message, hash, path or exception text", async () => {
