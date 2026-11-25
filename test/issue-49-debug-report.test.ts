@@ -15,7 +15,7 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 
@@ -29,6 +29,11 @@ import {
 import { HTTP_ATTEMPTS_FILE, type HttpAttemptRecord, type HttpResponseRecord } from "../src/http-attempts.ts";
 
 const NOW = new Date("2026-11-24T12:00:00.000Z");
+// The home-scrub contract keys on the running user's home directory, so the
+// fixture must derive its embedded path from it — a literal like
+// /home/agent only scrubs on machines whose home actually is /home/agent.
+const HOME_DIR = homedir();
+const HOME_EMBEDDED_PATH = join(HOME_DIR, "projects", "x");
 const CWD_SECRET = "/home/agent/projects/client-acme";
 const PROMPT_LITERAL = "PROMPT-SECRET-LITERAL";
 const TOOL_ARG_SECRET = "TOOL-ARG-SECRET";
@@ -307,7 +312,7 @@ describe("issue #49 — errors join (O10, O20)", () => {
 		const dir = join(agentDir, "sessions", "--x--");
 		mkdirSync(dir, { recursive: true });
 		const body = JSON.stringify({
-			error: { message: "bad request in /home/agent/projects/x", type: "invalid_request_error", code: "bad", param: "messages" },
+			error: { message: `bad request in ${HOME_EMBEDDED_PATH}`, type: "invalid_request_error", code: "bad", param: "messages" },
 		});
 		writeFileSync(
 			join(dir, "2026-11-24T10-00-00-000Z_a.jsonl"),
@@ -329,8 +334,8 @@ describe("issue #49 — errors join (O10, O20)", () => {
 		);
 		const report = await buildDebugReport({ agentDir, now: NOW, windowDays: 1 });
 		const rendered = renderDebugReport(report);
-		expect(rendered.files["errors.jsonl"]).toContain("/home/agent/projects/x".replace("/home/agent", "~"));
-		expect(rendered.files["errors.jsonl"]).not.toContain("/home/agent");
+		expect(rendered.files["errors.jsonl"]).toContain("~/projects/x");
+		expect(rendered.files["errors.jsonl"]).not.toContain(HOME_DIR);
 	});
 });
 
