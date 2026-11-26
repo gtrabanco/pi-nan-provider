@@ -76,7 +76,20 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 /** Monotonic counter for deterministic fallback tool-call ids (pi-ai always supplies ids; this is pure defense). */
-let anonymousToolCallSeq = 0;
+const FALLBACK_TOOL_NAME = "function";
+
+/**
+ * Deterministic fallback id for a tool call that reached the payload without one.
+ *
+ * Derived from the message and call positions, never from a counter: a
+ * counter mints a different id on every replay of the same history, which
+ * changes the request body and invalidates the gateway's server-side prefix
+ * cache. Positions are stable while the history only appends, which is how pi
+ * replays a session; a compaction legitimately renumbers them.
+ */
+function fallbackToolCallId(messageIndex: number, callIndex: number, name: string): string {
+	return `call_${name.length > 0 ? name : FALLBACK_TOOL_NAME}_${messageIndex}_${callIndex}`;
+}
 
 /** Normalize a `toolCall` content block into NaN's `tool_calls[].{id,type,function}` shape. */
 function toToolCall(block: ToolCallBlock): Record<string, unknown> {
@@ -91,27 +104,38 @@ function toToolCall(block: ToolCallBlock): Record<string, unknown> {
 			argumentsJson = "{}";
 		}
 	}
-	const fallbackName = typeof block.name === "string" && block.name.length > 0 ? block.name : "function";
+	const name = typeof block.name === "string" && block.name.length > 0 ? block.name : FALLBACK_TOOL_NAME;
 	return {
-		id: typeof block.id === "string" && block.id.length > 0 ? block.id : `call_${fallbackName}_${++anonymousToolCallSeq}`,
+		// The id is repaired by `reconcileToolCalls` once the whole message list is
+		// visible: an empty id can only be filled from the result it answers, which
+		// is the next message, not this block.
+		id: typeof block.id === "string" ? block.id : "",
 		type: "function",
 		function: {
-			name: fallbackName,
+			name,
 			arguments: argumentsJson,
 		},
 	};
 }
 
-/** Merge tool calls, de-duplicating by id and preferring the pre-existing (pi-ai-built) entries. */
+/** Merge tool calls, de-duplicating by a real id and preferring the pre-existing (pi-ai-built) entries. */
 function mergeToolCalls(existing: unknown[], incoming: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
-	const byId = new Map<string, Record<string, unknown>>();
-	for (const tc of existing) {
-		if (isObject(tc) && typeof tc.id === "string") byId.set(tc.id, tc);
-	}
-	for (const tc of incoming) {
-		if (typeof tc.id === "string" && !byId.has(tc.id)) byId.set(tc.id, tc);
-	}
-	return [...byId.values()];
+	const merged: Array<Record<string, unknown>> = [];
+	const seenIds = new Set<string>();
+	const add = (tc: unknown): void => {
+		if (!isObject(tc)) return;
+		const id = typeof tc.id === "string" ? tc.id : "";
+		// An empty id is not an identity: two anonymous calls are two calls, and
+		// dropping either would lose a tool call the model actually made.
+		if (id.length > 0) {
+			if (seenIds.has(id)) return;
+			seenIds.add(id);
+		}
+		merged.push(tc);
+	};
+	for (const tc of existing) add(tc);
+	for (const tc of incoming) add(tc);
+	return merged;
 }
 
 /**
@@ -189,6 +213,114 @@ function sanitizeMessage(message: unknown): unknown {
 	return out;
 }
 
+/**
+ * Repair one announced tool call against the result it answers.
+ *
+ * An id can arrive empty for two reasons: a `toolCall` block carried no id
+ * (older payloads), or the gateway streamed a phantom call whose `id` and
+ * `name` never landed. Either way the id is filled from the answering
+ * `tool_call_id` when that is real, and from the deterministic position
+ * fallback otherwise.
+ */
+function repairToolCall(raw: unknown, messageIndex: number, callIndex: number, resultIds: unknown[]): unknown {
+	if (!isObject(raw)) return raw;
+	if (typeof raw.type === "string" && raw.type !== "function") return raw; // grammar tools keep their shape
+	const fn = isObject(raw.function) ? { ...raw.function } : {};
+	const rawName = typeof fn.name === "string" ? fn.name : "";
+	const name = rawName.length > 0 ? rawName : FALLBACK_TOOL_NAME;
+	if (fn.arguments !== undefined && typeof fn.arguments !== "string") {
+		try {
+			fn.arguments = JSON.stringify(fn.arguments);
+		} catch {
+			fn.arguments = "{}";
+		}
+	}
+	const resultId = resultIds[callIndex];
+	const id =
+		typeof raw.id === "string" && raw.id.length > 0
+			? raw.id
+			: typeof resultId === "string" && resultId.length > 0
+				? resultId
+				: fallbackToolCallId(messageIndex, callIndex, name);
+	return { ...raw, id, type: "function", function: { ...fn, name } };
+}
+
+/**
+ * Reconcile announced tool calls with the `tool` messages that answer them, in
+ * one ordered pass (issue #52).
+ *
+ * NaN's gateway, like every OpenAI-compatible one, rejects a payload in which an
+ * assistant `tool_calls[].id` or a `tool` message's `tool_call_id` is empty: it
+ * answers the opaque `400 Invalid request. Check your request parameters.` and
+ * the session wedges for as long as that message stays in history. Both ids are
+ * therefore guaranteed non-empty and pairwise equal here.
+ *
+ * Binding is positional because that is how pi emits them: the results follow
+ * their assistant message in the order the calls were announced. A result whose
+ * `tool_call_id` is real is never rewritten (an unmatched real id is left alone,
+ * as before). A result with an empty id and no announced call to bind to cannot
+ * be made valid by rewriting, so it is dropped — the only schema-valid outcome.
+ */
+function reconcileToolCalls(messages: unknown[]): unknown[] {
+	const reconciled: unknown[] = [];
+	let announced: string[] = [];
+	let cursor = 0;
+
+	messages.forEach((message, index) => {
+		if (!isObject(message)) {
+			announced = [];
+			cursor = 0;
+			reconciled.push(message);
+			return;
+		}
+
+		if (message.role === "assistant") {
+			const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+			if (calls.length === 0) {
+				announced = [];
+				cursor = 0;
+				reconciled.push(message);
+				return;
+			}
+			// The answers immediately follow; their ids are the preferred repair
+			// source, because a real id must win over an invented one.
+			const resultIds: unknown[] = [];
+			for (let j = index + 1; j < messages.length; j++) {
+				const next = messages[j];
+				if (!isObject(next) || next.role !== "tool") break;
+				resultIds.push(next.tool_call_id);
+			}
+			const normalized = calls.map((raw, callIndex) => repairToolCall(raw, index, callIndex, resultIds));
+			announced = normalized.map((tc) => (isObject(tc) && typeof tc.id === "string" ? tc.id : ""));
+			cursor = 0;
+			reconciled.push({ ...message, tool_calls: normalized });
+			return;
+		}
+
+		if (message.role === "tool") {
+			const target = announced[cursor];
+			cursor += 1;
+			const id = message.tool_call_id;
+			if (typeof id === "string" && id.length > 0) {
+				reconciled.push(message);
+				return;
+			}
+			if (target !== undefined && target.length > 0) {
+				reconciled.push({ ...message, tool_call_id: target });
+				return;
+			}
+			// Nothing to bind to: an empty id referencing no call is never valid.
+			return;
+		}
+
+		announced = [];
+		cursor = 0;
+		reconciled.push(message);
+	});
+
+	return reconciled;
+}
+
 export interface SanitizerOptions {
 	/**
 	 * Keep `stream_options` in the payload. Set only when the model's effective
@@ -224,27 +356,11 @@ export function sanitizeOpenAICompatPayload(payload: unknown, options: Sanitizer
 
 	// Patch function-tools call arguments: NaN wants function-call arguments
 	// serialized as a JSON string under `function.arguments`. pi-ai already does
-	// this, but a hand-built / older-version payload may not. Normalize each.
+	// this, but a hand-built / older-version payload may not. Normalize each, and
+	// reconcile every call with the result that answers it (issue #52): an empty
+	// `tool_calls[].id` or `tool_call_id` is an opaque 400 at the gateway.
 	if (Array.isArray(out.messages)) {
-		out.messages = out.messages.map((m) => {
-			if (!isObject(m) || m.role !== "assistant") return m;
-			if (!Array.isArray(m.tool_calls)) return m;
-			const normalized = m.tool_calls.map((tc) => {
-				if (!isObject(tc)) return tc;
-				if (typeof tc.type === "string" && tc.type !== "function") return tc;
-				const fn = isObject(tc.function) ? tc.function : {};
-				let args = fn.arguments;
-				if (args !== undefined && typeof args !== "string") {
-					try {
-						args = JSON.stringify(args);
-					} catch {
-						args = "{}";
-					}
-				}
-				return { ...tc, type: "function", function: { ...fn, ...(args !== undefined ? { arguments: args } : {}) } };
-			});
-			return { ...m, tool_calls: normalized };
-		});
+		out.messages = reconcileToolCalls(out.messages);
 	}
 
 	// Top-level fields absent from NaN's schema.
