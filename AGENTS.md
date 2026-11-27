@@ -350,6 +350,31 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   only when estimated over the window). Wired in `src/provider-factory.ts` after
   the sanitizer. Regression tests: `test/issue-3-model-switch-overflow.test.ts`,
   `test/context-overflow-classifier.test.ts`; issue #3.
+- **The #52 wedge is a payload defect, not an under-counting estimator** (verified
+  2026-11-26 against the archived transcript and attempt log). A
+  `mimo-v2.6-flash` session sat on the opaque 400 for two hours; the turn before
+  the first 400 reports `input` 2,075 + `cacheRead` 559,232 = **561,307 prompt
+  tokens** against a **1,048,576** window, while `estimateRequestTokens` answers
+  625,484 for the same 2,170,428 payload bytes. Real ratio = 3.867 bytes/token,
+  so the 3.47 divisor **over**-estimates by 11.4 % — the issue's "systematically
+  underestimated" is backwards, and its ÷2.0 proposal would fabricate 1,085,214
+  tokens for a request at 53.5 % of the window (a forced compaction plus a false
+  cause on the error text). The real cause: the gateway streamed
+  `{"type":"toolCall","id":"","name":"","arguments":{}}`, pi persisted pi's
+  `"Tool  not found"` result with `toolCallId: ""`, and pi-ai copies both ids
+  verbatim onto the wire (`api/openai-completions.js:1015-1022` for
+  `tool_calls`, `:1073-1077` for `role:"tool"`) — so every replay of the history
+  was rejected until a compaction removed the pair. `src/openai-compat-sanitizer.ts`
+  now reconciles announced calls with their results in one ordered pass
+  (`reconcileToolCalls`): empty id ← the answering `tool_call_id`, else a
+  deterministic `call_<name>_<messageIndex>_<callIndex>` fallback (never a
+  counter — a request-varying id invalidates the prefix cache); empty
+  `function.name` → `function`; empty `tool_call_id` ← the announced call; a
+  result with nothing to bind to is dropped. Real ids, `type !== "function"`
+  grammar calls and unrelated fields are untouched. The overflow thresholds are
+  unchanged on purpose. Regression tests: `test/issue-52-empty-tool-call-ids.test.ts`
+  (the repair, the deterministic ids, the trailing invariants and the pinned
+  measurement); `test/openai-compat-sanitizer.test.ts` stays byte-identical.
 - Relative imports inside this package use `.ts` extensions (pi's official
   extension examples do the same; pi transpiles extension sources).
 - pi 0.87 breaking changes NOT used by this package: `ContextEditEntry` added to

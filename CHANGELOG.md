@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.4] - 2026-11-26
+
+### Fixed
+
+- **A malformed tool call can no longer wedge a session (issue #52).** A
+  `mimo-v2.6-flash` session sat on HTTP 400 `Invalid request. Check your request
+  parameters.` for two hours across every retry and thinking level. The report
+  blamed `estimateRequestTokens()`; the transcript says otherwise — the request
+  that failed carried 561,307 prompt tokens against a 1,048,576 window (the
+  estimator answered 625,484 for the same bytes, i.e. it *over*-estimates at
+  3.867 bytes/token), so nothing was over the window to compact. What the payload
+  did carry is a phantom tool call the gateway streamed with `id: ""` and
+  `name: ""`, plus pi's `"Tool  not found"` result with `tool_call_id: ""`;
+  every later replay of the history returned the same opaque 400.
+  `sanitizeOpenAICompatPayload` (`src/openai-compat-sanitizer.ts`) now reconciles
+  announced tool calls with the `tool` messages that answer them, in one ordered
+  pass: a missing id is filled from the answering result (or from a deterministic
+  positional fallback), an empty `function.name` becomes `function`, an empty
+  `tool_call_id` binds to the call it answers, and a result with nothing to bind
+  to is dropped as the only schema-valid outcome. Real ids, grammar-tool calls
+  and every unrelated field are left untouched. The overflow thresholds are
+  deliberately unchanged: the ~2.0 divisor the issue proposed would fabricate an
+  overflow (1,085,214 estimated tokens) for a request at 53.5 % of the window, so
+  the measured calibration is pinned by
+  `test/issue-52-empty-tool-call-ids.test.ts` instead.
+
+### Docs
+
+- Folded the three external-verify advisories as one documentation batch: the
+  sanitizer module header now enumerates the #52 empty-id repair among the
+  shapes it corrects (shape 6), and both READMEs scope the #52 bullet to
+  function-type tool calls — non-`function` grammar calls were always left
+  untouched — while keeping the overflow-size recheck and the payload repair
+  as separate rescue paths. No behavior, version or catalog change.
+
 ## [1.6.2] - 2026-11-24
 
 ### Added

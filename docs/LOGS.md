@@ -545,3 +545,96 @@ Gate after the extension: 424 tests pass / 0 fail, typecheck exit 0.
 
 - Owner delta-verifies the batch (blockers-only recheck); A5 awaits the
   owner's decision on the S20 direction.
+
+## 2026-11-26 — issue #52: the session wedge is a malformed tool-call id, not the token estimate (1.6.4)
+
+**Done**
+
+- Resolved the intent as `mismatch` before touching code: the issue blames
+  `estimateRequestTokens()`, but the transcript it cites reports **561,307**
+  prompt tokens (`input` 2,075 + `cacheRead` 559,232) against a **1,048,576**
+  window on the turn right before the first 400 — 53.5 % of the window. The
+  estimator answers 625,484 for the same 2,170,428 payload bytes, i.e. it
+  *over*-estimates at 3.867 real bytes/token, so the ÷2.0 correction the issue
+  proposes would fabricate 1,085,214 tokens for a request that is nowhere near
+  the ceiling. Escalated as one focused question with four concrete options
+  instead of guessing; the owner answered "Create the PR", recorded as D-52-01
+  (authority to ship the recommended repair).
+- Root cause from primary sources: the gateway streamed
+  `{"type":"toolCall","id":"","name":"","arguments":{}}`, pi persisted
+  `"Tool  not found"` with `toolCallId: ""`, and pi-ai copies both ids verbatim
+  into `tool_calls[].id` / `tool_call_id` — so every replay of the history was
+  rejected, and only a compaction that dropped the pair recovered the session.
+  All five `mimo-v2.6-flash` 400s share the ~2.17 MB payload growing 55–80 bytes
+  per turn.
+- `src/openai-compat-sanitizer.ts`: new `reconcileToolCalls` pass —
+  empty `tool_calls[].id` ← the answering `tool_call_id`, else the deterministic
+  `call_<name>_<messageIndex>_<callIndex>` fallback (replaces the process counter,
+  so a replay does not invalidate the prefix cache); empty `function.name` →
+  `function`; empty `tool_call_id` ← the announced call; a result with nothing to
+  bind to is dropped. Real ids, `type !== "function"` grammar calls and every
+  unrelated field are untouched.
+- The overflow thresholds are deliberately unchanged;
+  `src/context-overflow-classifier.ts` is not touched. New
+  `test/issue-52-empty-tool-call-ids.test.ts` also pins the measurement so the
+  ÷2.0 theory cannot be re-applied unnoticed.
+- README EN/ES (sanitizer bullet + Features row + model-switch sentence),
+  CHANGELOG 1.6.4, `package.json` 1.6.4, both badges, AGENTS.md bullet.
+
+**Checks**
+
+- `bun test` → 583 pass / 0 fail / 3248 expect / 45 files; `bun run typecheck`
+  → exit 0.
+- Base `47d09b1` copy (`git archive` in `mktemp`, `node_modules` symlinked) →
+  571 pass / 0 fail / 3204 expect / 44 files + typecheck exit 0; delta is exactly
+  the 12 new tests; no tracked test edited.
+- RED first: the new suite was 6 pass / 6 fail before any `src/` change.
+- Payload differential base vs head on four fixtures: only the phantom turn
+  differs; healthy replay, content-toolCall and real-id orphan are byte-identical.
+
+**Next**
+
+- Owner verdict on the PR. The other three options from the scope question
+  (repair + ÷2.0, issue-as-written, probe-first) remain a cheap re-cut if the
+  owner wants them instead.
+
+## 2026-11-27 — issue #52 correction batch: fold the external-verify advisories
+
+**Done**
+
+- Owner order (the standing "triage and fix those that deserve to fix"): read
+  the 2026-11-26 external-verify receipt (`docs/fix/52-session-wedge-empty-tool-call-ids/external-verify.md`,
+  VERIFIED, 0 blockers, 3 advisories) and folded all three as one documentation
+  batch (D-52-08; O10 frozen before the edits, roles per the #47 batch):
+  - **A1 fixed** — the sanitizer module-header "violated shapes we correct"
+    enumeration stops at 5; the #52 empty-id repair now ships as shape 6
+    (`src/openai-compat-sanitizer.ts:52-62`). Commit `c802e04`.
+  - **A2 fixed** — both READMEs scope the #52 bullet to function-type tool
+    calls ("a call whose `type` is not `function` (a grammar tool) is left
+    untouched" — the non-`function` checkpoint AGENTS.md documents), and the
+    model-switch paragraph no longer couples the payload repair to the size
+    recheck: "the two rescue paths stay separate". Commit `40578f4`.
+  - **A3 fixed** — planning evidence PE-010 re-measured: 790 → **817**
+    `mimo-v2.6-flash` attempt rows at the verification head, 5 × 400 stable,
+    payloads 2,170,428 → 2,170,686; the row now records both snapshots with
+    its rotation caveat. Ledger-freshness edit, nothing frozen reworded.
+- No version move: npm latest is 1.6.3, the branch carries the pending 1.6.4 —
+  the batch rides the same unreleased patch (the #47-batch precedent);
+  CHANGELOG gains a Docs bullet under `[1.6.4]`. No behavior, catalog or test
+  change.
+
+**Checks**
+
+- O10 validator run in the foreground (six rg assertions over the header,
+  README EN/ES and PE-010) → exit 0; recorded in the O10 row.
+- `bun run typecheck` → exit 0 after each commit; `bun test` → 583 pass /
+  0 fail / 3248 expect / 45 files.
+- README EN/ES heading-parity diff → exit 0; badges unchanged at 1.6.4.
+- Sibling sweep: no surviving unqualified "every announced tool call" claim in
+  either README, no other text asserting the grammar-call treatment.
+
+**Next**
+
+- Owner delta-verifies the batch (§9: one recheck of these three, no new cycle
+  from a new finding). Receipt advisories A1/A2/A3 are closed; nothing pending
+  on the unit.
