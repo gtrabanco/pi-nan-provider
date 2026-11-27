@@ -597,3 +597,44 @@ Gate after the extension: 424 tests pass / 0 fail, typecheck exit 0.
 - Owner verdict on the PR. The other three options from the scope question
   (repair + ÷2.0, issue-as-written, probe-first) remain a cheap re-cut if the
   owner wants them instead.
+
+## 2026-11-27 — issue #52 correction batch: fold the external-verify advisories
+
+**Done**
+
+- Owner order (the standing "triage and fix those that deserve to fix"): read
+  the 2026-11-26 external-verify receipt (`docs/fix/52-session-wedge-empty-tool-call-ids/external-verify.md`,
+  VERIFIED, 0 blockers, 3 advisories) and folded all three as one documentation
+  batch (D-52-08; O10 frozen before the edits, roles per the #47 batch):
+  - **A1 fixed** — the sanitizer module-header "violated shapes we correct"
+    enumeration stops at 5; the #52 empty-id repair now ships as shape 6
+    (`src/openai-compat-sanitizer.ts:52-62`). Commit `c802e04`.
+  - **A2 fixed** — both READMEs scope the #52 bullet to function-type tool
+    calls ("a call whose `type` is not `function` (a grammar tool) is left
+    untouched" — the non-`function` checkpoint AGENTS.md documents), and the
+    model-switch paragraph no longer couples the payload repair to the size
+    recheck: "the two rescue paths stay separate". Commit `40578f4`.
+  - **A3 fixed** — planning evidence PE-010 re-measured: 790 → **817**
+    `mimo-v2.6-flash` attempt rows at the verification head, 5 × 400 stable,
+    payloads 2,170,428 → 2,170,686; the row now records both snapshots with
+    its rotation caveat. Ledger-freshness edit, nothing frozen reworded.
+- No version move: npm latest is 1.6.3, the branch carries the pending 1.6.4 —
+  the batch rides the same unreleased patch (the #47-batch precedent);
+  CHANGELOG gains a Docs bullet under `[1.6.4]`. No behavior, catalog or test
+  change.
+
+**Checks**
+
+- O10 validator run in the foreground (six rg assertions over the header,
+  README EN/ES and PE-010) → exit 0; recorded in the O10 row.
+- `bun run typecheck` → exit 0 after each commit; `bun test` → 583 pass /
+  0 fail / 3248 expect / 45 files.
+- README EN/ES heading-parity diff → exit 0; badges unchanged at 1.6.4.
+- Sibling sweep: no surviving unqualified "every announced tool call" claim in
+  either README, no other text asserting the grammar-call treatment.
+
+**Next**
+
+- Owner delta-verifies the batch (§9: one recheck of these three, no new cycle
+  from a new finding). Receipt advisories A1/A2/A3 are closed; nothing pending
+  on the unit.
