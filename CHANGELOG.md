@@ -31,6 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the measured calibration is pinned by
   `test/issue-52-empty-tool-call-ids.test.ts` instead.
 
+### Docs
+
+- Folded the three external-verify advisories as one documentation batch: the
+  sanitizer module header now enumerates the #52 empty-id repair among the
+  shapes it corrects (shape 6), and both READMEs scope the #52 bullet to
+  function-type tool calls — non-`function` grammar calls were always left
+  untouched — while keeping the overflow-size recheck and the payload repair
+  as separate rescue paths. No behavior, version or catalog change.
+
 ## [1.6.2] - 2026-11-24
 
 ### Added

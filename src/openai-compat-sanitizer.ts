@@ -49,6 +49,16 @@
  *     accepted. pi-ai emits `tools: []` when the conversation has tool-call
  *     history but no active tools; NaN only accepts a real tool list, so the
  *     empty array is dropped and a non-empty list is kept.
+ *  6. An announced tool call whose ids never arrived (issue #52): a phantom
+ *     call streamed with an empty `id` (and possibly an empty
+ *     `function.name`) plus the `tool` message answering it are repaired in
+ *     one ordered pass — the id comes from the answering `tool_call_id`
+ *     when that is real, else from the deterministic
+ *     `call_<name>_<messageIndex>_<callIndex>` fallback; an empty
+ *     `function.name` becomes `function`; an empty `tool_call_id` binds to
+ *     the call it answers; a result with nothing to bind to is dropped.
+ *     Real ids are never rewritten and non-`function` grammar calls are
+ *     left untouched.
  *
  * This is applied by wrapping the provider's api `stream`/`streamSimple`
  * with an `onPayload` hook in src/provider-factory.ts, so every provider
