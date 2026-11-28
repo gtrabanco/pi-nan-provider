@@ -203,8 +203,9 @@ function withStaleCatalogOverlay(
 ): Provider<"openai-completions"> {
 	// Attribution is evaluated at READ time, not only factory time: entries
 	// built while the privacy gate was enabled carry the baked header, and a
-	// mid-session `enableInstallTelemetry: false` must strip it on the next
-	// read without rebuilding the catalog.
+	// mid-session opt-out (`NAN_NO_ATTRIBUTION`, or pi <= 1.6's
+	// `enableInstallTelemetry: false`) must strip it on the next read without
+	// rebuilding the catalog.
 	const policy = <T extends { headers?: Record<string, string> }>(m: T): T =>
 		providerAttributionEnabled() ? m : stripProviderAttribution(m);
 	// Issue #32: a pre-#15 models-store.json persists non-chat endpoint ids

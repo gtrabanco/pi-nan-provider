@@ -1,7 +1,7 @@
 # @gtrabanco/𝜋-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.6.4-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-1.7.2-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 [![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://cloud.nan.builders/r/7GK06FX8)
 
 [NaN Builders](https://cloud.nan.builders/r/7GK06FX8) model provider + MCP nativo para [pi](https://github.com/earendil-works/pi). 
@@ -9,7 +9,7 @@
 Registra el proveedor `nan` vía `pi.registerProvider()` usando la API OpenAI-compatible de NaN (`https://api.nan.builders/v1`), y registra el servidor MCP de media de la comunidad con `pi.registerMcpServer()`.
 
 > [!NOTE]
-> **Requisitos:** pi **≥ 1.4.0** (rango peer `^1.4.0`). El paquete está verificado contra **pi 1.6.0 / pi-ai 1.6.0**; el floor del rango peer solo sube con los re-aligns de menor de pi.
+> **Requisitos:** pi **≥ 1.4.0** (rango peer `^1.4.0`). El paquete está verificado contra **pi 1.7.0 / pi-ai 1.7.0**; el floor del rango peer solo sube con los re-aligns de menor de pi.
 
 ## ✨ Funciones
 
@@ -24,8 +24,8 @@ Registra el proveedor `nan` vía `pi.registerProvider()` usando la API OpenAI-co
 | **Uso de tokens en streaming** | `stream_options.include_usage` activo por defecto, así que pi reporta recuentos reales de entrada/salida/razonamiento/caché ([#4](https://github.com/gtrabanco/pi-nan-provider/issues/4), [#7](https://github.com/gtrabanco/pi-nan-provider/issues/7)). |
 | **Controles de razonamiento** | `reasoningEffortValues` + `thinkingLevelMap` por modelo ([#16](https://github.com/gtrabanco/pi-nan-provider/issues/16)), el guard de stream solo-razonamiento ([#21](https://github.com/gtrabanco/pi-nan-provider/issues/21)) y el campo de tokens máximo por modelo (`qwen3.8-max` mantiene `max_completion_tokens`; `qwen3.8-flash` volvió a `max_tokens` tras el arreglo del gateway de NaN, [#34](https://github.com/gtrabanco/pi-nan-provider/issues/34) → [#36](https://github.com/gtrabanco/pi-nan-provider/issues/36)). |
 | **Export de model facts** | `NAN_MODEL_FACTS` — una entrada congelada y tipada por modelo de chat facturado: límites, tarifas, contrato de razonamiento, protocolo de herramientas, semántica de `max_tokens`, presupuesto de pensamiento, modo de caché y clase de facturación, con un id de procedencia en cada celda ([#47](https://github.com/gtrabanco/pi-nan-provider/issues/47)). |
-| **Cabecera de atribución** | `X-Pi-Provider: gtrabanco/pi-nan-provider@<version>` en cada petición, eliminada cuando la telemetría de instalación de pi está desactivada. |
-| **Modelos de imagen nativos** | `flux-2-klein` y `qwen-image-2.1` registrados como modelos de pi `type: "image"`, accesibles desde codemode y extensiones. |
+| **Cabecera de atribución** | `X-Pi-Provider: gtrabanco/pi-nan-provider@<version>` en cada petición, eliminada con `NAN_NO_ATTRIBUTION` (y con el opt-out de telemetría de instalación de pi ≤ 1.6). |
+| **Modelos de imagen nativos** | `flux-2-klein` y `qwen-image-2.1` registrados como modelos de pi `type: "image"`, accesibles desde codemode y extensiones, con las opciones canónicas `{ size, aspectRatio }` de pi 1.7. |
 | **Puente MCP nativo de media** | El servidor `nan-media` (10 herramientas) registrado con `pi.registerMcpServer()`, gestionado con `/nan-mcp`. |
 | **Informe de créditos** | `/nan-usage` muestra saldo de créditos con barra de progreso, desglose por modelo (input / cached / output en M, créditos consumidos) y periodo de facturación — todo desde `GET /v1/usage` ([#37](https://github.com/gtrabanco/pi-nan-provider/issues/37)). |
 | **Evidencia de anomalías de caché** | Captura de `cf-ray` sobre la firma repetida `id` + `created` del gateway ([#17](https://github.com/gtrabanco/pi-nan-provider/issues/17)) más el recolector determinista `/nan-debug` ([#35](https://github.com/gtrabanco/pi-nan-provider/issues/35)) con evidencia de errores por turno, el `cf-ray` de cada respuesta unido a `turns.jsonl` (S11), ventanas flexibles `--interval` ([#44](https://github.com/gtrabanco/pi-nan-provider/issues/44)) y el tap de intentos HTTP ([#49](https://github.com/gtrabanco/pi-nan-provider/issues/49)): status, cabeceras de la whitelist, reintentos invisibles (`attempt_n`), concurrencia/RPM del proceso y `payload_bytes` — el zip no lleva prompt ni tool content salvo que lo pidas. |
@@ -94,7 +94,7 @@ Un hook `onPayload` suministrado por el llamante se conserva y se encadena despu
 
 Cada modelo que este paquete registra lleva una cabecera HTTP `X-Pi-Provider: gtrabanco/pi-nan-provider@<version>`, añadida sobre las cabeceras de identidad que ya envíe pi-ai (el `User-Agent` de pi nunca se modifica). Identifica las peticiones que vienen de esta extensión de proveedor — incluida la consulta de cuota de `/nan-usage` — y se omite silenciosamente si no se puede resolver la versión del paquete. Los overrides de usuario en `models.json` que reemplacen un modelo reemplazan también sus cabeceras.
 
-La cabecera **sigue la opción de telemetría de pi**: con `enableInstallTelemetry: false` en `settings.json` la cabecera desaparece de todas las peticiones (se evalúa en vivo, así que cambiar la opción aplica en la siguiente petición sin reiniciar) — la cabecera identifica el paquete en uso, y quien haya desactivado la telemetría no debería ser identificable por ella.
+La cabecera **se puede desactivar**: `NAN_NO_ATTRIBUTION=1` (`true`, `yes` u `on` también valen) la elimina de todas las peticiones, y en pi ≤ 1.6 `enableInstallTelemetry: false` sigue haciendo lo mismo. pi 1.7 eliminó la telemetría por completo — la opción, `PI_TELEMETRY` y el informe de instalación ya no existen, y pi envía su propia atribución siempre — así que ahí el interruptor es la variable de entorno. La puerta se evalúa en vivo, así que cambiarla aplica en la siguiente petición sin reiniciar.
 
 ### 🧠 Seguridad al cambiar de modelo
 
@@ -235,6 +235,16 @@ conector con `pi config` → Built-in extensions → `mcp`.
   if (result.stopReason !== "stop") return result.errorMessage
   for (const block of result.output) if (block.type === "image") image(block)
   ```
+
+  En pi 1.7+ el tercer argumento acepta las opciones neutrales del proveedor: `{ size: "1536x1024" }`
+  para un lienzo concreto o `{ aspectRatio: "16:9" }` para uno de `1:1`, `16:9`, `9:16`, `4:3`,
+  `3:4`, `3:2`, `2:3`. NaN solo acepta `WIDTHxHEIGHT` con cada lado en la rejilla de 16
+  píxeles (múltiplo de 16, así que `1024x1008` vale — 1008 = 63 × 16) y entre 256 y 1536
+  (ratio 1:3–3:1, `auto` permitido), así que `size` se valida y `aspectRatio` se resuelve
+  al mayor lienzo exacto; cualquier valor inutilizable falla localmente indicando la regla
+  incumplida en vez de gastar una de las peticiones mensuales de imagen en un `400` garantizado.
+  `size` gana a `aspectRatio`, y `metadata.size` (además de `n`, `seed` y `guidance`, que codemode
+  no expone) sigue funcionando desde código de extensión.
 
   Ambos modelos necesitan el tier de membresía "inference" (403 de lo contrario); los endpoints
   de imagen tienen su propio límite de tasa separado del chat (20 peticiones/min, 100

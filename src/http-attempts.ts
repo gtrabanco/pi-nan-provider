@@ -2,11 +2,15 @@
  * Provider-level HTTP attempt evidence (issue #49).
  *
  * pi's transcript only keeps the terminal outcome of a logical request: pi-ai
- * retries 429/408/409/5xx inside `retryProviderRequest`, a retried request that
- * finally succeeds appears as one ordinary turn, and `onResponse` fires only
- * after the retry loop resolves — so a rejected attempt leaves no `cf-ray`, no
- * status and no timing anywhere. Support asked for exactly that evidence (the
- * reference CSV in issue #49 has one row per HTTP attempt).
+ * retries 429/408/409/5xx inside `retryProviderRequest`, and a retried request
+ * that finally succeeds appears as one ordinary turn — every attempt before it
+ * leaves no status, timing or payload evidence behind.
+ *
+ * pi-ai 1.7 started reporting failed attempts to `onResponse` too
+ * (`onErrorResponse` in `utils/provider-retry.js`), but that hook carries only
+ * the status and headers: no start time per attempt, no attempt number, no
+ * payload size and no process-scoped counters. Those are the measurements
+ * issue #49 asked for, so the tap below stays necessary.
  *
  * `createProvider` exposes no `fetch` option (pi-ai 1.6.0, `CreateProviderOptions`),
  * but `StreamOptions.fetch` is forwarded to the OpenAI client

@@ -5,6 +5,94 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.2] - 2026-11-28
+
+### Fixed
+
+- **A non-string reaching the exported image-size validators crashed with a
+  `TypeError` instead of naming the rule.** `validateNanImageSize` and
+  `nanImageSizeForAspectRatio` are published surfaces (direct library or
+  extension use outside codemode's value checks); both now guard the type and
+  raise the same rule message the shape guards raise.
+  `resolveNanImageSize`'s precedence tiers are untouched — a non-string
+  canonical option still degrades to the next tier, now pinned so the
+  degradation stays documented behavior.
+
+### Changed
+
+- The pi-ai 1.7 `maxTokens` record now distinguishes the two
+  openai-completions entries: the bare `stream()` emits a budget only from an
+  explicit `options.maxTokens` (the 1.7.1 pin below was and is accurate for
+  that entry), while `streamSimple()` — the entry real sessions reach through
+  pi's `ModelRuntime.streamSimple` — runs `buildBaseOptions`, whose
+  `clampMaxTokensToContext(model, context, options?.maxTokens ??
+  model.maxTokens)` always puts a clamped budget on the wire. The earlier
+  record denied the `buildBaseOptions` run the `streamSimple` entry makes; the
+  AGENTS bullet and the contract-test comment were corrected and the
+  `streamSimple` behavior is now pinned by the contract suite. The README's
+  clamp sentence was re-verified against this and is correct as written.
+
+## [1.7.1] - 2026-11-28
+
+### Fixed
+
+- **Image `size` validation treated "divisible by 16" as a multiple of 1024.**
+  The grid test was `side % 16 !== 0`, and 1024 is itself a multiple of 16, so
+  only multiples of 1024 passed: `1024x1008` — a height sitting exactly on
+  NaN's 16-px grid, inside the documented 256–1536 range — was rejected, and the
+  real range violations were reported as grid violations. The rule is now
+  `side % 16 === 0`, and the two checks report separately, so a rejected value
+  names the rule it actually broke ("divisible by 16", "between 256 and 1536",
+  "between 1:3 and 3:1"). No request that NaN accepts is refused any more.
+
+### Changed
+
+- The image suite's "not divisible by 16" sample was `1024x3072` (a /16 size
+  outside the range), so it passed for the wrong reason; it is now `768x772`,
+  with `1024x1008` pinned as the positive on-grid case.
+- Three claims the 1.7.0 realign asserted are now pinned by tests: the catalog
+  keeps `supportsDeveloperRole: false` and sends no `strict` schema on pi-ai
+  1.7, an absent `maxTokens` sends no budget field through the bare `stream()`
+  entry (the `streamSimple` budget is pinned separately since 1.7.2), and a
+  failed attempt with empty headers does not clear a captured `cf-ray`.
+
+## [1.7.0] - 2026-11-28
+
+Verified baseline: pi 1.7.0 / pi-ai 1.7.0 (peer range unchanged, `^1.4.0`).
+
+### Added
+
+- **Native image models accept pi 1.7's canonical size options.**
+  `models.generateImages(painter, context, { size: "1536x1024" })` and
+  `{ aspectRatio: "16:9" }` now reach NaN instead of being silently dropped by
+  the provider. `size` is validated against NaN's published envelope
+  (`WIDTHxHEIGHT`, each side divisible by 16 and 256–1536, ratio 1:3–3:1;
+  `auto` passes through) and the supported ratios map to the largest exact
+  canvas (`1:1`, `16:9`, `9:16`, `4:3`, `3:4`, `3:2`, `2:3`). Precedence is
+  `size` > `aspectRatio` > `metadata.size`, so the extension-side escape hatch
+  keeps working. An unusable value now fails locally with the rule it broke,
+  instead of spending one of the 100 monthly image requests on a guaranteed
+  400.
+- **`NAN_NO_ATTRIBUTION`** turns the `X-Pi-Provider` header off (`1`, `true`,
+  `yes` or `on`).
+
+### Changed
+
+- **The attribution gate follows a setting pi no longer has.** pi 1.7 removed
+  telemetry entirely — `enableInstallTelemetry`, `PI_TELEMETRY` and the install
+  report — and its client identity is now sent unconditionally, so the old gate
+  silently became a permanent "enabled" on 1.7. The package now owns the switch
+  (`NAN_NO_ATTRIBUTION`) and still honors `enableInstallTelemetry: false` on
+  pi 1.4–1.6 hosts, so an existing opt-out is never reversed.
+- **devDependencies realigned** to `@earendil-works/pi-ai` / `pi-coding-agent`
+  1.7.0; the consumed type surface is unchanged (`compat.d.ts` and
+  `api/openai-completions.d.ts` byte-identical to 1.6.0).
+- **`/nan-debug` and cache-anomaly notes reflect pi-ai 1.7's hook contract:**
+  `onResponse` now fires once per attempt, error responses included. The
+  `cf-ray` join was already last-wins and is now pinned by a test; the HTTP
+  attempt tap stays, since the hook still carries no per-attempt timing,
+  attempt number or payload size.
+
 ## [1.6.4] - 2026-11-26
 
 ### Fixed

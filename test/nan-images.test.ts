@@ -15,6 +15,9 @@ import {
 	NAN_IMAGE_MODELS,
 	baselineImageModels,
 	createNanImagesApi,
+	nanImageSizeForAspectRatio,
+	resolveNanImageSize,
+	validateNanImageSize,
 } from "../src/images.ts";
 
 // ---------------------------------------------------------------------------
@@ -558,5 +561,233 @@ describe("createNanImagesApi with no options", () => {
 		});
 		// undefined options should not throw
 		expect(() => createNanImagesApi()).not.toThrow();
+	});
+});
+// ---------------------------------------------------------------------------
+// 14.  pi 1.7 canonical image options: size / aspectRatio
+// ---------------------------------------------------------------------------
+
+describe("createNanImagesApi — pi 1.7 ImagesOptions size/aspectRatio", () => {
+	const flux = () =>
+		imageModelFixture({
+			id: "flux-2-klein",
+			name: "FLUX 2 Klein",
+			input: ["text", "image"],
+			output: ["image"],
+		});
+
+	/** Canonical options are `ImagesOptions`; NaN accepts only WxH. */
+
+	test("options.size in NaN's WxH form reaches the gateway", async () => {
+		const gw = createJsonGateway({ data: [{ b64_json: PNG_B64 }] });
+		const api = createNanImagesApi({ fetchImpl: gw.fetchImpl });
+		const result = await api.generateImages(flux(), buildContext(["a red fox"]), {
+			apiKey: "sk-test",
+			size: "1536x1024",
+		} as never);
+
+		expect(result.stopReason).toBe("stop");
+		const body = JSON.parse(gw.lastInit()!.body as string) as Json;
+		expect(body.size).toBe("1536x1024");
+	});
+
+	test("options.aspectRatio resolves to the matching NaN canvas", async () => {
+		const cases: Array<[string, string]> = [
+			["1:1", "1024x1024"],
+			["16:9", "1536x864"],
+			["9:16", "864x1536"],
+			["4:3", "1024x768"],
+			["3:4", "768x1024"],
+			["3:2", "1536x1024"],
+			["2:3", "1024x1536"],
+		];
+		for (const [aspectRatio, size] of cases) {
+			const gw = createJsonGateway({ data: [{ b64_json: PNG_B64 }] });
+			const api = createNanImagesApi({ fetchImpl: gw.fetchImpl });
+			const result = await api.generateImages(flux(), buildContext(["a red fox"]), {
+				apiKey: "sk-test",
+				aspectRatio,
+			} as never);
+			expect(result.stopReason).toBe("stop");
+			const body = JSON.parse(gw.lastInit()!.body as string) as Json;
+			expect(body.size).toBe(size);
+		}
+	});
+
+	test("an equivalent ratio (32:18) resolves like 16:9", async () => {
+		const gw = createJsonGateway({ data: [{ b64_json: PNG_B64 }] });
+		const api = createNanImagesApi({ fetchImpl: gw.fetchImpl });
+		await api.generateImages(flux(), buildContext(["a red fox"]), {
+			apiKey: "sk-test",
+			aspectRatio: " 32 : 18 ",
+		} as never);
+		expect((JSON.parse(gw.lastInit()!.body as string) as Json).size).toBe("1536x864");
+	});
+
+	test("options.size wins over options.aspectRatio", async () => {
+		const gw = createJsonGateway({ data: [{ b64_json: PNG_B64 }] });
+		const api = createNanImagesApi({ fetchImpl: gw.fetchImpl });
+		await api.generateImages(flux(), buildContext(["a red fox"]), {
+			apiKey: "sk-test",
+			size: "768x768",
+			aspectRatio: "16:9",
+		} as never);
+		expect((JSON.parse(gw.lastInit()!.body as string) as Json).size).toBe("768x768");
+	});
+
+	test("canonical options.size wins over metadata.size", async () => {
+		const gw = createJsonGateway({ data: [{ b64_json: PNG_B64 }] });
+		const api = createNanImagesApi({ fetchImpl: gw.fetchImpl });
+		await api.generateImages(flux(), buildContext(["a red fox"]), {
+			apiKey: "sk-test",
+			size: "1536x1024",
+			metadata: { size: "512x512" },
+		} as never);
+		expect((JSON.parse(gw.lastInit()!.body as string) as Json).size).toBe("1536x1024");
+	});
+
+	test("metadata.size still works for extension callers (no canonical size)", async () => {
+		const gw = createJsonGateway({ data: [{ b64_json: PNG_B64 }] });
+		const api = createNanImagesApi({ fetchImpl: gw.fetchImpl });
+		await api.generateImages(flux(), buildContext(["a red fox"]), {
+			apiKey: "sk-test",
+			metadata: { size: "512x512" },
+		} as never);
+		expect((JSON.parse(gw.lastInit()!.body as string) as Json).size).toBe("512x512");
+	});
+
+	test('the documented "auto" is passed through', async () => {
+		const gw = createJsonGateway({ data: [{ b64_json: PNG_B64 }] });
+		const api = createNanImagesApi({ fetchImpl: gw.fetchImpl });
+		await api.generateImages(flux(), buildContext(["a red fox"]), {
+			apiKey: "sk-test",
+			size: "auto",
+		} as never);
+		expect((JSON.parse(gw.lastInit()!.body as string) as Json).size).toBe("auto");
+	});
+
+	test("size applies to the image-to-image edit endpoint too", async () => {
+		const reference = { type: "image" as const, data: PNG_B64, mimeType: "image/png" };
+
+		const gw = createFormDataGateway({ data: [{ b64_json: PNG_B64 }] });
+		const api = createNanImagesApi({ fetchImpl: gw.fetchImpl });
+		await api.generateImages(flux(), buildContext(["make it blue"], [reference]), {
+			apiKey: "sk-test",
+			size: "768x1024",
+		} as never);
+		expect(gw.lastUrl()).toBe("https://api.nan.builders/v1/images/edits");
+		expect((gw.lastInit()!.body as FormData).get("size")).toBe("768x1024");
+	});
+
+	test("a non-WxH size fails locally before spending a quota request", async () => {
+		const gw = createJsonGateway({ data: [{ b64_json: PNG_B64 }] });
+		const api = createNanImagesApi({ fetchImpl: gw.fetchImpl });
+		const result = await api.generateImages(flux(), buildContext(["a red fox"]), {
+			apiKey: "sk-test",
+			size: "2K",
+		} as never);
+		expect(result.stopReason).toBe("error");
+		expect(result.errorMessage).toContain("WIDTHxHEIGHT");
+		expect(gw.lastUrl()).toBe("");
+	});
+
+	test("a size outside NaN's grid fails locally and names the rule", async () => {
+		for (const size of ["1000x1000", "768x772", "1601x1024"]) {
+			const gw = createJsonGateway({ data: [{ b64_json: PNG_B64 }] });
+			const api = createNanImagesApi({ fetchImpl: gw.fetchImpl });
+			const result = await api.generateImages(flux(), buildContext(["a red fox"]), {
+				apiKey: "sk-test",
+				size,
+			} as never);
+			expect(result.stopReason).toBe("error");
+			expect(result.errorMessage).toContain("divisible by 16");
+			expect(gw.lastUrl()).toBe("");
+		}
+	});
+
+	test("a side off the 16 grid in range is rejected, a multiple of 16 is on it: 1024x1008 (63 × 16)", async () => {
+		const gw = createJsonGateway({ data: [{ b64_json: PNG_B64 }] });
+		const api = createNanImagesApi({ fetchImpl: gw.fetchImpl });
+		const result = await api.generateImages(flux(), buildContext(["a red fox"]), {
+			apiKey: "sk-test",
+			size: "1024x1008",
+		} as never);
+		expect(result.stopReason).toBe("stop");
+		expect((JSON.parse(gw.lastInit()!.body as string) as Json).size).toBe("1024x1008");
+	});
+
+	test("a side below 256 fails locally naming the range, not the grid", async () => {
+		const gw = createJsonGateway({ data: [{ b64_json: PNG_B64 }] });
+		const api = createNanImagesApi({ fetchImpl: gw.fetchImpl });
+		const result = await api.generateImages(flux(), buildContext(["a red fox"]), {
+			apiKey: "sk-test",
+			size: "128x128",
+		} as never);
+		expect(result.stopReason).toBe("error");
+		expect(result.errorMessage).toContain("between 256 and 1536");
+		expect(result.errorMessage).not.toContain("divisible by 16");
+		expect(gw.lastUrl()).toBe("");
+	});
+
+	test("a side above 1536 fails locally naming the range, not the grid", async () => {
+		const gw = createJsonGateway({ data: [{ b64_json: PNG_B64 }] });
+		const api = createNanImagesApi({ fetchImpl: gw.fetchImpl });
+		const result = await api.generateImages(flux(), buildContext(["a red fox"]), {
+			apiKey: "sk-test",
+			size: "1600x1024",
+		} as never);
+		expect(result.stopReason).toBe("error");
+		expect(result.errorMessage).toContain("between 256 and 1536");
+		expect(result.errorMessage).not.toContain("divisible by 16");
+		expect(gw.lastUrl()).toBe("");
+	});
+
+	test("an unsupported aspectRatio fails locally and lists the supported ones", async () => {
+		const gw = createJsonGateway({ data: [{ b64_json: PNG_B64 }] });
+		const api = createNanImagesApi({ fetchImpl: gw.fetchImpl });
+		const result = await api.generateImages(flux(), buildContext(["a red fox"]), {
+			apiKey: "sk-test",
+			aspectRatio: "16:10",
+		} as never);
+		expect(result.stopReason).toBe("error");
+		expect(result.errorMessage).toContain("1:1");
+		expect(result.errorMessage).toContain("16:9");
+		expect(gw.lastUrl()).toBe("");
+	});
+});
+
+describe("exported image size validators name the rule a non-string broke", () => {
+	// The validators are a published surface (direct library or extension use
+	// outside codemode's value checks): a non-string must fail with the rule
+	// message, never with a TypeError from `.trim()`.
+
+	test("validateNanImageSize treats a number as an unusable value, naming the rule", () => {
+		expect(() => validateNanImageSize(2048 as never)).toThrow(
+			/NaN image models expect size WIDTHxHEIGHT/,
+		);
+	});
+
+	test("validateNanImageSize treats null the same way", () => {
+		expect(() => validateNanImageSize(null as never)).toThrow(
+			/NaN image models expect size/,
+		);
+	});
+
+	test("nanImageSizeForAspectRatio treats a number as an unusable value, listing the ratios", () => {
+		try {
+			nanImageSizeForAspectRatio(1.5 as never);
+			throw new Error("expected nanImageSizeForAspectRatio(1.5) to throw");
+		} catch (error) {
+			const message = (error as Error).message;
+			expect(message).toContain("supported aspectRatio values");
+			expect(message).toContain("supported aspectRatio values are 1:1, 16:9");
+			expect(message).toContain("got 1.5");
+		}
+	});
+
+	test("the resolver still degrades non-string canonical options absent (precedence tiers untouched)", () => {
+		expect(resolveNanImageSize({ size: 2048 })).toBeUndefined();
+		expect(resolveNanImageSize({ aspectRatio: 1.5 })).toBeUndefined();
+		expect(resolveNanImageSize({ metadata: { size: 2048 } })).toBeUndefined();
 	});
 });

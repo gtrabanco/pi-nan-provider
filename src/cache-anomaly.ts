@@ -27,8 +27,11 @@
  * local-only — nothing is uploaded.
  *
  * A missing `onResponse` (older pi-ai or a host that does not call it) simply
- * leaves `cf_ray` null; detection still works on `id`+`created`. Every write is
- * best-effort: a full disk must never break a stream.
+ * leaves `cf_ray` null; detection still works on `id`+`created`. pi-ai 1.7
+ * calls the hook once per HTTP attempt, error responses included, so the
+ * wrapper overwrites its `cf-ray` with each reported response: the last one is
+ * the response that actually streamed. Every write is best-effort: a full disk
+ * must never break a stream.
  */
 
 import { createHash } from "node:crypto";

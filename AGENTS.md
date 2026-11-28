@@ -463,8 +463,77 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   `src/reasoning-only-stream-guard.ts` (issue #21) keys on that marker;
   earlier comment/message text said "60,000 characters" and was corrected to
   the documented figures.
-- **pi 1.6.0 / pi-ai 1.6.0 compat** (verified 2026-11-21, the current verified
-  baseline; devDependencies 1.5.1 → 1.6.0, package 1.5.8 → 1.6.0, peer range
+- **pi 1.7.0 / pi-ai 1.7.0 compat** (verified 2026-11-28, the current verified
+  baseline; devDependencies 1.6.0 → 1.7.0, package 1.6.4 → 1.7.0, peer range
+  unchanged at `^1.4.0` because only the image options are new and they are
+  read defensively). pi-ai `index.d.ts` only ADDS `PiImage*`/`PiDecision*` type
+  re-exports, `compat.d.ts` and `api/openai-completions.d.ts` are byte-identical
+  to 1.6.0, and every symbol this package imports still exists
+  (`getAgentDir`, `readStoredCredential`, `ProviderConfig`, both
+  `registerProvider` overloads, `registerMcpServer`/`unregisterMcpServer`;
+  MCP config types unchanged). What DID move:
+  - **Telemetry removed** (`/api/report-install`, `Settings.enableInstallTelemetry`,
+    `SettingsManager.get/setEnableInstallTelemetry()`, `PI_TELEMETRY`), and
+    `getClientIdentity(settingsManager)` became `getClientIdentity()` which always
+    sends `PI_ATTRIBUTION`. The attribution gate therefore no longer reads the
+    removed setting on 1.7: `src/attribution.ts` owns
+    `NAN_NO_ATTRIBUTION` (any of `1`/`true`/`yes`/`on` disables the header) and
+    still honors `enableInstallTelemetry: false` on pi 1.4–1.6 hosts
+    (`resolveProviderAttributionEnabled`). Without that change the old gate
+    silently became a permanent "enabled" on 1.7, re-identifying users who had
+    opted out.
+  - **`ImagesOptions` gained `aspectRatio` and `size`** (1.6.0 had neither), and
+    codemode 1.7 accepts `models.generateImages(model, ctx, { aspectRatio, size })`
+    — it validates that exact key set (so `n`/`seed`/`guidance` remain
+    extension-only) and forwards `{ ...options, signal }` into
+    `ProviderImages.generateImages`. NaN accepts only a `WxH` canvas (sides
+    divisible by 16, 256–1536, ratio 1:3–3:1; `auto` allowed), so
+    `src/images.ts` resolves `options.size` (validated) and
+    `NAN_ASPECT_RATIO_SIZES` (1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3) before falling
+    back to `metadata.size`; an unusable value fails locally instead of spending
+    one of the 100 monthly image requests on a guaranteed 400. "Divisible by 16"
+    is a grid, not a multiple test (package 1.7.1): `1024x1008` = 63 × 16 is a
+    valid canvas, so the check is `side % 16 === 0` and the range check is
+    separate — the pre-1.7.1 `side % 16 !== 0` only admitted multiples of 1024.
+    The maxTokens budget is an entry-point fact on pi-ai 1.7's
+    openai-completions path: the bare `stream()` feeds `options` straight into
+    `buildParams`, so an explicit `options.maxTokens` is sent verbatim and an
+    absent one sends no budget field at all, while `streamSimple()` — the
+    entry real sessions reach through `ModelRuntime.streamSimple` — runs
+    `buildBaseOptions`, whose budget is
+    `clampMaxTokensToContext(model, context, options?.maxTokens ??
+    model.maxTokens)`: the ceiling is always on the wire there, clamped to the
+    room left (pi-ai `api/simple-options.js:31-56`,
+    `api/openai-completions.js:457-462`). pi's agent loop sets no `maxTokens`
+    of its own, so what gets clamped is the catalog ceiling. Both entries are
+    pinned by `test/pi-ai-1-7-0-contract.test.ts` (the entry-point pin added
+    in 1.7.2: the earlier record denied the `buildBaseOptions` run the
+    `streamSimple` entry makes).
+  - **`onResponse` fires once per attempt, error responses included**
+    (`onErrorResponse` in `utils/provider-retry.js`, wired by
+    `api/openai-completions.js`); 1.6.0 called it only after the retry loop.
+    `src/cache-anomaly.ts` already overwrote `cf-ray` on every callback, so the
+    last (real) response owns it — pinned by `test/issue-35-cache-anomaly-capture.test.ts`.
+    The #49 tap stays necessary: the hook has no per-attempt start time, attempt
+    number or payload size.
+  - Reasoning replay metadata is now encoded in `thinkingSignature`
+    (`encodeThinkingSignature`: field/details/opaque) and decoding is backward
+    compatible — a 1.6.0 session's plain field name decodes to `kind: "field"`
+    and NaN keeps replaying `reasoning_content`, so nothing changed on the wire.
+  - Looked relevant, is not: `cost.imageOutput`/`Usage.imageOutput` (catalog cost
+    is pinned to 0, NaN bills credits), the new canonical `pi-image` API
+    (`POST <baseUrl>/image`; NaN has no such endpoint — `nan-images` stays),
+    `compat.supportsReasoningReplay` (read only by
+    `api/bedrock-converse-stream.js`), `--agent-dir` (the artifacts call
+    `getAgentDir()` per record, no module-load cache), and `models.js` merging the
+    dynamic store once per publish (`getModels()` hot path, #12311) — a dynamic
+    entry still REPLACES the baseline by id+type, so the #19 read-time overlay is
+    still required.
+  Regression tests: `test/pi-ai-1-7-0-contract.test.ts` (per-attempt
+  `onResponse`, legacy `thinkingSignature` replay), plus the image and
+  attribution groups. Issue #54.
+- **pi 1.6.0 / pi-ai 1.6.0 compat** (verified 2026-11-21; devDependencies
+  1.5.1 → 1.6.0, package 1.5.8 → 1.6.0, peer range
   unchanged at `^1.4.0` because nothing here needs 1.6.0). **No `src/` change:** pi-ai
   `dist/index.d.ts`, `dist/compat.d.ts`, `dist/api/openai-completions.d.ts` and
   pi-coding-agent `dist/index.d.ts` are byte-identical to 1.5.1, and a base-vs-change
@@ -525,10 +594,12 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   merges `model.headers` over identity headers on 0.99.1 and 1.4.0 alike),
   covering baseline, live merge, placeholders, overlay, image models and the
   `/nan-usage` fetch; omitted silently when the version is unreadable, and
-  GATED on pi's `enableInstallTelemetry` setting (privacy: the header
-  identifies the package; gate evaluated live on every read, installed by the
-  extension entrypoint via `configureProviderAttribution`, stripped on read
-  paths by the overlay wrappers when disabled).
+  GATED on `NAN_NO_ATTRIBUTION` plus pi's legacy `enableInstallTelemetry`
+  setting (privacy: the header identifies the package; gate evaluated live on
+  every read, installed by the extension entrypoint via
+  `configureProviderAttribution`, stripped on read paths by the overlay wrappers
+  when disabled). See the 1.7.0 bullet for why the setting alone stopped being
+  enough.
 - **pi 1.3.0 / pi-ai 1.3.0 compat** (verified 2026-10-15): devDependencies bumped 1.2.0 → 1.3.0; the peer range stays
   `">=0.99.0 <2"`. The pi-ai 1.3.0 `compat.d.ts` and `api/openai-completions.d.ts`
   surfaces are byte-identical to 1.2.0; `index.d.ts` only drops the
@@ -643,13 +714,16 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
   reports); `errorMessage` maps to
   `overflow|rate_limited|invalid_request|transport|other`.
 
-- **HTTP attempt tap (issue #49, verified 2026-11-24 on pi-ai 1.6.0):**
+- **HTTP attempt tap (issue #49, verified 2026-11-24 on pi-ai 1.6.0; hook
+  contract widened in 1.7.0):**
   `CreateProviderOptions` has **no** `fetch` field — issue #49's claim that
   "`createProvider` acepta el `fetch` en options" is wrong for the pinned
   version. `fetch` is a `StreamOptions` field forwarded to the OpenAI client
   (`dist/api/openai-completions.js:createClient`). `retryProviderRequest`
-  retries by re-invoking the same client with `maxRetries: 0`, and `onResponse`
-  fires only **after** that loop, so a rejected attempt never reaches it.
+  retries by re-invoking the same client with `maxRetries: 0`; on 1.6.0
+  `onResponse` fired only **after** that loop, so a rejected attempt never
+  reached it (1.7.0 reports failed attempts too, but still without per-attempt
+  timing, attempt number or payload size).
   `src/http-attempts.ts` therefore wraps the provider api outermost
   (`withHttpAttemptCapture`) and injects `StreamOptions.fetch` — the only tap
   that sees every attempt, including a 429 that never produced a gateway `id`.
@@ -708,7 +782,7 @@ uno cite una versión o requisito que el otro no lleve.
 5. **Cita el peer floor real, no la historia.** El peer range se actualiza con cada
    release de pi: lee `package.json` peerDependencies, no AGENTS.md (que documenta
    releases históricos y puede quedar obsoleto). Para este paquete: el floor es
-   `^1.4.0` (desde package 1.5.0), verificado contra pi 1.6.0 / pi-ai 1.6.0.
+   `^1.4.0` (desde package 1.5.0), verificado contra pi 1.7.0 / pi-ai 1.7.0.
 6. **Las cifras de catálogo van contra `scripts/models.generated.ts`, no contra AGENTS.md.**
    AGENTS.md es documentación de releases y puede contener floor o ranges ya antiguos;
    el catálogo generado es la fuente viva de `contextWindow`/`maxTokens`/`reasoningEffortValues`
