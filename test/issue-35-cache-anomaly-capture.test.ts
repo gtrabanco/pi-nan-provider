@@ -72,6 +72,12 @@ interface ScriptedResponse {
 	cfRay?: string;
 	payload?: unknown;
 	model?: string;
+	/**
+	 * Failed attempts pi-ai reports through the same `onResponse` hook before
+	 * the final response (1.7 fires it for every attempt, error responses
+	 * included).
+	 */
+	failedAttempts?: Array<{ status: number; cfRay?: string }>;
 }
 
 /**
@@ -89,6 +95,15 @@ function scriptedApi(script: ScriptedResponse[], observed: string[] = []): Provi
 		const onEvent = options?.onProviderStreamEvent as ((c: unknown, m: unknown) => unknown) | undefined;
 		if (onPayload) onPayload(entry.payload ?? { model, messages: [] }, { id: model });
 		if (onResponse) {
+			for (const attempt of entry.failedAttempts ?? []) {
+				onResponse(
+					{
+						status: attempt.status,
+						headers: attempt.cfRay ? { "cf-ray": attempt.cfRay } : {},
+					},
+					{ id: model },
+				);
+			}
 			onResponse(
 				{
 					status: 200,
@@ -402,5 +417,56 @@ describe("issue #35 — real pi-ai adapter wiring", () => {
 		expect(records[0]!.requests.map((r) => r.cf_ray)).toEqual(["ray-1", "ray-2"]);
 		expect(records[0]!.id).toBe("chatcmpl-cached");
 		expect(records[0]!.created).toBe(1762778096);
+	});
+});
+
+describe("issue #35 — pi 1.7 reports each attempt, so the terminal response owns the run", () => {
+	test("a failed attempt's cf-ray never labels the response that succeeded", async () => {
+		const { sink, records } = memorySink();
+		const api = withCacheAnomalyCapture(
+			scriptedApi([
+				{
+					id: "chatcmpl-retry",
+					created: 10,
+					cfRay: undefined,
+					failedAttempts: [{ status: 429, cfRay: "8a1b2c3d-429" }],
+				},
+				{ id: "chatcmpl-retry", created: 10, cfRay: "8a1b2c3d-Ok" },
+			]),
+			{ sink, now: () => NOW },
+		);
+
+		await runAll(api, 2);
+
+		expect(records).toHaveLength(1);
+		// The retried request reported no cf-ray of its own, so the 429's ray must
+		// not be attributed to it — a null join beats a wrong one.
+		expect(records[0]!.requests.map((r) => r.cf_ray)).toEqual([null, "8a1b2c3d-Ok"]);
+	});
+
+	test("every attempt is offered to the caller's onResponse hook", async () => {
+		const { sink } = memorySink();
+		const statuses: number[] = [];
+		const api = withCacheAnomalyCapture(
+			scriptedApi([
+				{
+					id: "chatcmpl-retry",
+					created: 10,
+					cfRay: "ray-ok",
+					failedAttempts: [{ status: 429, cfRay: "ray-429" }, { status: 503, cfRay: "ray-503" }],
+				},
+			]),
+			{ sink, now: () => NOW },
+		);
+		const stream = api.stream({ id: "qwen3.8-flash" } as never, { messages: [] } as never, {
+			onResponse: (response: unknown) => {
+				statuses.push((response as { status: number }).status);
+			},
+		});
+		for await (const _event of stream) {
+			// consume
+		}
+		await stream.result();
+		expect(statuses).toEqual([429, 503, 200]);
 	});
 });
