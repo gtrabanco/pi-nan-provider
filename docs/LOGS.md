@@ -3,6 +3,35 @@
 Entries are appended at natural stopping points so the next session can pick up
 the thread without re-reading git history.
 
+## 2026-11-28 — session: advisory correction batch 1.7.2 (unit issue-55)
+
+**Done**
+
+- Acted on the owner's instruction to triage the 5 advisories the issue-55
+  verify receipts recorded; fixed what deserved fixing, everything else
+  recorded with dated dispositions in the unit's decisions.
+- A1 fixed (`fix(images): fail with the rule instead of a TypeError for
+  non-strings`): the two exported validators (`validateNanImageSize`,
+  `nanImageSizeForAspectRatio`) now guard non-strings and raise the rule the
+  value broke instead of a `.trim()` TypeError; the resolver's precedence
+  tiers untouched and pinned; differential vs the `134a2a8` worktree
+  (19 sizes, 15 ratios, 7 resolver shapes) prints 0 diffs.
+- A4 turned out to be a **record error**, not a README misstatement:
+  pi-ai 1.7's `openai-completions.streamSimple` (:457-462) runs
+  `buildBaseOptions` → `clampMaxTokensToContext(options?.maxTokens ??
+  model.maxTokens)` — real sessions always send a clamped budget; only the
+  bare `stream()` leaves it off. The AGENTS.md bullet and the contract-test
+  comment that denied this were corrected and the `streamSimple` budget is
+  now pinned by a new contract test. README (EN/ES) re-verified correct —
+  not edited; PE-008/D-55-04 annotated as superseded.
+- 1.7.2 released: `package.json`, both README badges, `CHANGELOG [1.7.2]`;
+  the [1.7.1] note sharpened to name the bare-stream entry it pins.
+- Triage of the rest: A2 wontfix (documented degradation, now pinned),
+  A3 decision-required (2:1 / 1:2 canvases — owner call pending), A5 wontfix
+  (`docs/` gitignored by design).
+
+**Next**: owner verdict on the batch + the A3 scope answer.
+
 ## 2026-11-11 — issue #35: cf-ray cache-anomaly evidence + `/nan-debug`
 
 **Done**

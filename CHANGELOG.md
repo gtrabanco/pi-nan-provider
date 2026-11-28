@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.2] - 2026-11-28
+
+### Fixed
+
+- **A non-string reaching the exported image-size validators crashed with a
+  `TypeError` instead of naming the rule.** `validateNanImageSize` and
+  `nanImageSizeForAspectRatio` are published surfaces (direct library or
+  extension use outside codemode's value checks); both now guard the type and
+  raise the same rule message the shape guards raise.
+  `resolveNanImageSize`'s precedence tiers are untouched — a non-string
+  canonical option still degrades to the next tier, now pinned so the
+  degradation stays documented behavior.
+
+### Changed
+
+- The pi-ai 1.7 `maxTokens` record now distinguishes the two
+  openai-completions entries: the bare `stream()` emits a budget only from an
+  explicit `options.maxTokens` (the 1.7.1 pin below was and is accurate for
+  that entry), while `streamSimple()` — the entry real sessions reach through
+  pi's `ModelRuntime.streamSimple` — runs `buildBaseOptions`, whose
+  `clampMaxTokensToContext(model, context, options?.maxTokens ??
+  model.maxTokens)` always puts a clamped budget on the wire. The earlier
+  record denied the `buildBaseOptions` run the `streamSimple` entry makes; the
+  AGENTS bullet and the contract-test comment were corrected and the
+  `streamSimple` behavior is now pinned by the contract suite. The README's
+  clamp sentence was re-verified against this and is correct as written.
+
 ## [1.7.1] - 2026-11-28
 
 ### Fixed
@@ -25,9 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `1024x1008` pinned as the positive on-grid case.
 - Three claims the 1.7.0 realign asserted are now pinned by tests: the catalog
   keeps `supportsDeveloperRole: false` and sends no `strict` schema on pi-ai
-  1.7, an absent `maxTokens` sends no budget field (so the catalog's 1,048,576
-  ceiling never rides along uninvited), and a failed attempt with empty headers
-  does not clear a captured `cf-ray`.
+  1.7, an absent `maxTokens` sends no budget field through the bare `stream()`
+  entry (the `streamSimple` budget is pinned separately since 1.7.2), and a
+  failed attempt with empty headers does not clear a captured `cf-ray`.
 
 ## [1.7.0] - 2026-11-28
 
