@@ -27,7 +27,7 @@
 
 import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
 import type { Provider } from "@earendil-works/pi-ai";
-import { configureProviderAttribution } from "./attribution.ts";
+import { configureProviderAttribution, resolveProviderAttributionEnabled } from "./attribution.ts";
 import { registerNanMcpCommand } from "./commands.ts";
 import { registerNanUsageCommand } from "./usage.ts";
 import { registerNanDebugCommand } from "./debug-command.ts";
@@ -142,15 +142,16 @@ async function registerMcpServersNative(pi: ExtensionAPI): Promise<void> {
 // ── Extension entrypoint ─────────────────────────────────────────────────
 
 export default async function nanProviderExtension(pi: ExtensionAPI): Promise<void> {
-	// Attribution privacy gate: the X-Pi-Provider header identifies this
-	// package, so it follows pi's telemetry setting. Evaluated fresh on every
+	// Attribution privacy gate: the header identifies this package, so it
+	// follows `NAN_NO_ATTRIBUTION` and, on hosts that still have it (pi <= 1.6),
+	// pi's install-telemetry setting. pi 1.7 removed telemetry entirely, so
+	// there the header is sent unless the environment opts out — the same
+	// choice pi makes for its own client identity. Evaluated fresh on every
 	// read (model reads, /nan-usage fetch) so a mid-session change applies
-	// without a restart. A host without getSettings() keeps the shipped
-	// default (enabled) — handled inside the attribution module.
-	configureProviderAttribution(() => {
-		const settings = pi.getSettings() as { enableInstallTelemetry?: boolean } | undefined;
-		return settings?.enableInstallTelemetry !== false;
-	});
+	// without a restart.
+	configureProviderAttribution(() =>
+		resolveProviderAttributionEnabled(pi.getSettings()),
+	);
 	// Replaces pi's cryptic "no loaded extension connects MCP servers" error with
 	// actionable guidance when the host loads no built-in `mcp` extension (PI WEB).
 	registerMcpHostGuard(pi);

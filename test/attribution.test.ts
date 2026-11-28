@@ -4,7 +4,9 @@ import {
 	configureProviderAttribution,
 	PROVIDER_ATTRIBUTION_HEADER,
 	providerAttributionEnabled,
+	PROVIDER_ATTRIBUTION_OPTOUT_ENV,
 	providerAttributionHeaderValue,
+	resolveProviderAttributionEnabled,
 	stripProviderAttribution,
 	withProviderAttribution,
 } from "../src/attribution.ts";
@@ -167,5 +169,47 @@ describe("provider attribution telemetry gate", () => {
 		} finally {
 			configureProviderAttribution(() => true);
 		}
+	});
+});
+
+describe("attribution opt-out (pi 1.7 removed the telemetry setting)", () => {
+	const enabled = (settings: unknown, env: Record<string, string | undefined> = {}) =>
+		resolveProviderAttributionEnabled(settings, env);
+
+	test("a pi 1.7 Settings object (no telemetry key) keeps the header on", () => {
+		expect(enabled({ theme: "dark", defaultProvider: "nan" })).toBe(true);
+	});
+
+	test("a pi 1.4-1.6 opt-out is still honored", () => {
+		expect(enabled({ enableInstallTelemetry: false })).toBe(false);
+		expect(enabled({ enableInstallTelemetry: true })).toBe(true);
+	});
+
+	test("a missing or non-object settings view keeps the shipped default", () => {
+		expect(enabled(undefined)).toBe(true);
+		expect(enabled(null)).toBe(true);
+	});
+
+	test("NAN_NO_ATTRIBUTION disables the header", () => {
+		expect(PROVIDER_ATTRIBUTION_OPTOUT_ENV).toBe("NAN_NO_ATTRIBUTION");
+		for (const value of ["1", "true", "TRUE", "yes", "on", " on "]) {
+			expect(enabled({}, { [PROVIDER_ATTRIBUTION_OPTOUT_ENV]: value })).toBe(false);
+		}
+	});
+
+	test("the env opt-out overrides an explicit legacy opt-in", () => {
+		expect(
+			enabled(
+				{ enableInstallTelemetry: true },
+				{ [PROVIDER_ATTRIBUTION_OPTOUT_ENV]: "1" },
+			),
+		).toBe(false);
+	});
+
+	test("falsy env values leave the header on", () => {
+		for (const value of ["", "0", "false", "off", "no", "nope"]) {
+			expect(enabled({}, { [PROVIDER_ATTRIBUTION_OPTOUT_ENV]: value })).toBe(true);
+		}
+		expect(enabled({}, {})).toBe(true);
 	});
 });

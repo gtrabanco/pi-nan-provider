@@ -15,21 +15,31 @@
  * be resolved (e.g. a virtual-module bundle with no readable package.json),
  * the header is simply omitted — attribution must never break a request.
  *
- * PRIVACY GATE: the header identifies this package, so it is subject to pi's
- * telemetry setting. The extension entrypoint wires
- * {@link configureProviderAttribution} to `pi.getSettings()` and the header
- * disappears whenever `enableInstallTelemetry` is `false` (the gate is
- * evaluated on every read, so toggling the setting mid-session takes effect
- * on the next request without a restart). Uncancellable-by-settings callers
- * (direct library use of `createNanCompatibleProvider` without the extension
- * entrypoint) get the enabled default; if the gate itself throws, attribution
- * falls back to pi's shipped default (enabled).
+ * PRIVACY GATE: the header identifies this package, so it can be turned off.
+ * The extension entrypoint wires {@link configureProviderAttribution} to
+ * {@link resolveProviderAttributionEnabled}: `NAN_NO_ATTRIBUTION` disables it,
+ * and so does pi's `enableInstallTelemetry: false` on hosts that still have
+ * that setting (pi <= 1.6). pi 1.7 removed telemetry altogether — the setting,
+ * `PI_TELEMETRY` and the install report are gone, and `getClientIdentity()`
+ * always sends pi's own attribution — so there the header is on unless the
+ * environment opts out. The gate is evaluated on every read, so toggling it
+ * mid-session takes effect on the next request without a restart.
+ * Uncancellable-by-settings callers (direct library use of
+ * `createNanCompatibleProvider` without the extension entrypoint) get the
+ * enabled default; if the gate itself throws, attribution falls back to
+ * enabled.
  */
 
 import { readFileSync } from "node:fs";
 
 /** Header added to every model registered by this package's providers. */
 export const PROVIDER_ATTRIBUTION_HEADER = "X-Pi-Provider";
+
+/**
+ * Environment variable that turns the attribution header off: any of `1`,
+ * `true`, `yes`, `on` (case-insensitive). Empty or absent leaves it on.
+ */
+export const PROVIDER_ATTRIBUTION_OPTOUT_ENV = "NAN_NO_ATTRIBUTION";
 
 /** Package identity used as the header value prefix (npm scope without the `@`). */
 const PACKAGE_IDENTITY = "gtrabanco/pi-nan-provider";
@@ -89,11 +99,38 @@ export function providerAttributionEnabled(): boolean {
 
 /**
  * Install the enablement gate. The extension entrypoint passes a closure over
- * `pi.getSettings().enableInstallTelemetry`, evaluated FRESH on every call so
- * a mid-session settings change applies on the next request.
+ * `pi.getSettings()`, evaluated FRESH on every call so a mid-session change
+ * applies on the next request.
  */
 export function configureProviderAttribution(isEnabled: AttributionGate): void {
 	gate = isEnabled;
+}
+
+/** True when the environment opts out of the attribution header. */
+export function providerAttributionOptedOut(
+	env: Record<string, string | undefined> = process.env,
+): boolean {
+	const raw = env[PROVIDER_ATTRIBUTION_OPTOUT_ENV];
+	return typeof raw === "string" && /^(1|true|yes|on)$/i.test(raw.trim());
+}
+
+/**
+ * Resolve the gate for this host: the package opt-out first, then pi's legacy
+ * install-telemetry setting (pi 1.4-1.6). A host that reports neither — pi 1.7
+ * removed the setting together with its telemetry endpoints — keeps the header
+ * on, the same choice pi makes for its own client identity.
+ */
+export function resolveProviderAttributionEnabled(
+	settings: unknown,
+	env: Record<string, string | undefined> = process.env,
+): boolean {
+	if (providerAttributionOptedOut(env)) return false;
+	if (settings && typeof settings === "object") {
+		const legacy = (settings as { enableInstallTelemetry?: unknown })
+			.enableInstallTelemetry;
+		if (legacy === false) return false;
+	}
+	return true;
 }
 
 /**
