@@ -264,8 +264,8 @@ describe("pi-ai 1.7.0 contract — the 1.6.0 wire pins survive the realign", () 
 	});
 });
 
-describe("pi-ai 1.7.0 contract — an absent maxTokens sends no budget field at all", () => {
-	test("the provider stream never fills in model.maxTokens", async () => {
+describe("pi-ai 1.7.0 contract — the maxTokens budget is an entry-point fact", () => {
+	test("the bare provider.stream() entry never fills in model.maxTokens", async () => {
 		const model = modelFor("kimi-k3.1-pro");
 		let body: Json = {};
 		const fetchImpl = (async (_url: unknown, init?: RequestInit) => {
@@ -273,11 +273,43 @@ describe("pi-ai 1.7.0 contract — an absent maxTokens sends no budget field at 
 			return streamResponse(sseBody([{ role: "assistant", content: "ok" }]));
 		}) as unknown as typeof fetch;
 		await runTurn(model, { fetch: fetchImpl });
-		// `buildParams` only emits a budget when `options.maxTokens` is set, and the
-		// openai-completions path does not run `buildBaseOptions`, so a catalog
-		// ceiling (1,048,576 for kimi-k3.1-pro) rides along only when pi passes it.
+		// `stream()` feeds `options` straight into `buildParams`, which emits a
+		// budget only when `options.maxTokens` is set — a catalog ceiling
+		// (1,048,576 for kimi-k3.1-pro) rides along only when it was passed
+		// explicitly, and then verbatim. `streamSimple()` is the other
+		// entry: it runs `buildBaseOptions`, so the pin below is NOT a claim
+		// about real sessions (see the sibling test).
 		expect(model.maxTokens).toBe(1_048_576);
 		expect(body).not.toHaveProperty("max_tokens");
 		expect(body).not.toHaveProperty("max_completion_tokens");
+	});
+
+	test("streamSimple — the entry real sessions drive — sends a budget clamped from the catalog ceiling", async () => {
+		const model = modelFor("kimi-k3.1-pro");
+		let body: Json = {};
+		const fetchImpl = (async (_url: unknown, init?: RequestInit) => {
+			body = JSON.parse(init!.body as string) as Json;
+			return streamResponse(sseBody([{ role: "assistant", content: "ok" }]));
+		}) as unknown as typeof fetch;
+		const provider = await createNanCompatibleProvider(NAN_PROVIDER);
+		const context = normalizeContext({
+			messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }] as never,
+			tools: [] as never,
+		});
+		// pi's agent loop carries no maxTokens of its own
+		// (createLoopConfig sets none, and ModelRuntime only clamps a pre-set
+		// option), so buildBaseOptions computes it from the catalog ceiling:
+		// maxTokens = clampMaxTokensToContext(model, context, model.maxTokens).
+		// The budget is always on the wire through this entry, bounded by the
+		// room left in the context window — the README's clamp sentence.
+		await provider.streamSimple(model, context, {
+			apiKey: "sk-test",
+			fetch: fetchImpl,
+		}).result();
+		const budget = (body.max_tokens ?? body.max_completion_tokens) as number;
+		expect(model.maxTokens).toBe(1_048_576);
+		expect(typeof budget).toBe("number");
+		expect(budget).toBeGreaterThan(0);
+		expect(budget).toBeLessThanOrEqual(model.maxTokens);
 	});
 });

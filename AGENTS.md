@@ -495,12 +495,20 @@ Since 1.0.0 the package version **aligns its MAJOR.MINOR with the pi release lin
     is a grid, not a multiple test (package 1.7.1): `1024x1008` = 63 × 16 is a
     valid canvas, so the check is `side % 16 === 0` and the range check is
     separate — the pre-1.7.1 `side % 16 !== 0` only admitted multiples of 1024.
-    pi-ai 1.7 does NOT clamp an explicit `options.maxTokens` on the
-    openai-completions path (`buildParams` emits the budget verbatim;
-    `clampMaxTokensToContext` is reached through `buildBaseOptions`, which that
-    adapter does not use) and emits no budget field at all when `maxTokens` is
-    absent — so the catalog ceiling only rides along when pi passes it. Pinned by
-    `test/pi-ai-1-7-0-contract.test.ts`.
+    The maxTokens budget is an entry-point fact on pi-ai 1.7's
+    openai-completions path: the bare `stream()` feeds `options` straight into
+    `buildParams`, so an explicit `options.maxTokens` is sent verbatim and an
+    absent one sends no budget field at all, while `streamSimple()` — the
+    entry real sessions reach through `ModelRuntime.streamSimple` — runs
+    `buildBaseOptions`, whose budget is
+    `clampMaxTokensToContext(model, context, options?.maxTokens ??
+    model.maxTokens)`: the ceiling is always on the wire there, clamped to the
+    room left (pi-ai `api/simple-options.js:31-56`,
+    `api/openai-completions.js:457-462`). pi's agent loop sets no `maxTokens`
+    of its own, so what gets clamped is the catalog ceiling. Both entries are
+    pinned by `test/pi-ai-1-7-0-contract.test.ts` (the entry-point pin added
+    in 1.7.2: the earlier record denied the `buildBaseOptions` run the
+    `streamSimple` entry makes).
   - **`onResponse` fires once per attempt, error responses included**
     (`onErrorResponse` in `utils/provider-retry.js`, wired by
     `api/openai-completions.js`); 1.6.0 called it only after the retry loop.
