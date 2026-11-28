@@ -15,6 +15,9 @@ import {
 	NAN_IMAGE_MODELS,
 	baselineImageModels,
 	createNanImagesApi,
+	nanImageSizeForAspectRatio,
+	resolveNanImageSize,
+	validateNanImageSize,
 } from "../src/images.ts";
 
 // ---------------------------------------------------------------------------
@@ -750,5 +753,41 @@ describe("createNanImagesApi — pi 1.7 ImagesOptions size/aspectRatio", () => {
 		expect(result.errorMessage).toContain("1:1");
 		expect(result.errorMessage).toContain("16:9");
 		expect(gw.lastUrl()).toBe("");
+	});
+});
+
+describe("exported image size validators name the rule a non-string broke", () => {
+	// The validators are a published surface (direct library or extension use
+	// outside codemode's value checks): a non-string must fail with the rule
+	// message, never with a TypeError from `.trim()`.
+
+	test("validateNanImageSize treats a number as an unusable value, naming the rule", () => {
+		expect(() => validateNanImageSize(2048 as never)).toThrow(
+			/NaN image models expect size WIDTHxHEIGHT/,
+		);
+	});
+
+	test("validateNanImageSize treats null the same way", () => {
+		expect(() => validateNanImageSize(null as never)).toThrow(
+			/NaN image models expect size/,
+		);
+	});
+
+	test("nanImageSizeForAspectRatio treats a number as an unusable value, listing the ratios", () => {
+		try {
+			nanImageSizeForAspectRatio(1.5 as never);
+			throw new Error("expected nanImageSizeForAspectRatio(1.5) to throw");
+		} catch (error) {
+			const message = (error as Error).message;
+			expect(message).toContain("supported aspectRatio values");
+			expect(message).toContain("supported aspectRatio values are 1:1, 16:9");
+			expect(message).toContain("got 1.5");
+		}
+	});
+
+	test("the resolver still degrades non-string canonical options absent (precedence tiers untouched)", () => {
+		expect(resolveNanImageSize({ size: 2048 })).toBeUndefined();
+		expect(resolveNanImageSize({ aspectRatio: 1.5 })).toBeUndefined();
+		expect(resolveNanImageSize({ metadata: { size: 2048 } })).toBeUndefined();
 	});
 });

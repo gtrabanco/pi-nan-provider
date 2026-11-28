@@ -172,6 +172,19 @@ export const NAN_ASPECT_RATIO_SIZES: Readonly<Record<string, string>> = {
 const SIZE_PATTERN = /^(\d{1,5})x(\d{1,5})$/i;
 const RATIO_PATTERN = /^(\d{1,4})\s*[:/]\s*(\d{1,4})$/i;
 
+/** Quote strings the way the rule messages always showed them; label the rest. */
+function gotLabel(value: unknown): string {
+	return typeof value === "string" ? `"${value}"` : String(value);
+}
+
+/** The size-rule failure a non-WxH value raises — shared by the shape and
+ * type guards so every unusable input names the same rule. */
+function sizeRuleError(value: unknown): Error {
+	return new Error(
+		`NaN image models expect size ${NAN_IMAGE_SIZE_RULE} (or "auto"), got ${gotLabel(value)}`,
+	);
+}
+
 function greatestCommonDivisor(a: number, b: number): number {
 	let left = a;
 	let right = b;
@@ -181,14 +194,14 @@ function greatestCommonDivisor(a: number, b: number): number {
 
 /** Validate a NaN size string, throwing with the rule that was broken. */
 export function validateNanImageSize(value: string): string {
+	// The signature is `string`, but this validator is a published surface: a
+	// caller bypassing the resolver's type gates gets the rule it broke, not a
+	// TypeError from `.trim()`.
+	if (typeof value !== "string") throw sizeRuleError(value);
 	const size = value.trim();
 	if (/^auto$/i.test(size)) return "auto";
 	const match = SIZE_PATTERN.exec(size);
-	if (!match) {
-		throw new Error(
-			`NaN image models expect size ${NAN_IMAGE_SIZE_RULE} (or "auto"), got "${value}"`,
-		);
-	}
+	if (!match) throw sizeRuleError(value);
 	const width = Number(match[1]);
 	const height = Number(match[2]);
 	const sides = [width, height];
@@ -214,6 +227,13 @@ export function validateNanImageSize(value: string): string {
 
 /** Resolve an `aspectRatio` (e.g. "16:9") to a concrete NaN canvas. */
 export function nanImageSizeForAspectRatio(value: string): string {
+	if (typeof value !== "string") {
+		throw new Error(
+			`NaN image models take no aspect ratio; supported aspectRatio values are ${Object.keys(
+				NAN_ASPECT_RATIO_SIZES,
+			).join(", ")} (got ${gotLabel(value)})`,
+		);
+	}
 	const match = RATIO_PATTERN.exec(value.trim());
 	if (match) {
 		const width = Number(match[1]);
