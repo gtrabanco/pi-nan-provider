@@ -1,7 +1,7 @@
 # @gtrabanco/𝜋-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.7.0-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-1.7.1-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 [![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://cloud.nan.builders/r/7GK06FX8)
 
 [NaN Builders](https://cloud.nan.builders/r/7GK06FX8) model provider + a native MCP server for [pi](https://github.com/earendil-works/pi). 
@@ -234,7 +234,7 @@ registering a server that can never connect. To get MCP in the CLI, enable the c
   for (const block of result.output) if (block.type === "image") image(block)
   ```
 
-  On pi 1.7+ the third argument takes the provider-neutral options: `{ size: "1536x1024" }` for a concrete canvas or `{ aspectRatio: "16:9" }` for one of `1:1`, `16:9`, `9:16`, `4:3`, `3:4`, `3:2`, `2:3`. NaN accepts only `WIDTHxHEIGHT` with each side divisible by 16 and between 256 and 1536 (ratio 1:3–3:1, `auto` allowed), so `size` is validated and `aspectRatio` resolves to the largest exact canvas; anything unusable fails locally with the rule it broke instead of spending one of the monthly image requests on a guaranteed `400`. `size` wins over `aspectRatio`, and `metadata.size` (plus `n`, `seed` and `guidance`, which codemode does not expose) still works from extension code.
+  On pi 1.7+ the third argument takes the provider-neutral options: `{ size: "1536x1024" }` for a concrete canvas or `{ aspectRatio: "16:9" }` for one of `1:1`, `16:9`, `9:16`, `4:3`, `3:4`, `3:2`, `2:3`. NaN accepts only `WIDTHxHEIGHT` with each side on the 16-pixel grid (a multiple of 16, so `1024x1008` is fine — 1008 = 63 × 16) and between 256 and 1536 (ratio 1:3–3:1, `auto` allowed), so `size` is validated and `aspectRatio` resolves to the largest exact canvas; anything unusable fails locally with the rule it broke instead of spending one of the monthly image requests on a guaranteed `400`. `size` wins over `aspectRatio`, and `metadata.size` (plus `n`, `seed` and `guidance`, which codemode does not expose) still works from extension code.
 
   Both models need the "inference" membership tier (403 otherwise); the image endpoints
   are rate-limited separately from chat (20 requests/min, 100 requests/month shared

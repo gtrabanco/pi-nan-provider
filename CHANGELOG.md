@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2026-11-28
+
+### Fixed
+
+- **Image `size` validation treated "divisible by 16" as a multiple of 1024.**
+  The grid test was `side % 16 !== 0`, and 1024 is itself a multiple of 16, so
+  only multiples of 1024 passed: `1024x1008` — a height sitting exactly on
+  NaN's 16-px grid, inside the documented 256–1536 range — was rejected, and the
+  real range violations were reported as grid violations. The rule is now
+  `side % 16 === 0`, and the two checks report separately, so a rejected value
+  names the rule it actually broke ("divisible by 16", "between 256 and 1536",
+  "between 1:3 and 3:1"). No request that NaN accepts is refused any more.
+
+### Changed
+
+- The image suite's "not divisible by 16" sample was `1024x3072` (a /16 size
+  outside the range), so it passed for the wrong reason; it is now `768x772`,
+  with `1024x1008` pinned as the positive on-grid case.
+- Three claims the 1.7.0 realign asserted are now pinned by tests: the catalog
+  keeps `supportsDeveloperRole: false` and sends no `strict` schema on pi-ai
+  1.7, an absent `maxTokens` sends no budget field (so the catalog's 1,048,576
+  ceiling never rides along uninvited), and a failed attempt with empty headers
+  does not clear a captured `cf-ray`.
+
 ## [1.7.0] - 2026-11-28
 
 Verified baseline: pi 1.7.0 / pi-ai 1.7.0 (peer range unchanged, `^1.4.0`).

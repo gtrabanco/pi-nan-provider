@@ -1,7 +1,7 @@
 # @gtrabanco/𝜋-nan-provider
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.7.0-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
+[![Version](https://img.shields.io/badge/version-1.7.1-blue)](https://github.com/gtrabanco/pi-nan-provider/releases)
 [![Built with NaN](https://nan.builders/badge/built-with-nan-compact.svg)](https://cloud.nan.builders/r/7GK06FX8)
 
 [NaN Builders](https://cloud.nan.builders/r/7GK06FX8) model provider + MCP nativo para [pi](https://github.com/earendil-works/pi). 
@@ -238,8 +238,9 @@ conector con `pi config` → Built-in extensions → `mcp`.
 
   En pi 1.7+ el tercer argumento acepta las opciones neutrales del proveedor: `{ size: "1536x1024" }`
   para un lienzo concreto o `{ aspectRatio: "16:9" }` para uno de `1:1`, `16:9`, `9:16`, `4:3`,
-  `3:4`, `3:2`, `2:3`. NaN solo acepta `WIDTHxHEIGHT` con cada lado divisible por 16 y entre 256
-  y 1536 (ratio 1:3–3:1, `auto` permitido), así que `size` se valida y `aspectRatio` se resuelve
+  `3:4`, `3:2`, `2:3`. NaN solo acepta `WIDTHxHEIGHT` con cada lado en la rejilla de 16
+  píxeles (múltiplo de 16, así que `1024x1008` vale — 1008 = 63 × 16) y entre 256 y 1536
+  (ratio 1:3–3:1, `auto` permitido), así que `size` se valida y `aspectRatio` se resuelve
   al mayor lienzo exacto; cualquier valor inutilizable falla localmente indicando la regla
   incumplida en vez de gastar una de las peticiones mensuales de imagen en un `400` garantizado.
   `size` gana a `aspectRatio`, y `metadata.size` (además de `n`, `seed` y `guidance`, que codemode

@@ -638,3 +638,51 @@ Gate after the extension: 424 tests pass / 0 fail, typecheck exit 0.
 - Owner delta-verifies the batch (§9: one recheck of these three, no new cycle
   from a new finding). Receipt advisories A1/A2/A3 are closed; nothing pending
   on the unit.
+
+## 2026-11-28 — issue #55: verify the 1.7.0 realign, repair only what is missing (1.7.1)
+
+**Done**
+
+- Owner order: "Check if all stuff is implemented, if none, do it but
+  idempotency". PR #55's five commits were already green but had no ledgers
+  (`docs/fix/issue-54-pi-sdk-1-7-0/` held `decisions.md` only), so the work was
+  a claim-by-claim verification, not a re-implementation. Unit doc and ledgers:
+  `docs/fix/issue-55-pi-sdk-1-7-0-verification/` (O1–O8, PE-001–PE-010, C1–C8),
+  stamped retrospective — the code predates them.
+- **Defect found and fixed** (`227cbfe`): `validateNanImageSize` tested
+  `side % 16 !== 0` and 1024 is itself a multiple of 16, so only multiples of
+  1024 passed — `1024x1008` (1008 = 63 × 16, inside the documented range) was
+  refused, and the real range violations were reported as grid violations. The
+  check is now `side % 16 === 0` with a separate range check, each naming its
+  own rule (`src/images.ts`).
+- **The suite was passing for the wrong reason**: the image test's "not
+  divisible by 16" sample was `1024x3072` — a /16 size outside the range — which
+  passed under the buggy rule and would have kept passing on a 1024-grid. It is
+  now `768x772`, with `1024x1008` pinned as the positive on-grid case.
+- **Three unpinned claims now pinned**: `supportsDeveloperRole: false` for every
+  catalog model + no `strict` schema on pi-ai 1.7; no budget field when
+  `maxTokens` is absent (so the catalog's 1,048,576 ceiling never rides along);
+  a failed attempt with empty headers does not clear a captured `cf-ray`, and a
+  terminal response without one joins as null.
+- Docs: both READMEs state the grid rule with the `1024x1008` example and stay
+  structurally identical (25 headings each), CHANGELOG 1.7.1, version and
+  badges 1.7.1, AGENTS.md records the grid rule and the pi-ai 1.7 `maxTokens`
+  path.
+- Verified unchanged on purpose: the attribution gate matrix (pi 1.7 settings /
+  `NAN_NO_ATTRIBUTION` / legacy opt-out), the request-body differential for
+  `size`/`aspectRatio`/`metadata.size`, the 14-ratio table (0 diffs), and every
+  `src/` file other than `images.ts`.
+
+**Checks**
+
+- `bun test` → 613 pass / 0 fail / 3352 expect / 46 files (606 before, +7 new
+  cases, one sample substituted); `bun run typecheck` → exit 0.
+- `git diff --name-only 07e8382 -- src/` → `src/images.ts` alone.
+- Differential matrix for `validateNanImageSize` at `07e8382` vs the change:
+  no verdict flips, only message precision changes (7 of 20 cases, all
+  rejections).
+
+**Next**
+
+- Owner reviews the diff on `chore/pi-sdk-1.7.0` and decides whether to push it
+  into PR #55. No obligation row is waiting on a follow-up.
