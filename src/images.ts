@@ -138,6 +138,119 @@ export function baselineImageModels(
 	});
 }
 
+// ── Output size ───────────────────────────────────────────────────────────
+
+/**
+ * NaN's documented output-size envelope: `WIDTHxHEIGHT`, each side divisible
+ * by 16 and between 256 and 1536, aspect ratio between 1:3 and 3:1; `auto`
+ * (or omitting the field) yields 1024x1024
+ * (https://nan.builders/openapi.json, tag Images, checked 2026-11-28).
+ *
+ * pi 1.7 hands providers `ImagesOptions.size` (its own examples are `"1K"`,
+ * `"2K"`, `"4K"`) and `ImagesOptions.aspectRatio`. NaN takes neither form, so
+ * both are translated here instead of burning one of the 100 monthly image
+ * requests on a guaranteed 400.
+ */
+export const NAN_IMAGE_SIZE_RULE =
+	"WIDTHxHEIGHT, each side divisible by 16 and 256-1536, ratio 1:3-3:1";
+
+/**
+ * pi's provider-neutral `aspectRatio` resolved to the largest exact canvas
+ * inside NaN's envelope. NaN has no aspect-ratio parameter, so this table is
+ * our mapping; supported keys are exactly the ratios listed here.
+ */
+export const NAN_ASPECT_RATIO_SIZES: Readonly<Record<string, string>> = {
+	"1:1": "1024x1024",
+	"16:9": "1536x864",
+	"9:16": "864x1536",
+	"4:3": "1024x768",
+	"3:4": "768x1024",
+	"3:2": "1536x1024",
+	"2:3": "1024x1536",
+};
+
+const SIZE_PATTERN = /^(\d{1,5})x(\d{1,5})$/i;
+const RATIO_PATTERN = /^(\d{1,4})\s*[:/]\s*(\d{1,4})$/i;
+
+function greatestCommonDivisor(a: number, b: number): number {
+	let left = a;
+	let right = b;
+	while (right !== 0) [left, right] = [right, left % right];
+	return left;
+}
+
+/** Validate a NaN size string, throwing with the rule that was broken. */
+export function validateNanImageSize(value: string): string {
+	const size = value.trim();
+	if (/^auto$/i.test(size)) return "auto";
+	const match = SIZE_PATTERN.exec(size);
+	if (!match) {
+		throw new Error(
+			`NaN image models expect size ${NAN_IMAGE_SIZE_RULE} (or "auto"), got "${value}"`,
+		);
+	}
+	const width = Number(match[1]);
+	const height = Number(match[2]);
+	const sides = [width, height];
+	if (sides.some((side) => side % 16 !== 0 || side < 256 || side > 1536)) {
+		throw new Error(
+			`NaN image models require each side of size to be divisible by 16 and between 256 and 1536, got "${value}"`,
+		);
+	}
+	if (width / height < 1 / 3 || width / height > 3) {
+		throw new Error(
+			`NaN image models accept an aspect ratio between 1:3 and 3:1, got "${value}"`,
+		);
+	}
+	return `${width}x${height}`;
+}
+
+/** Resolve an `aspectRatio` (e.g. "16:9") to a concrete NaN canvas. */
+export function nanImageSizeForAspectRatio(value: string): string {
+	const match = RATIO_PATTERN.exec(value.trim());
+	if (match) {
+		const width = Number(match[1]);
+		const height = Number(match[2]);
+		if (width > 0 && height > 0) {
+			const divisor = greatestCommonDivisor(width, height);
+			const size = NAN_ASPECT_RATIO_SIZES[`${width / divisor}:${height / divisor}`];
+			if (size) return size;
+		}
+	}
+	throw new Error(
+		`NaN image models take no aspect ratio; supported aspectRatio values are ${Object.keys(
+			NAN_ASPECT_RATIO_SIZES,
+		).join(", ")} (got "${value}")`,
+	);
+}
+
+/**
+ * Pick the outgoing `size` field: `options.size` > `options.aspectRatio` >
+ * `metadata.size` (the extension-side escape hatch that predates pi 1.7).
+ */
+export function resolveNanImageSize(requestOptions?: {
+	size?: unknown;
+	aspectRatio?: unknown;
+	metadata?: unknown;
+}): string | undefined {
+	const canonicalSize = requestOptions?.size;
+	if (typeof canonicalSize === "string" && canonicalSize.trim().length > 0) {
+		return validateNanImageSize(canonicalSize);
+	}
+	const aspectRatio = requestOptions?.aspectRatio;
+	if (typeof aspectRatio === "string" && aspectRatio.trim().length > 0) {
+		return nanImageSizeForAspectRatio(aspectRatio);
+	}
+	const metadata = requestOptions?.metadata;
+	if (metadata && typeof metadata === "object") {
+		const metadataSize = (metadata as { size?: unknown }).size;
+		if (typeof metadataSize === "string" && metadataSize.trim().length > 0) {
+			return validateNanImageSize(metadataSize);
+		}
+	}
+	return undefined;
+}
+
 // ── API implementation ─────────────────────────────────────────────────────
 
 /** Injectable options for createNanImagesApi (fetchImpl is for tests). */
@@ -232,16 +345,19 @@ export function createNanImagesApi(
 				}
 				headers.Authorization = "Bearer " + apiKey;
 
-				// ── Optional metadata passthrough ───────────────────────
-				// n, size, seed and guidance are NaN extensions accepted on
-				// both endpoints; pass them through only with the right type.
+				// ── Optional fields ─────────────────────────────────────
+				// n, seed and guidance are NaN extensions accepted on both
+				// endpoints; pass them through only with the right type. `size`
+				// is resolved from pi's canonical options first (validated
+				// against NaN's envelope) and from metadata.size last.
 				const metadata = (requestOptions?.metadata ?? {}) as Record<
 					string,
 					unknown
 				>;
 				const optionalFields: Record<string, string | number> = {};
+				const size = resolveNanImageSize(requestOptions);
+				if (size !== undefined) optionalFields.size = size;
 				if (typeof metadata.n === "number") optionalFields.n = metadata.n;
-				if (typeof metadata.size === "string") optionalFields.size = metadata.size;
 				if (typeof metadata.seed === "number") optionalFields.seed = metadata.seed;
 				if (typeof metadata.guidance === "number") {
 					optionalFields.guidance = metadata.guidance;
