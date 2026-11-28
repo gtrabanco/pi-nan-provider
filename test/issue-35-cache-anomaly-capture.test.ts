@@ -470,3 +470,31 @@ describe("issue #35 — pi 1.7 reports each attempt, so the terminal response ow
 		expect(statuses).toEqual([429, 503, 200]);
 	});
 });
+
+describe("issue #35 — pi 1.7 failed attempts", () => {
+	test("an attempt with no headers does not clear the ray; a last attempt without one does", async () => {
+		const { sink, records } = memorySink();
+		const api = withCacheAnomalyCapture(
+			scriptedApi([
+				{
+					id: "chatcmpl-bare",
+					created: 11,
+					cfRay: "8a1b2c3d-Bare",
+					// 1.7 calls onResponse for the 429 too, and that attempt carries no
+					// headers: assignment keeps the last non-null ray, so the 429 can
+					// never label the run.
+					failedAttempts: [{ status: 429, cfRay: "8a1b2c3d-429" }, { status: 429 }],
+				},
+				{ id: "chatcmpl-bare", created: 11, cfRay: undefined },
+			]),
+			{ sink, now: () => NOW },
+		);
+
+		await runAll(api, 2);
+
+		// Request 1 keeps its own (terminal) ray; request 2's terminal response had
+		// none, so the join is null — a null join beats the retried 429's ray.
+		expect(records).toHaveLength(1);
+		expect(records[0]!.requests.map((r) => r.cf_ray)).toEqual(["8a1b2c3d-Bare", null]);
+	});
+});

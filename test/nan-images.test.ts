@@ -689,7 +689,7 @@ describe("createNanImagesApi — pi 1.7 ImagesOptions size/aspectRatio", () => {
 	});
 
 	test("a size outside NaN's grid fails locally and names the rule", async () => {
-		for (const size of ["1000x1000", "128x128", "1600x1024", "1024x3072"]) {
+		for (const size of ["1000x1000", "768x772", "1601x1024"]) {
 			const gw = createJsonGateway({ data: [{ b64_json: PNG_B64 }] });
 			const api = createNanImagesApi({ fetchImpl: gw.fetchImpl });
 			const result = await api.generateImages(flux(), buildContext(["a red fox"]), {
@@ -700,6 +700,43 @@ describe("createNanImagesApi — pi 1.7 ImagesOptions size/aspectRatio", () => {
 			expect(result.errorMessage).toContain("divisible by 16");
 			expect(gw.lastUrl()).toBe("");
 		}
+	});
+
+	test("a side off the 16 grid in range is rejected, a multiple of 16 is on it: 1024x1008 (63 × 16)", async () => {
+		const gw = createJsonGateway({ data: [{ b64_json: PNG_B64 }] });
+		const api = createNanImagesApi({ fetchImpl: gw.fetchImpl });
+		const result = await api.generateImages(flux(), buildContext(["a red fox"]), {
+			apiKey: "sk-test",
+			size: "1024x1008",
+		} as never);
+		expect(result.stopReason).toBe("stop");
+		expect((JSON.parse(gw.lastInit()!.body as string) as Json).size).toBe("1024x1008");
+	});
+
+	test("a side below 256 fails locally naming the range, not the grid", async () => {
+		const gw = createJsonGateway({ data: [{ b64_json: PNG_B64 }] });
+		const api = createNanImagesApi({ fetchImpl: gw.fetchImpl });
+		const result = await api.generateImages(flux(), buildContext(["a red fox"]), {
+			apiKey: "sk-test",
+			size: "128x128",
+		} as never);
+		expect(result.stopReason).toBe("error");
+		expect(result.errorMessage).toContain("between 256 and 1536");
+		expect(result.errorMessage).not.toContain("divisible by 16");
+		expect(gw.lastUrl()).toBe("");
+	});
+
+	test("a side above 1536 fails locally naming the range, not the grid", async () => {
+		const gw = createJsonGateway({ data: [{ b64_json: PNG_B64 }] });
+		const api = createNanImagesApi({ fetchImpl: gw.fetchImpl });
+		const result = await api.generateImages(flux(), buildContext(["a red fox"]), {
+			apiKey: "sk-test",
+			size: "1600x1024",
+		} as never);
+		expect(result.stopReason).toBe("error");
+		expect(result.errorMessage).toContain("between 256 and 1536");
+		expect(result.errorMessage).not.toContain("divisible by 16");
+		expect(gw.lastUrl()).toBe("");
 	});
 
 	test("an unsupported aspectRatio fails locally and lists the supported ones", async () => {

@@ -192,9 +192,16 @@ export function validateNanImageSize(value: string): string {
 	const width = Number(match[1]);
 	const height = Number(match[2]);
 	const sides = [width, height];
-	if (sides.some((side) => side % 16 !== 0 || side < 256 || side > 1536)) {
+	// "divisible by 16" is a grid, not a multiple test: 1024x1008 (1008 = 63 × 16)
+	// sits on NaN's grid, so the rule below names it instead of rejecting it.
+	if (sides.some((side) => !Number.isInteger(side / 16))) {
 		throw new Error(
-			`NaN image models require each side of size to be divisible by 16 and between 256 and 1536, got "${value}"`,
+			`NaN image models require each side of size to be divisible by 16, got "${value}"`,
+		);
+	}
+	if (sides.some((side) => side < 256 || side > 1536)) {
+		throw new Error(
+			`NaN image models require each side of size to be between 256 and 1536, got "${value}"`,
 		);
 	}
 	if (width / height < 1 / 3 || width / height > 3) {

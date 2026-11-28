@@ -203,3 +203,81 @@ describe("pi-ai 1.7.0 contract — legacy thinking signatures still replay", () 
 		expect((thinking as { thinkingSignature?: string }).thinkingSignature).toBe("reasoning_content");
 	});
 });
+
+describe("pi-ai 1.7.0 contract — the 1.6.0 wire pins survive the realign", () => {
+	test("the catalog still pins supportsDeveloperRole false, so system stays the instruction role", async () => {
+		for (const id of NAN_GENERATED_MODELS.map((e) => e.id)) {
+			expect(modelFor(id).compat?.supportsDeveloperRole).toBe(false);
+		}
+		let body: Json = {};
+		const fetchImpl = (async (_url: unknown, init?: RequestInit) => {
+			body = JSON.parse(init!.body as string) as Json;
+			return streamResponse(sseBody([{ role: "assistant", content: "ok" }]));
+		}) as unknown as typeof fetch;
+		const provider = await createNanCompatibleProvider(NAN_PROVIDER);
+		const stream = provider.stream(
+			modelFor("qwen3.6"),
+			normalizeContext({
+				systemPrompt: "You are a NaN helper",
+				messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }] as never,
+			}),
+			{ apiKey: "sk-test", fetch: fetchImpl },
+		);
+		for await (const _event of stream) {
+			// consume
+		}
+		const messages = body.messages as Array<{ role: string; content: unknown }>;
+		expect(messages[0]?.role).toBe("system");
+		expect(messages.some((message) => message.role === "developer")).toBe(false);
+	});
+
+	test("no request carries a strict tool schema (supportsStrictMode stays false)", async () => {
+		let body: Json = {};
+		const fetchImpl = (async (_url: unknown, init?: RequestInit) => {
+			body = JSON.parse(init!.body as string) as Json;
+			return streamResponse(sseBody([{ role: "assistant", content: "ok" }]));
+		}) as unknown as typeof fetch;
+		const provider = await createNanCompatibleProvider(NAN_PROVIDER);
+		const stream = provider.stream(
+			modelFor("qwen3.6"),
+			normalizeContext({
+				messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }] as never,
+				tools: [
+					{
+						name: "mcp__nan_media__list_models",
+						description: "list models",
+						parameters: {
+							type: "object",
+							properties: { filter: { type: "string" } },
+						},
+					},
+				] as never,
+			}),
+			{ apiKey: "sk-test", fetch: fetchImpl },
+		);
+		for await (const _event of stream) {
+			// consume
+		}
+		const tools = body.tools as Array<Record<string, Json>>;
+		expect(tools).toHaveLength(1);
+		expect(tools[0]!.function).not.toHaveProperty("strict");
+	});
+});
+
+describe("pi-ai 1.7.0 contract — an absent maxTokens sends no budget field at all", () => {
+	test("the provider stream never fills in model.maxTokens", async () => {
+		const model = modelFor("kimi-k3.1-pro");
+		let body: Json = {};
+		const fetchImpl = (async (_url: unknown, init?: RequestInit) => {
+			body = JSON.parse(init!.body as string) as Json;
+			return streamResponse(sseBody([{ role: "assistant", content: "ok" }]));
+		}) as unknown as typeof fetch;
+		await runTurn(model, { fetch: fetchImpl });
+		// `buildParams` only emits a budget when `options.maxTokens` is set, and the
+		// openai-completions path does not run `buildBaseOptions`, so a catalog
+		// ceiling (1,048,576 for kimi-k3.1-pro) rides along only when pi passes it.
+		expect(model.maxTokens).toBe(1_048_576);
+		expect(body).not.toHaveProperty("max_tokens");
+		expect(body).not.toHaveProperty("max_completion_tokens");
+	});
+});
