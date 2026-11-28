@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-11-28
+
+Verified baseline: pi 1.7.0 / pi-ai 1.7.0 (peer range unchanged, `^1.4.0`).
+
+### Added
+
+- **Native image models accept pi 1.7's canonical size options.**
+  `models.generateImages(painter, context, { size: "1536x1024" })` and
+  `{ aspectRatio: "16:9" }` now reach NaN instead of being silently dropped by
+  the provider. `size` is validated against NaN's published envelope
+  (`WIDTHxHEIGHT`, each side divisible by 16 and 256–1536, ratio 1:3–3:1;
+  `auto` passes through) and the supported ratios map to the largest exact
+  canvas (`1:1`, `16:9`, `9:16`, `4:3`, `3:4`, `3:2`, `2:3`). Precedence is
+  `size` > `aspectRatio` > `metadata.size`, so the extension-side escape hatch
+  keeps working. An unusable value now fails locally with the rule it broke,
+  instead of spending one of the 100 monthly image requests on a guaranteed
+  400.
+- **`NAN_NO_ATTRIBUTION`** turns the `X-Pi-Provider` header off (`1`, `true`,
+  `yes` or `on`).
+
+### Changed
+
+- **The attribution gate follows a setting pi no longer has.** pi 1.7 removed
+  telemetry entirely — `enableInstallTelemetry`, `PI_TELEMETRY` and the install
+  report — and its client identity is now sent unconditionally, so the old gate
+  silently became a permanent "enabled" on 1.7. The package now owns the switch
+  (`NAN_NO_ATTRIBUTION`) and still honors `enableInstallTelemetry: false` on
+  pi 1.4–1.6 hosts, so an existing opt-out is never reversed.
+- **devDependencies realigned** to `@earendil-works/pi-ai` / `pi-coding-agent`
+  1.7.0; the consumed type surface is unchanged (`compat.d.ts` and
+  `api/openai-completions.d.ts` byte-identical to 1.6.0).
+- **`/nan-debug` and cache-anomaly notes reflect pi-ai 1.7's hook contract:**
+  `onResponse` now fires once per attempt, error responses included. The
+  `cf-ray` join was already last-wins and is now pinned by a test; the HTTP
+  attempt tap stays, since the hook still carries no per-attempt timing,
+  attempt number or payload size.
+
 ## [1.6.4] - 2026-11-26
 
 ### Fixed
